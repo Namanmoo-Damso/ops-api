@@ -119,7 +119,10 @@ export class DeviceRepository {
     return devices.map(toDeviceRow);
   }
 
-  async listAllByIdentity(params: { identity: string; env?: string }): Promise<DeviceRow[]> {
+  async listAllByIdentity(params: {
+    identity: string;
+    env?: string;
+  }): Promise<DeviceRow[]> {
     const devices = await this.prisma.device.findMany({
       where: {
         user: { identity: params.identity },
@@ -155,7 +158,10 @@ export class DeviceRepository {
     return { ...toUserRow(device.user), device_id: device.id };
   }
 
-  async list(params: { tokenType: 'apns' | 'voip'; env?: string }): Promise<DeviceRow[]> {
+  async list(params: {
+    tokenType: 'apns' | 'voip';
+    env?: string;
+  }): Promise<DeviceRow[]> {
     const env = params.env ?? 'production';
     const tokenFilter =
       params.tokenType === 'voip'
@@ -171,7 +177,10 @@ export class DeviceRepository {
     return devices.map(toDeviceRow);
   }
 
-  async invalidateToken(tokenType: 'apns' | 'voip', token: string): Promise<void> {
+  async invalidateToken(
+    tokenType: 'apns' | 'voip',
+    token: string,
+  ): Promise<void> {
     if (tokenType === 'voip') {
       await this.prisma.device.updateMany({
         where: { voipToken: token },

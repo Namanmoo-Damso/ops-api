@@ -20,7 +20,13 @@ import {
 } from './repositories';
 
 // Re-export types for backward compatibility
-export type { UserRow, GuardianRow, WardRow, DeviceRow, RoomMemberRow } from './types';
+export type {
+  UserRow,
+  GuardianRow,
+  WardRow,
+  DeviceRow,
+  RoomMemberRow,
+} from './types';
 
 @Injectable()
 export class DbService implements OnModuleDestroy {
@@ -72,10 +78,14 @@ export class DbService implements OnModuleDestroy {
   }
 
   async deleteUser(userId: string) {
-    return this.users.delete(userId, (uid) => this.guardians.findByUserId(uid));
+    return this.users.delete(userId, uid => this.guardians.findByUserId(uid));
   }
 
-  async saveRefreshToken(params: { userId: string; tokenHash: string; expiresAt: Date }) {
+  async saveRefreshToken(params: {
+    userId: string;
+    tokenHash: string;
+    expiresAt: Date;
+  }) {
     return this.users.saveRefreshToken(params);
   }
 
@@ -107,7 +117,11 @@ export class DbService implements OnModuleDestroy {
     return this.devices.upsert(user, params);
   }
 
-  async listDevicesByIdentity(params: { identity: string; env?: string; tokenType?: 'apns' | 'voip' }) {
+  async listDevicesByIdentity(params: {
+    identity: string;
+    env?: string;
+    tokenType?: 'apns' | 'voip';
+  }) {
     return this.devices.listByIdentity(params);
   }
 
@@ -115,7 +129,11 @@ export class DbService implements OnModuleDestroy {
     return this.devices.listAllByIdentity(params);
   }
 
-  async findUserByDeviceToken(params: { tokenType: 'apns' | 'voip'; token: string; env?: string }) {
+  async findUserByDeviceToken(params: {
+    tokenType: 'apns' | 'voip';
+    token: string;
+    env?: string;
+  }) {
     return this.devices.findUserByToken(params);
   }
 
@@ -142,7 +160,11 @@ export class DbService implements OnModuleDestroy {
     return this.rooms.createIfMissing(roomName);
   }
 
-  async upsertRoomMember(params: { roomName: string; userId: string; role: string }) {
+  async upsertRoomMember(params: {
+    roomName: string;
+    userId: string;
+    role: string;
+  }) {
     return this.rooms.upsertMember(params);
   }
 
@@ -153,7 +175,11 @@ export class DbService implements OnModuleDestroy {
   // ============================================================
   // Call methods
   // ============================================================
-  async findRingingCall(calleeIdentity: string, roomName: string, seconds: number) {
+  async findRingingCall(
+    calleeIdentity: string,
+    roomName: string,
+    seconds: number,
+  ) {
     return this.calls.findRinging(calleeIdentity, roomName, seconds);
   }
 
@@ -214,7 +240,11 @@ export class DbService implements OnModuleDestroy {
   // ============================================================
   // Guardian methods
   // ============================================================
-  async createGuardian(params: { userId: string; wardEmail: string; wardPhoneNumber: string }) {
+  async createGuardian(params: {
+    userId: string;
+    wardEmail: string;
+    wardPhoneNumber: string;
+  }) {
     return this.guardians.create(params);
   }
 
@@ -234,7 +264,11 @@ export class DbService implements OnModuleDestroy {
     return this.guardians.getWards(guardianId);
   }
 
-  async createGuardianWardRegistration(params: { guardianId: string; wardEmail: string; wardPhoneNumber: string }) {
+  async createGuardianWardRegistration(params: {
+    guardianId: string;
+    wardEmail: string;
+    wardPhoneNumber: string;
+  }) {
     return this.guardians.createWardRegistration(params);
   }
 
@@ -242,7 +276,12 @@ export class DbService implements OnModuleDestroy {
     return this.guardians.findWardRegistration(id, guardianId);
   }
 
-  async updateGuardianWardRegistration(params: { id: string; guardianId: string; wardEmail: string; wardPhoneNumber: string }) {
+  async updateGuardianWardRegistration(params: {
+    id: string;
+    guardianId: string;
+    wardEmail: string;
+    wardPhoneNumber: string;
+  }) {
     return this.guardians.updateWardRegistration(params);
   }
 
@@ -250,7 +289,11 @@ export class DbService implements OnModuleDestroy {
     return this.guardians.deleteWardRegistration(id, guardianId);
   }
 
-  async updateGuardianPrimaryWard(params: { guardianId: string; wardEmail: string; wardPhoneNumber: string }) {
+  async updateGuardianPrimaryWard(params: {
+    guardianId: string;
+    wardEmail: string;
+    wardPhoneNumber: string;
+  }) {
     return this.guardians.updatePrimaryWard(params);
   }
 
@@ -262,7 +305,12 @@ export class DbService implements OnModuleDestroy {
     return this.guardians.getHealthAlerts(guardianId, limit);
   }
 
-  async createHealthAlert(params: { wardId: string; guardianId: string; alertType: 'warning' | 'info'; message: string }) {
+  async createHealthAlert(params: {
+    wardId: string;
+    guardianId: string;
+    alertType: 'warning' | 'info';
+    message: string;
+  }) {
     return this.guardians.createHealthAlert(params);
   }
 
@@ -286,7 +334,11 @@ export class DbService implements OnModuleDestroy {
   // ============================================================
   // Ward methods
   // ============================================================
-  async createWard(params: { userId: string; phoneNumber: string; guardianId: string | null }) {
+  async createWard(params: {
+    userId: string;
+    phoneNumber: string;
+    guardianId: string | null;
+  }) {
     return this.wards.create(params);
   }
 
@@ -326,7 +378,12 @@ export class DbService implements OnModuleDestroy {
     return this.wards.getTopTopics(wardId, days, limit);
   }
 
-  async updateWardSettings(params: { wardId: string; aiPersona?: string; weeklyCallCount?: number; callDurationMinutes?: number }) {
+  async updateWardSettings(params: {
+    wardId: string;
+    aiPersona?: string;
+    weeklyCallCount?: number;
+    callDurationMinutes?: number;
+  }) {
     return this.wards.updateSettings(params);
   }
 
@@ -363,7 +420,11 @@ export class DbService implements OnModuleDestroy {
     return this.wards.getMyManagedWardsStats(adminId);
   }
 
-  async getUpcomingCallSchedules(dayOfWeek: number, startTime: string, endTime: string) {
+  async getUpcomingCallSchedules(
+    dayOfWeek: number,
+    startTime: string,
+    endTime: string,
+  ) {
     return this.wards.getUpcomingCallSchedules(dayOfWeek, startTime, endTime);
   }
 
@@ -405,7 +466,11 @@ export class DbService implements OnModuleDestroy {
     return this.admins.getPermissions(adminId);
   }
 
-  async createAdminRefreshToken(adminId: string, tokenHash: string, expiresAt: Date) {
+  async createAdminRefreshToken(
+    adminId: string,
+    tokenHash: string,
+    expiresAt: Date,
+  ) {
     return this.admins.createRefreshToken(adminId, tokenHash, expiresAt);
   }
 
@@ -425,7 +490,11 @@ export class DbService implements OnModuleDestroy {
     return this.admins.getAll();
   }
 
-  async updateAdminRole(adminId: string, role: string, organizationId?: string) {
+  async updateAdminRole(
+    adminId: string,
+    role: string,
+    organizationId?: string,
+  ) {
     return this.admins.updateRole(adminId, role, organizationId);
   }
 
@@ -466,8 +535,18 @@ export class DbService implements OnModuleDestroy {
     return this.emergencies.updateGuardianNotified(emergencyId);
   }
 
-  async findNearbyAgencies(latitude: number, longitude: number, radiusKm: number = 5, limit: number = 5) {
-    return this.emergencies.findNearbyAgencies(latitude, longitude, radiusKm, limit);
+  async findNearbyAgencies(
+    latitude: number,
+    longitude: number,
+    radiusKm: number = 5,
+    limit: number = 5,
+  ) {
+    return this.emergencies.findNearbyAgencies(
+      latitude,
+      longitude,
+      radiusKm,
+      limit,
+    );
   }
 
   async createEmergencyContact(params: {
@@ -483,7 +562,11 @@ export class DbService implements OnModuleDestroy {
     return this.emergencies.getById(emergencyId);
   }
 
-  async getEmergencies(params: { status?: 'active' | 'resolved' | 'false_alarm'; wardId?: string; limit?: number }) {
+  async getEmergencies(params: {
+    status?: 'active' | 'resolved' | 'false_alarm';
+    wardId?: string;
+    limit?: number;
+  }) {
     return this.emergencies.getList(params);
   }
 
@@ -527,7 +610,12 @@ export class DbService implements OnModuleDestroy {
     return this.locations.getAllCurrentLocations(organizationId);
   }
 
-  async getWardLocationHistory(params: { wardId: string; from?: Date; to?: Date; limit?: number }) {
+  async getWardLocationHistory(params: {
+    wardId: string;
+    from?: Date;
+    to?: Date;
+    limit?: number;
+  }) {
     return this.locations.getHistory(params);
   }
 
@@ -535,7 +623,10 @@ export class DbService implements OnModuleDestroy {
     return this.locations.getCurrentLocation(wardId);
   }
 
-  async updateWardLocationStatus(wardId: string, status: 'normal' | 'warning' | 'emergency') {
+  async updateWardLocationStatus(
+    wardId: string,
+    status: 'normal' | 'warning' | 'emergency',
+  ) {
     return this.locations.updateStatus(wardId, status);
   }
 

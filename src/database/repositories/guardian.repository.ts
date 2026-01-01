@@ -5,7 +5,10 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../../prisma';
 import { GuardianRow, GuardianWardRegistrationRow } from '../types';
-import { toGuardianRow, toGuardianWardRegistrationRow } from '../prisma-mappers';
+import {
+  toGuardianRow,
+  toGuardianWardRegistrationRow,
+} from '../prisma-mappers';
 
 @Injectable()
 export class GuardianRepository {
@@ -33,9 +36,13 @@ export class GuardianRepository {
     return guardian ? toGuardianRow(guardian) : undefined;
   }
 
-  async findById(
-    guardianId: string,
-  ): Promise<(GuardianRow & { user_nickname: string | null; user_profile_image_url: string | null }) | undefined> {
+  async findById(guardianId: string): Promise<
+    | (GuardianRow & {
+        user_nickname: string | null;
+        user_profile_image_url: string | null;
+      })
+    | undefined
+  > {
     const guardian = await this.prisma.guardian.findUnique({
       where: { id: guardianId },
       include: {
@@ -181,11 +188,16 @@ export class GuardianRepository {
     return toGuardianWardRegistrationRow(registration);
   }
 
-  async findWardRegistration(id: string, guardianId: string): Promise<GuardianWardRegistrationRow | undefined> {
+  async findWardRegistration(
+    id: string,
+    guardianId: string,
+  ): Promise<GuardianWardRegistrationRow | undefined> {
     const registration = await this.prisma.guardianWardRegistration.findFirst({
       where: { id, guardianId },
     });
-    return registration ? toGuardianWardRegistrationRow(registration) : undefined;
+    return registration
+      ? toGuardianWardRegistrationRow(registration)
+      : undefined;
   }
 
   async updateWardRegistration(params: {
@@ -212,7 +224,10 @@ export class GuardianRepository {
     }
   }
 
-  async deleteWardRegistration(id: string, guardianId: string): Promise<boolean> {
+  async deleteWardRegistration(
+    id: string,
+    guardianId: string,
+  ): Promise<boolean> {
     // First unlink the ward
     const registration = await this.prisma.guardianWardRegistration.findFirst({
       where: { id, guardianId },
@@ -265,7 +280,7 @@ export class GuardianRepository {
       orderBy: { createdAt: 'desc' },
       take: limit,
     });
-    return alerts.map((alert) => ({
+    return alerts.map(alert => ({
       id: alert.id,
       type: alert.alertType,
       message: alert.message,

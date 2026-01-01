@@ -50,7 +50,10 @@ export class CallRepository {
     return toCallRow(call);
   }
 
-  async updateState(callId: string, state: 'answered' | 'ended'): Promise<CallRow | null> {
+  async updateState(
+    callId: string,
+    state: 'answered' | 'ended',
+  ): Promise<CallRow | null> {
     const data: Prisma.CallUpdateInput =
       state === 'answered'
         ? { state, answeredAt: new Date() }
@@ -78,10 +81,12 @@ export class CallRepository {
       take: limit,
     });
 
-    return summaries.map((s) => {
+    return summaries.map(s => {
       const duration =
         s.call.answeredAt && s.call.endedAt
-          ? Math.round((s.call.endedAt.getTime() - s.call.answeredAt.getTime()) / 60000)
+          ? Math.round(
+              (s.call.endedAt.getTime() - s.call.answeredAt.getTime()) / 60000,
+            )
           : 0;
       return {
         id: s.id,
@@ -264,7 +269,7 @@ export class CallRepository {
       select: { healthKeywords: true },
     });
 
-    return summaries.filter((s) => {
+    return summaries.filter(s => {
       const keywords = s.healthKeywords as Record<string, unknown> | null;
       return keywords && typeof keywords.pain === 'number' && keywords.pain > 0;
     }).length;

@@ -38,15 +38,18 @@ export class GuardiansService {
       };
     }
 
-    this.logger.log(`getDashboard guardianId=${guardian.id} wardId=${linkedWard.id}`);
+    this.logger.log(
+      `getDashboard guardianId=${guardian.id} wardId=${linkedWard.id}`,
+    );
 
-    const [stats, weeklyChange, moodStats, alerts, recentCalls] = await Promise.all([
-      this.dbService.getWardCallStats(linkedWard.id),
-      this.dbService.getWardWeeklyCallChange(linkedWard.id),
-      this.dbService.getWardMoodStats(linkedWard.id),
-      this.dbService.getHealthAlerts(guardian.id, 5),
-      this.dbService.getRecentCallSummaries(linkedWard.id, 5),
-    ]);
+    const [stats, weeklyChange, moodStats, alerts, recentCalls] =
+      await Promise.all([
+        this.dbService.getWardCallStats(linkedWard.id),
+        this.dbService.getWardWeeklyCallChange(linkedWard.id),
+        this.dbService.getWardMoodStats(linkedWard.id),
+        this.dbService.getHealthAlerts(guardian.id, 5),
+        this.dbService.getRecentCallSummaries(linkedWard.id, 5),
+      ]);
 
     return {
       statistics: {
@@ -76,29 +79,37 @@ export class GuardiansService {
       };
     }
 
-    this.logger.log(`getReport guardianId=${guardian.id} wardId=${linkedWard.id} period=${period}`);
+    this.logger.log(
+      `getReport guardianId=${guardian.id} wardId=${linkedWard.id} period=${period}`,
+    );
 
-    const [emotionTrend, healthKeywords, topTopics, summaries] = await Promise.all([
-      this.dbService.getEmotionTrend(linkedWard.id, days),
-      this.dbService.getHealthKeywordStats(linkedWard.id, days),
-      this.dbService.getTopTopics(linkedWard.id, days, 5),
-      this.dbService.getCallSummariesForReport(linkedWard.id, days),
-    ]);
+    const [emotionTrend, healthKeywords, topTopics, summaries] =
+      await Promise.all([
+        this.dbService.getEmotionTrend(linkedWard.id, days),
+        this.dbService.getHealthKeywordStats(linkedWard.id, days),
+        this.dbService.getTopTopics(linkedWard.id, days, 5),
+        this.dbService.getCallSummariesForReport(linkedWard.id, days),
+      ]);
 
     const summaryTexts = summaries
-      .filter((s) => s.summary)
-      .map((s) => s.summary)
+      .filter(s => s.summary)
+      .map(s => s.summary)
       .slice(0, 3);
-    const weeklySummary = summaryTexts.length > 0
-      ? `최근 ${days}일간 ${summaries.length}건의 대화가 있었습니다. ${summaryTexts.join(' ')}`
-      : `최근 ${days}일간 대화 기록이 없습니다.`;
+    const weeklySummary =
+      summaryTexts.length > 0
+        ? `최근 ${days}일간 ${summaries.length}건의 대화가 있었습니다. ${summaryTexts.join(' ')}`
+        : `최근 ${days}일간 대화 기록이 없습니다.`;
 
     const recommendations: string[] = [];
     if (healthKeywords.pain.count > 0) {
-      recommendations.push('통증 관련 언급이 있었습니다. 건강 상태를 확인해보세요.');
+      recommendations.push(
+        '통증 관련 언급이 있었습니다. 건강 상태를 확인해보세요.',
+      );
     }
-    if (emotionTrend.some((e) => e.mood === 'negative')) {
-      recommendations.push('부정적인 감정이 감지되었습니다. 대화를 나눠보세요.');
+    if (emotionTrend.some(e => e.mood === 'negative')) {
+      recommendations.push(
+        '부정적인 감정이 감지되었습니다. 대화를 나눠보세요.',
+      );
     }
     if (summaries.length < 3) {
       recommendations.push('대화 빈도가 적습니다. 정기적인 통화를 권장합니다.');
@@ -121,7 +132,7 @@ export class GuardiansService {
     const wards = await this.dbService.getGuardianWards(guardian.id);
 
     return {
-      wards: wards.map((w) => ({
+      wards: wards.map(w => ({
         id: w.id,
         email: w.ward_email,
         phoneNumber: w.ward_phone_number,
@@ -152,12 +163,23 @@ export class GuardiansService {
     };
   }
 
-  async updateWard(userId: string, wardId: string, wardEmail: string, wardPhoneNumber: string) {
+  async updateWard(
+    userId: string,
+    wardId: string,
+    wardEmail: string,
+    wardPhoneNumber: string,
+  ) {
     const { guardian } = await this.verifyGuardianAccess(userId);
 
-    const registration = await this.dbService.findGuardianWardRegistration(wardId, guardian.id);
+    const registration = await this.dbService.findGuardianWardRegistration(
+      wardId,
+      guardian.id,
+    );
     if (!registration) {
-      throw new HttpException('Ward registration not found', HttpStatus.NOT_FOUND);
+      throw new HttpException(
+        'Ward registration not found',
+        HttpStatus.NOT_FOUND,
+      );
     }
 
     this.logger.log(`updateWard registrationId=${wardId}`);
@@ -169,7 +191,10 @@ export class GuardiansService {
     });
 
     if (!updated) {
-      throw new HttpException('Failed to update ward registration', HttpStatus.INTERNAL_SERVER_ERROR);
+      throw new HttpException(
+        'Failed to update ward registration',
+        HttpStatus.INTERNAL_SERVER_ERROR,
+      );
     }
 
     return {
@@ -198,9 +223,15 @@ export class GuardiansService {
 
     // 추가 등록 삭제 (deleteGuardianWardRegistration 내부에서 ward 연결 해제 처리)
     this.logger.log(`deleteWard registrationId=${wardId}`);
-    const deleted = await this.dbService.deleteGuardianWardRegistration(wardId, guardian.id);
+    const deleted = await this.dbService.deleteGuardianWardRegistration(
+      wardId,
+      guardian.id,
+    );
     if (!deleted) {
-      throw new HttpException('Ward registration not found', HttpStatus.NOT_FOUND);
+      throw new HttpException(
+        'Ward registration not found',
+        HttpStatus.NOT_FOUND,
+      );
     }
   }
 

@@ -34,7 +34,9 @@ export class EmergencyRepository {
         wardId: params.wardId,
         type: params.type,
         latitude: params.latitude ? new Prisma.Decimal(params.latitude) : null,
-        longitude: params.longitude ? new Prisma.Decimal(params.longitude) : null,
+        longitude: params.longitude
+          ? new Prisma.Decimal(params.longitude)
+          : null,
         message: params.message ?? null,
       },
     });
@@ -58,7 +60,12 @@ export class EmergencyRepository {
     });
   }
 
-  async findNearbyAgencies(latitude: number, longitude: number, radiusKm: number = 5, limit: number = 5) {
+  async findNearbyAgencies(
+    latitude: number,
+    longitude: number,
+    radiusKm: number = 5,
+    limit: number = 5,
+  ) {
     // Use raw query for haversine formula
     const result = await this.prisma.$queryRaw<
       Array<{
@@ -94,7 +101,7 @@ export class EmergencyRepository {
       LIMIT ${limit}
     `;
 
-    return result.map((r) => ({
+    return result.map(r => ({
       id: r.id,
       name: r.name,
       type: r.type,
@@ -163,7 +170,11 @@ export class EmergencyRepository {
     };
   }
 
-  async getList(params: { status?: 'active' | 'resolved' | 'false_alarm'; wardId?: string; limit?: number }) {
+  async getList(params: {
+    status?: 'active' | 'resolved' | 'false_alarm';
+    wardId?: string;
+    limit?: number;
+  }) {
     const where: Prisma.EmergencyWhereInput = {};
     if (params.status) where.status = params.status;
     if (params.wardId) where.wardId = params.wardId;
@@ -181,7 +192,7 @@ export class EmergencyRepository {
       take: params.limit || 50,
     });
 
-    return emergencies.map((e) => ({
+    return emergencies.map(e => ({
       id: e.id,
       ward_id: e.wardId,
       type: e.type,
@@ -205,7 +216,7 @@ export class EmergencyRepository {
       orderBy: { distanceKm: 'asc' },
     });
 
-    return contacts.map((c) => ({
+    return contacts.map(c => ({
       id: c.id,
       agency_id: c.agencyId,
       agency_name: c.agency?.name ?? '',

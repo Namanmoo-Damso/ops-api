@@ -13,15 +13,7 @@ import { AuthService } from '../auth';
  */
 @Global()
 @Module({
-  providers: [
-    JwtAuthGuard,
-    AdminAuthGuard,
-    AuthService,
-  ],
-  exports: [
-    JwtAuthGuard,
-    AdminAuthGuard,
-    AuthService,
-  ],
+  providers: [JwtAuthGuard, AdminAuthGuard, AuthService],
+  exports: [JwtAuthGuard, AdminAuthGuard, AuthService],
 })
 export class CommonModule {}

@@ -47,7 +47,9 @@ export class WardsManagementController {
     let adminId: string | undefined;
     if (authorization?.startsWith('Bearer ')) {
       try {
-        const tokenPayload = this.authService.verifyAdminAccessToken(authorization.slice(7));
+        const tokenPayload = this.authService.verifyAdminAccessToken(
+          authorization.slice(7),
+        );
         adminId = tokenPayload.sub;
       } catch {
         // Non-admin token, continue without admin ID
@@ -60,12 +62,18 @@ export class WardsManagementController {
 
     const organizationId = body.organizationId?.trim();
     if (!organizationId) {
-      throw new HttpException('organizationId is required', HttpStatus.BAD_REQUEST);
+      throw new HttpException(
+        'organizationId is required',
+        HttpStatus.BAD_REQUEST,
+      );
     }
 
     const maxSize = 5 * 1024 * 1024;
     if (file.size > maxSize) {
-      throw new HttpException('File size exceeds 5MB limit', HttpStatus.BAD_REQUEST);
+      throw new HttpException(
+        'File size exceeds 5MB limit',
+        HttpStatus.BAD_REQUEST,
+      );
     }
 
     const organization = await this.dbService.findOrganization(organizationId);
@@ -73,7 +81,9 @@ export class WardsManagementController {
       throw new HttpException('Organization not found', HttpStatus.NOT_FOUND);
     }
 
-    this.logger.log(`bulkUploadWards organizationId=${organizationId} adminId=${adminId ?? 'none'} fileSize=${file.size}`);
+    this.logger.log(
+      `bulkUploadWards organizationId=${organizationId} adminId=${adminId ?? 'none'} fileSize=${file.size}`,
+    );
 
     try {
       const records = parse(file.buffer, {
@@ -113,7 +123,10 @@ export class WardsManagementController {
             throw new Error('이름 필수');
           }
 
-          const existing = await this.dbService.findOrganizationWard(organizationId, email);
+          const existing = await this.dbService.findOrganizationWard(
+            organizationId,
+            email,
+          );
           if (existing) {
             results.skipped++;
             continue;
@@ -150,8 +163,13 @@ export class WardsManagementController {
         ...results,
       };
     } catch (error) {
-      this.logger.error(`bulkUploadWards failed error=${(error as Error).message}`);
-      throw new HttpException('Failed to process CSV file', HttpStatus.BAD_REQUEST);
+      this.logger.error(
+        `bulkUploadWards failed error=${(error as Error).message}`,
+      );
+      throw new HttpException(
+        'Failed to process CSV file',
+        HttpStatus.BAD_REQUEST,
+      );
     }
   }
 
@@ -163,7 +181,9 @@ export class WardsManagementController {
       throw new HttpException('Unauthorized', HttpStatus.UNAUTHORIZED);
     }
 
-    const tokenPayload = this.authService.verifyAdminAccessToken(authorization.slice(7));
+    const tokenPayload = this.authService.verifyAdminAccessToken(
+      authorization.slice(7),
+    );
     const adminId = tokenPayload.sub;
 
     const [wards, stats] = await Promise.all([
@@ -172,7 +192,7 @@ export class WardsManagementController {
     ]);
 
     return {
-      wards: wards.map((w) => ({
+      wards: wards.map(w => ({
         id: w.id,
         organizationId: w.organization_id,
         organizationName: w.organization_name,

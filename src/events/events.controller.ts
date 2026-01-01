@@ -15,7 +15,7 @@ export class EventsController {
     this.eventsService.incrementSubscribers();
 
     return this.eventsService.subscribe().pipe(
-      tap((event) => {
+      tap(event => {
         this.logger.log(`Sending SSE event: ${event.data}`);
       }),
       finalize(() => {

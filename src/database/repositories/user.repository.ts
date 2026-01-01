@@ -40,7 +40,10 @@ export class UserRepository {
     return user ? toUserRow(user) : undefined;
   }
 
-  async updateType(userId: string, userType: 'guardian' | 'ward'): Promise<void> {
+  async updateType(
+    userId: string,
+    userType: 'guardian' | 'ward',
+  ): Promise<void> {
     await this.prisma.user.update({
       where: { id: userId },
       data: {
@@ -129,7 +132,9 @@ export class UserRepository {
     });
   }
 
-  async findRefreshToken(tokenHash: string): Promise<RefreshTokenRow | undefined> {
+  async findRefreshToken(
+    tokenHash: string,
+  ): Promise<RefreshTokenRow | undefined> {
     const token = await this.prisma.refreshToken.findFirst({
       where: {
         tokenHash,

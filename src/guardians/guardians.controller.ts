@@ -31,19 +31,27 @@ export class GuardiansController {
       : undefined;
 
     if (!token) {
-      throw new HttpException('Access token is required', HttpStatus.UNAUTHORIZED);
+      throw new HttpException(
+        'Access token is required',
+        HttpStatus.UNAUTHORIZED,
+      );
     }
 
     const payload = this.authService.verifyAccessToken(token);
     if (!payload) {
-      throw new HttpException('Invalid or expired access token', HttpStatus.UNAUTHORIZED);
+      throw new HttpException(
+        'Invalid or expired access token',
+        HttpStatus.UNAUTHORIZED,
+      );
     }
 
     return payload;
   }
 
   @Get('dashboard')
-  async getDashboard(@Headers('authorization') authorization: string | undefined) {
+  async getDashboard(
+    @Headers('authorization') authorization: string | undefined,
+  ) {
     const payload = this.verifyAuthHeader(authorization);
 
     try {
@@ -53,7 +61,10 @@ export class GuardiansController {
         throw error;
       }
       this.logger.warn(`getDashboard failed error=${(error as Error).message}`);
-      throw new HttpException('Failed to get dashboard', HttpStatus.INTERNAL_SERVER_ERROR);
+      throw new HttpException(
+        'Failed to get dashboard',
+        HttpStatus.INTERNAL_SERVER_ERROR,
+      );
     }
   }
 
@@ -72,7 +83,10 @@ export class GuardiansController {
         throw error;
       }
       this.logger.warn(`getReport failed error=${(error as Error).message}`);
-      throw new HttpException('Failed to get report', HttpStatus.INTERNAL_SERVER_ERROR);
+      throw new HttpException(
+        'Failed to get report',
+        HttpStatus.INTERNAL_SERVER_ERROR,
+      );
     }
   }
 
@@ -87,7 +101,10 @@ export class GuardiansController {
         throw error;
       }
       this.logger.warn(`getWards failed error=${(error as Error).message}`);
-      throw new HttpException('Failed to get wards', HttpStatus.INTERNAL_SERVER_ERROR);
+      throw new HttpException(
+        'Failed to get wards',
+        HttpStatus.INTERNAL_SERVER_ERROR,
+      );
     }
   }
 
@@ -105,23 +122,36 @@ export class GuardiansController {
       throw new HttpException('wardEmail is required', HttpStatus.BAD_REQUEST);
     }
     if (!wardPhoneNumber) {
-      throw new HttpException('wardPhoneNumber is required', HttpStatus.BAD_REQUEST);
+      throw new HttpException(
+        'wardPhoneNumber is required',
+        HttpStatus.BAD_REQUEST,
+      );
     }
     if (!wardEmail.includes('@')) {
       throw new HttpException('Invalid email format', HttpStatus.BAD_REQUEST);
     }
     if (!/^[\d-]+$/.test(wardPhoneNumber)) {
-      throw new HttpException('Invalid phone number format', HttpStatus.BAD_REQUEST);
+      throw new HttpException(
+        'Invalid phone number format',
+        HttpStatus.BAD_REQUEST,
+      );
     }
 
     try {
-      return await this.guardiansService.addWard(payload.sub, wardEmail, wardPhoneNumber);
+      return await this.guardiansService.addWard(
+        payload.sub,
+        wardEmail,
+        wardPhoneNumber,
+      );
     } catch (error) {
       if ((error as HttpException).getStatus?.()) {
         throw error;
       }
       this.logger.warn(`addWard failed error=${(error as Error).message}`);
-      throw new HttpException('Failed to add ward', HttpStatus.INTERNAL_SERVER_ERROR);
+      throw new HttpException(
+        'Failed to add ward',
+        HttpStatus.INTERNAL_SERVER_ERROR,
+      );
     }
   }
 
@@ -140,23 +170,37 @@ export class GuardiansController {
       throw new HttpException('wardEmail is required', HttpStatus.BAD_REQUEST);
     }
     if (!wardPhoneNumber) {
-      throw new HttpException('wardPhoneNumber is required', HttpStatus.BAD_REQUEST);
+      throw new HttpException(
+        'wardPhoneNumber is required',
+        HttpStatus.BAD_REQUEST,
+      );
     }
     if (!wardEmail.includes('@')) {
       throw new HttpException('Invalid email format', HttpStatus.BAD_REQUEST);
     }
     if (!/^[\d-]+$/.test(wardPhoneNumber)) {
-      throw new HttpException('Invalid phone number format', HttpStatus.BAD_REQUEST);
+      throw new HttpException(
+        'Invalid phone number format',
+        HttpStatus.BAD_REQUEST,
+      );
     }
 
     try {
-      return await this.guardiansService.updateWard(payload.sub, wardId, wardEmail, wardPhoneNumber);
+      return await this.guardiansService.updateWard(
+        payload.sub,
+        wardId,
+        wardEmail,
+        wardPhoneNumber,
+      );
     } catch (error) {
       if ((error as HttpException).getStatus?.()) {
         throw error;
       }
       this.logger.warn(`updateWard failed error=${(error as Error).message}`);
-      throw new HttpException('Failed to update ward', HttpStatus.INTERNAL_SERVER_ERROR);
+      throw new HttpException(
+        'Failed to update ward',
+        HttpStatus.INTERNAL_SERVER_ERROR,
+      );
     }
   }
 
@@ -175,12 +219,17 @@ export class GuardiansController {
         throw error;
       }
       this.logger.warn(`deleteWard failed error=${(error as Error).message}`);
-      throw new HttpException('Failed to delete ward', HttpStatus.INTERNAL_SERVER_ERROR);
+      throw new HttpException(
+        'Failed to delete ward',
+        HttpStatus.INTERNAL_SERVER_ERROR,
+      );
     }
   }
 
   @Get('notification-settings')
-  async getNotificationSettings(@Headers('authorization') authorization: string | undefined) {
+  async getNotificationSettings(
+    @Headers('authorization') authorization: string | undefined,
+  ) {
     const payload = this.verifyAuthHeader(authorization);
 
     try {
@@ -189,15 +238,21 @@ export class GuardiansController {
       if ((error as HttpException).getStatus?.()) {
         throw error;
       }
-      this.logger.warn('getNotificationSettings failed error=' + (error as Error).message);
-      throw new HttpException('Failed to get notification settings', HttpStatus.INTERNAL_SERVER_ERROR);
+      this.logger.warn(
+        'getNotificationSettings failed error=' + (error as Error).message,
+      );
+      throw new HttpException(
+        'Failed to get notification settings',
+        HttpStatus.INTERNAL_SERVER_ERROR,
+      );
     }
   }
 
   @Put('notification-settings')
   async updateNotificationSettings(
     @Headers('authorization') authorization: string | undefined,
-    @Body() body: {
+    @Body()
+    body: {
       callReminder?: boolean;
       callComplete?: boolean;
       healthAlert?: boolean;
@@ -206,17 +261,25 @@ export class GuardiansController {
     const payload = this.verifyAuthHeader(authorization);
 
     try {
-      return await this.guardiansService.updateNotificationSettings(payload.sub, {
-        callReminder: body.callReminder,
-        callComplete: body.callComplete,
-        healthAlert: body.healthAlert,
-      });
+      return await this.guardiansService.updateNotificationSettings(
+        payload.sub,
+        {
+          callReminder: body.callReminder,
+          callComplete: body.callComplete,
+          healthAlert: body.healthAlert,
+        },
+      );
     } catch (error) {
       if ((error as HttpException).getStatus?.()) {
         throw error;
       }
-      this.logger.warn('updateNotificationSettings failed error=' + (error as Error).message);
-      throw new HttpException('Failed to update notification settings', HttpStatus.INTERNAL_SERVER_ERROR);
+      this.logger.warn(
+        'updateNotificationSettings failed error=' + (error as Error).message,
+      );
+      throw new HttpException(
+        'Failed to update notification settings',
+        HttpStatus.INTERNAL_SERVER_ERROR,
+      );
     }
   }
 }

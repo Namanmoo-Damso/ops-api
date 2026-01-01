@@ -25,7 +25,9 @@ export class WardsService {
     const { user, ward } = await this.verifyWardAccess(userId);
     this.logger.log(`getSettings userId=${user.id} wardId=${ward.id}`);
 
-    const notificationSettings = await this.dbService.getNotificationSettings(user.id);
+    const notificationSettings = await this.dbService.getNotificationSettings(
+      user.id,
+    );
 
     return {
       aiPersona: ward.ai_persona,
@@ -49,11 +51,23 @@ export class WardsService {
   ) {
     const { user, ward } = await this.verifyWardAccess(userId);
 
-    if (settings.weeklyCallCount !== undefined && (settings.weeklyCallCount < 1 || settings.weeklyCallCount > 7)) {
-      throw new HttpException('weeklyCallCount must be between 1 and 7', HttpStatus.BAD_REQUEST);
+    if (
+      settings.weeklyCallCount !== undefined &&
+      (settings.weeklyCallCount < 1 || settings.weeklyCallCount > 7)
+    ) {
+      throw new HttpException(
+        'weeklyCallCount must be between 1 and 7',
+        HttpStatus.BAD_REQUEST,
+      );
     }
-    if (settings.callDurationMinutes !== undefined && (settings.callDurationMinutes < 5 || settings.callDurationMinutes > 60)) {
-      throw new HttpException('callDurationMinutes must be between 5 and 60', HttpStatus.BAD_REQUEST);
+    if (
+      settings.callDurationMinutes !== undefined &&
+      (settings.callDurationMinutes < 5 || settings.callDurationMinutes > 60)
+    ) {
+      throw new HttpException(
+        'callDurationMinutes must be between 5 and 60',
+        HttpStatus.BAD_REQUEST,
+      );
     }
 
     this.logger.log(`updateSettings userId=${user.id} wardId=${ward.id}`);
@@ -66,7 +80,10 @@ export class WardsService {
     });
 
     if (!updated) {
-      throw new HttpException('Failed to update settings', HttpStatus.INTERNAL_SERVER_ERROR);
+      throw new HttpException(
+        'Failed to update settings',
+        HttpStatus.INTERNAL_SERVER_ERROR,
+      );
     }
 
     return {
@@ -87,7 +104,9 @@ export class WardsService {
   ) {
     const { user, ward } = await this.verifyWardAccess(userId);
 
-    this.logger.log(`updateLocation userId=${user.id} wardId=${ward.id} lat=${location.latitude} lng=${location.longitude}`);
+    this.logger.log(
+      `updateLocation userId=${user.id} wardId=${ward.id} lat=${location.latitude} lng=${location.longitude}`,
+    );
 
     // 현재 위치 업데이트 (upsert)
     await this.dbService.upsertWardCurrentLocation({
@@ -103,7 +122,9 @@ export class WardsService {
       latitude: location.latitude,
       longitude: location.longitude,
       accuracy: location.accuracy ?? null,
-      recordedAt: location.timestamp ? new Date(location.timestamp) : new Date(),
+      recordedAt: location.timestamp
+        ? new Date(location.timestamp)
+        : new Date(),
     });
 
     return {
@@ -124,7 +145,9 @@ export class WardsService {
   ) {
     const { user, ward } = await this.verifyWardAccess(userId);
 
-    this.logger.log(`triggerEmergency userId=${user.id} wardId=${ward.id} type=${emergency.type}`);
+    this.logger.log(
+      `triggerEmergency userId=${user.id} wardId=${ward.id} type=${emergency.type}`,
+    );
 
     // 위치 정보가 있으면 현재 위치도 업데이트
     if (emergency.latitude !== undefined && emergency.longitude !== undefined) {

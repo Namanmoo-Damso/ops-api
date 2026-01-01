@@ -181,14 +181,16 @@ export class CallsService {
     env?: string;
   }) {
     const tokenType = params.type === 'voip' ? 'voip' : 'apns';
-    const env = params.env ? this.configService.normalizeEnv(params.env) : undefined;
+    const env = params.env
+      ? this.configService.normalizeEnv(params.env)
+      : undefined;
     const devices = await this.dbService.listDevices({ tokenType, env });
     const tokens = devices
-      .map((d) => ({
+      .map(d => ({
         token: (tokenType === 'voip' ? d.voip_token : d.apns_token) as string,
         env: d.env,
       }))
-      .filter((t) => t.token);
+      .filter(t => t.token);
     const result = await this.pushService.sendPush({
       tokens,
       type: params.type,
@@ -214,18 +216,20 @@ export class CallsService {
     env?: string;
   }) {
     const tokenType = params.type === 'voip' ? 'voip' : 'apns';
-    const env = params.env ? this.configService.normalizeEnv(params.env) : undefined;
+    const env = params.env
+      ? this.configService.normalizeEnv(params.env)
+      : undefined;
     const devices = await this.dbService.listDevicesByIdentity({
       identity: params.identity,
       tokenType,
       env,
     });
     const tokens = devices
-      .map((d) => ({
+      .map(d => ({
         token: (tokenType === 'voip' ? d.voip_token : d.apns_token) as string,
         env: d.env,
       }))
-      .filter((t) => t.token);
+      .filter(t => t.token);
     const result = await this.pushService.sendPush({
       tokens,
       type: params.type,
@@ -244,7 +248,7 @@ export class CallsService {
 
   async listRoomMembers(roomName: string) {
     const members = await this.dbService.listRoomMembers(roomName);
-    return members.map((member) => ({
+    return members.map(member => ({
       identity: member.identity,
       displayName: member.display_name,
       joinedAt: member.joined_at,

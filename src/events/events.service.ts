@@ -42,18 +42,24 @@ export class EventsService {
 
   subscribe(): Observable<MessageEvent> {
     return this.events$.asObservable().pipe(
-      map((event) => ({
-        data: JSON.stringify(event),
-      } as MessageEvent)),
+      map(
+        event =>
+          ({
+            data: JSON.stringify(event),
+          }) as MessageEvent,
+      ),
     );
   }
 
   subscribeToType(type: UserEvent['type']): Observable<MessageEvent> {
     return this.events$.asObservable().pipe(
-      filter((event) => event.type === type),
-      map((event) => ({
-        data: JSON.stringify(event),
-      } as MessageEvent)),
+      filter(event => event.type === type),
+      map(
+        event =>
+          ({
+            data: JSON.stringify(event),
+          }) as MessageEvent,
+      ),
     );
   }
 }
