@@ -32,7 +32,7 @@ export class LiveKitService {
           const participants = await this.roomService.listParticipants(
             room.name,
           );
-          const participant = participants.find((p) => p.identity === identity);
+          const participant = participants.find(p => p.identity === identity);
 
           if (participant) {
             await this.roomService.removeParticipant(room.name, identity);
@@ -69,7 +69,7 @@ export class LiveKitService {
   async getRoomsSummary() {
     const rooms = await this.roomService.listRooms();
     const summaries = await Promise.all(
-      rooms.map(async (room) => {
+      rooms.map(async room => {
         const participants = await this.roomService.listParticipants(room.name);
         return {
           name: room.name,
@@ -79,7 +79,7 @@ export class LiveKitService {
             : null,
           numParticipants: participants.length,
           numPublishers: room.numPublishers ?? null,
-          participants: participants.map((participant) => ({
+          participants: participants.map(participant => ({
             identity: participant.identity,
             name: participant.name ?? participant.identity,
             metadata: participant.metadata ?? null,
