@@ -25,7 +25,10 @@ const getEnv = (key: string, fallback?: string): string => {
   return value;
 };
 
-const parseBoolean = (value: string | undefined, fallback: boolean): boolean => {
+const parseBoolean = (
+  value: string | undefined,
+  fallback: boolean,
+): boolean => {
   if (value === undefined) return fallback;
   return value === 'true' || value === '1';
 };
@@ -46,7 +49,11 @@ export class ConfigService {
 
     const apnsModeRaw = process.env.APNS_ENV ?? 'prod';
     const apnsMode: PushEnvMode =
-      apnsModeRaw === 'both' ? 'both' : apnsModeRaw === 'sandbox' ? 'sandbox' : 'prod';
+      apnsModeRaw === 'both'
+        ? 'both'
+        : apnsModeRaw === 'sandbox'
+          ? 'sandbox'
+          : 'prod';
 
     cachedConfig = {
       port: parseNumber(process.env.PORT, 8080),

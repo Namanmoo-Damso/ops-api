@@ -53,9 +53,14 @@ export class EmergenciesController {
         throw new HttpException('Ward not found', HttpStatus.NOT_FOUND);
       }
 
-      const currentLocation = await this.dbService.getWardCurrentLocation(wardId);
-      const latitude = currentLocation ? parseFloat(currentLocation.latitude) : undefined;
-      const longitude = currentLocation ? parseFloat(currentLocation.longitude) : undefined;
+      const currentLocation =
+        await this.dbService.getWardCurrentLocation(wardId);
+      const latitude = currentLocation
+        ? parseFloat(currentLocation.latitude)
+        : undefined;
+      const longitude = currentLocation
+        ? parseFloat(currentLocation.longitude)
+        : undefined;
 
       this.logger.log(`triggerEmergency wardId=${wardId}`);
 
@@ -78,7 +83,12 @@ export class EmergenciesController {
       }> = [];
 
       if (latitude !== undefined && longitude !== undefined) {
-        const agencies = await this.dbService.findNearbyAgencies(latitude, longitude, 10, 5);
+        const agencies = await this.dbService.findNearbyAgencies(
+          latitude,
+          longitude,
+          10,
+          5,
+        );
         for (const agency of agencies) {
           const distanceKm = parseFloat(agency.distance_km);
           await this.dbService.createEmergencyContact({
@@ -115,7 +125,9 @@ export class EmergenciesController {
           await this.dbService.updateEmergencyGuardianNotified(emergency.id);
           guardianNotified = true;
         } catch (pushError) {
-          this.logger.warn(`Emergency guardian push failed: ${(pushError as Error).message}`);
+          this.logger.warn(
+            `Emergency guardian push failed: ${(pushError as Error).message}`,
+          );
         }
       }
 
@@ -129,8 +141,13 @@ export class EmergenciesController {
       if ((error as HttpException).getStatus?.()) {
         throw error;
       }
-      this.logger.error(`triggerEmergency failed error=${(error as Error).message}`);
-      throw new HttpException('Failed to trigger emergency', HttpStatus.INTERNAL_SERVER_ERROR);
+      this.logger.error(
+        `triggerEmergency failed error=${(error as Error).message}`,
+      );
+      throw new HttpException(
+        'Failed to trigger emergency',
+        HttpStatus.INTERNAL_SERVER_ERROR,
+      );
     }
   }
 
@@ -155,7 +172,9 @@ export class EmergenciesController {
       );
     }
 
-    this.logger.log(`getEmergencies status=${status ?? 'all'} wardId=${wardId ?? 'all'}`);
+    this.logger.log(
+      `getEmergencies status=${status ?? 'all'} wardId=${wardId ?? 'all'}`,
+    );
 
     try {
       const emergencies = await this.dbService.getEmergencies({
@@ -165,7 +184,7 @@ export class EmergenciesController {
       });
 
       const emergenciesWithContacts = await Promise.all(
-        emergencies.map(async (e) => {
+        emergencies.map(async e => {
           const contacts = await this.dbService.getEmergencyContacts(e.id);
           return {
             id: e.id,
@@ -179,7 +198,7 @@ export class EmergenciesController {
             guardianNotified: e.guardian_notified,
             createdAt: e.created_at,
             resolvedAt: e.resolved_at,
-            respondedAgencies: contacts.map((c) => c.agency_name),
+            respondedAgencies: contacts.map(c => c.agency_name),
           };
         }),
       );
@@ -188,8 +207,13 @@ export class EmergenciesController {
         emergencies: emergenciesWithContacts,
       };
     } catch (error) {
-      this.logger.warn(`getEmergencies failed error=${(error as Error).message}`);
-      throw new HttpException('Failed to get emergencies', HttpStatus.INTERNAL_SERVER_ERROR);
+      this.logger.warn(
+        `getEmergencies failed error=${(error as Error).message}`,
+      );
+      throw new HttpException(
+        'Failed to get emergencies',
+        HttpStatus.INTERNAL_SERVER_ERROR,
+      );
     }
   }
 
@@ -205,7 +229,10 @@ export class EmergenciesController {
     }
 
     if (!emergencyId?.trim()) {
-      throw new HttpException('emergencyId is required', HttpStatus.BAD_REQUEST);
+      throw new HttpException(
+        'emergencyId is required',
+        HttpStatus.BAD_REQUEST,
+      );
     }
 
     this.logger.log(`getEmergencyDetail emergencyId=${emergencyId}`);
@@ -232,7 +259,7 @@ export class EmergenciesController {
         resolvedBy: emergency.resolved_by,
         resolutionNote: emergency.resolution_note,
         createdAt: emergency.created_at,
-        contacts: contacts.map((c) => ({
+        contacts: contacts.map(c => ({
           id: c.id,
           agencyId: c.agency_id,
           agencyName: c.agency_name,
@@ -246,8 +273,13 @@ export class EmergenciesController {
       if ((error as HttpException).getStatus?.()) {
         throw error;
       }
-      this.logger.warn(`getEmergencyDetail failed error=${(error as Error).message}`);
-      throw new HttpException('Failed to get emergency detail', HttpStatus.INTERNAL_SERVER_ERROR);
+      this.logger.warn(
+        `getEmergencyDetail failed error=${(error as Error).message}`,
+      );
+      throw new HttpException(
+        'Failed to get emergency detail',
+        HttpStatus.INTERNAL_SERVER_ERROR,
+      );
     }
   }
 
@@ -268,7 +300,10 @@ export class EmergenciesController {
     }
 
     if (!emergencyId?.trim()) {
-      throw new HttpException('emergencyId is required', HttpStatus.BAD_REQUEST);
+      throw new HttpException(
+        'emergencyId is required',
+        HttpStatus.BAD_REQUEST,
+      );
     }
 
     const resolveStatus = body.status || 'resolved';
@@ -279,7 +314,9 @@ export class EmergenciesController {
       );
     }
 
-    this.logger.log(`resolveEmergency emergencyId=${emergencyId} status=${resolveStatus}`);
+    this.logger.log(
+      `resolveEmergency emergencyId=${emergencyId} status=${resolveStatus}`,
+    );
 
     try {
       const emergency = await this.dbService.getEmergencyById(emergencyId);
@@ -288,7 +325,10 @@ export class EmergenciesController {
       }
 
       if (emergency.status !== 'active') {
-        throw new HttpException('Emergency is already resolved', HttpStatus.BAD_REQUEST);
+        throw new HttpException(
+          'Emergency is already resolved',
+          HttpStatus.BAD_REQUEST,
+        );
       }
 
       const resolvedBy = auth?.identity || 'admin';
@@ -308,7 +348,10 @@ export class EmergenciesController {
       });
 
       if (emergency.ward_id) {
-        await this.dbService.updateWardLocationStatus(emergency.ward_id, 'normal');
+        await this.dbService.updateWardLocationStatus(
+          emergency.ward_id,
+          'normal',
+        );
       }
 
       return {
@@ -321,8 +364,13 @@ export class EmergenciesController {
       if ((error as HttpException).getStatus?.()) {
         throw error;
       }
-      this.logger.warn(`resolveEmergency failed error=${(error as Error).message}`);
-      throw new HttpException('Failed to resolve emergency', HttpStatus.INTERNAL_SERVER_ERROR);
+      this.logger.warn(
+        `resolveEmergency failed error=${(error as Error).message}`,
+      );
+      throw new HttpException(
+        'Failed to resolve emergency',
+        HttpStatus.INTERNAL_SERVER_ERROR,
+      );
     }
   }
 }

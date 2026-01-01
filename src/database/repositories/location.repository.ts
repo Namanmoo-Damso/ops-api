@@ -91,7 +91,7 @@ export class LocationRepository {
       orderBy: { lastUpdated: 'desc' },
     });
 
-    return locations.map((l) => ({
+    return locations.map(l => ({
       ward_id: l.wardId,
       user_id: l.ward.userId,
       ward_name: l.ward.user.displayName,
@@ -105,7 +105,12 @@ export class LocationRepository {
     }));
   }
 
-  async getHistory(params: { wardId: string; from?: Date; to?: Date; limit?: number }) {
+  async getHistory(params: {
+    wardId: string;
+    from?: Date;
+    to?: Date;
+    limit?: number;
+  }) {
     const where: Prisma.WardLocationWhereInput = { wardId: params.wardId };
 
     if (params.from || params.to) {
@@ -120,7 +125,7 @@ export class LocationRepository {
       take: params.limit || 100,
     });
 
-    return locations.map((l) => ({
+    return locations.map(l => ({
       id: l.id,
       latitude: l.latitude.toString(),
       longitude: l.longitude.toString(),
@@ -146,7 +151,10 @@ export class LocationRepository {
     };
   }
 
-  async updateStatus(wardId: string, status: 'normal' | 'warning' | 'emergency'): Promise<void> {
+  async updateStatus(
+    wardId: string,
+    status: 'normal' | 'warning' | 'emergency',
+  ): Promise<void> {
     await this.prisma.wardCurrentLocation.update({
       where: { wardId },
       data: { status, lastUpdated: new Date() },

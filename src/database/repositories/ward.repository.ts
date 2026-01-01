@@ -41,9 +41,13 @@ export class WardRepository {
     return ward ? toWardRow(ward) : undefined;
   }
 
-  async findByGuardianId(
-    guardianId: string,
-  ): Promise<(WardRow & { user_nickname: string | null; user_profile_image_url: string | null }) | undefined> {
+  async findByGuardianId(guardianId: string): Promise<
+    | (WardRow & {
+        user_nickname: string | null;
+        user_profile_image_url: string | null;
+      })
+    | undefined
+  > {
     const ward = await this.prisma.ward.findFirst({
       where: { guardianId },
       include: {
@@ -86,10 +90,12 @@ export class WardRepository {
     let totalDuration = 0;
     for (const call of calls) {
       if (call.answeredAt && call.endedAt) {
-        totalDuration += (call.endedAt.getTime() - call.answeredAt.getTime()) / 60000;
+        totalDuration +=
+          (call.endedAt.getTime() - call.answeredAt.getTime()) / 60000;
       }
     }
-    const avgDuration = totalCalls > 0 ? Math.round(totalDuration / totalCalls) : 0;
+    const avgDuration =
+      totalCalls > 0 ? Math.round(totalDuration / totalCalls) : 0;
 
     return { totalCalls, avgDuration };
   }
@@ -180,13 +186,18 @@ export class WardRepository {
 
     const results: Array<{ date: string; score: number; mood: string }> = [];
     for (const [date, data] of dateMap) {
-      const avgScore = data.scores.length > 0 ? data.scores.reduce((a, b) => a + b, 0) / data.scores.length : 0;
+      const avgScore =
+        data.scores.length > 0
+          ? data.scores.reduce((a, b) => a + b, 0) / data.scores.length
+          : 0;
       // Mode of moods
       const moodCounts: Record<string, number> = {};
       for (const m of data.moods) {
         moodCounts[m] = (moodCounts[m] || 0) + 1;
       }
-      const topMood = Object.entries(moodCounts).sort((a, b) => b[1] - a[1])[0]?.[0] || 'neutral';
+      const topMood =
+        Object.entries(moodCounts).sort((a, b) => b[1] - a[1])[0]?.[0] ||
+        'neutral';
       results.push({ date, score: avgScore, mood: topMood });
     }
 
@@ -223,7 +234,10 @@ export class WardRepository {
       pain: { count: keywordCounts['pain'] || 0, trend: 'stable' },
       sleep: { status: 'normal', mentions: keywordCounts['sleep'] || 0 },
       meal: { status: 'regular', mentions: keywordCounts['meal'] || 0 },
-      medication: { status: 'compliant', mentions: keywordCounts['medication'] || 0 },
+      medication: {
+        status: 'compliant',
+        mentions: keywordCounts['medication'] || 0,
+      },
     };
   }
 
@@ -267,9 +281,12 @@ export class WardRepository {
         callDurationMinutes?: number;
       } = {};
 
-      if (params.aiPersona !== undefined) updateData.aiPersona = params.aiPersona;
-      if (params.weeklyCallCount !== undefined) updateData.weeklyCallCount = params.weeklyCallCount;
-      if (params.callDurationMinutes !== undefined) updateData.callDurationMinutes = params.callDurationMinutes;
+      if (params.aiPersona !== undefined)
+        updateData.aiPersona = params.aiPersona;
+      if (params.weeklyCallCount !== undefined)
+        updateData.weeklyCallCount = params.weeklyCallCount;
+      if (params.callDurationMinutes !== undefined)
+        updateData.callDurationMinutes = params.callDurationMinutes;
 
       if (Object.keys(updateData).length === 0) return undefined;
 
@@ -385,7 +402,7 @@ export class WardRepository {
       orderBy: { createdAt: 'desc' },
     });
 
-    return wards.map((w) => ({
+    return wards.map(w => ({
       id: w.id,
       email: w.email,
       phone_number: w.phoneNumber,
@@ -496,7 +513,9 @@ export class WardRepository {
       where: { uploadedByAdminId: adminId, wardId: { not: null } },
       select: { wardId: true },
     });
-    const wardIds = managedWards.map((w) => w.wardId).filter((id): id is string => id !== null);
+    const wardIds = managedWards
+      .map(w => w.wardId)
+      .filter((id): id is string => id !== null);
 
     let positiveMood = 0;
     let negativeMood = 0;
@@ -518,7 +537,11 @@ export class WardRepository {
   }
 
   // Call Schedule methods
-  async getUpcomingCallSchedules(dayOfWeek: number, startTime: string, endTime: string) {
+  async getUpcomingCallSchedules(
+    dayOfWeek: number,
+    startTime: string,
+    endTime: string,
+  ) {
     // Get all schedules for this day
     const schedules = await this.prisma.callSchedule.findMany({
       where: {
@@ -544,16 +567,17 @@ export class WardRepository {
     const oneHourAgo = new Date(now.getTime() - 60 * 60 * 1000);
 
     return schedules
-      .filter((s) => {
+      .filter(s => {
         const schedTime = s.scheduledTime;
         const hours = schedTime.getUTCHours().toString().padStart(2, '0');
         const mins = schedTime.getUTCMinutes().toString().padStart(2, '0');
         const timeStr = `${hours}:${mins}:00`;
         const inRange = timeStr >= startTime && timeStr < endTime;
-        const notRecentlySent = !s.reminderSentAt || s.reminderSentAt < oneHourAgo;
+        const notRecentlySent =
+          !s.reminderSentAt || s.reminderSentAt < oneHourAgo;
         return inRange && notRecentlySent;
       })
-      .map((s) => ({
+      .map(s => ({
         id: s.id,
         ward_id: s.wardId,
         ward_user_id: s.ward.userId,

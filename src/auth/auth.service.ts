@@ -105,7 +105,9 @@ export class AuthService {
   constructor(private readonly dbService: DbService) {
     const secret = process.env.API_JWT_SECRET || process.env.JWT_SECRET;
     if (!secret) {
-      throw new Error('API_JWT_SECRET or JWT_SECRET environment variable is required');
+      throw new Error(
+        'API_JWT_SECRET or JWT_SECRET environment variable is required',
+      );
     }
     this.jwtSecret = secret;
     this.accessTokenExpiry = 60 * 60; // 1 hour
@@ -118,15 +120,22 @@ export class AuthService {
   }): Promise<KakaoLoginResult> {
     // 1. 카카오 토큰 검증
     const kakaoProfile = await this.verifyKakaoToken(params.kakaoAccessToken);
-    this.logger.log(`kakaoLogin kakaoId=${kakaoProfile.kakaoId} email=${kakaoProfile.email ?? 'none'}`);
+    this.logger.log(
+      `kakaoLogin kakaoId=${kakaoProfile.kakaoId} email=${kakaoProfile.email ?? 'none'}`,
+    );
 
     // 2. 기존 사용자 확인
-    const existingUser = await this.dbService.findUserByKakaoId(kakaoProfile.kakaoId);
+    const existingUser = await this.dbService.findUserByKakaoId(
+      kakaoProfile.kakaoId,
+    );
 
     if (existingUser) {
       // 기존 사용자 - JWT 발급
       this.logger.log(`kakaoLogin existing user id=${existingUser.id}`);
-      const tokens = await this.issueTokens(existingUser.id, existingUser.user_type as UserType);
+      const tokens = await this.issueTokens(
+        existingUser.id,
+        existingUser.user_type as UserType,
+      );
       return {
         isNewUser: false,
         ...tokens,
@@ -185,7 +194,8 @@ export class AuthService {
     const data = await response.json();
     // 카카오 프로필 이미지 URL을 HTTPS로 변환 (Mixed Content 방지)
     const profileImage = data.properties?.profile_image ?? null;
-    const httpsProfileImage = profileImage?.replace(/^http:\/\//i, 'https://') ?? null;
+    const httpsProfileImage =
+      profileImage?.replace(/^http:\/\//i, 'https://') ?? null;
     return {
       kakaoId: String(data.id),
       email: data.kakao_account?.email ?? null,
@@ -221,8 +231,12 @@ export class AuthService {
     const tokens = await this.issueTokens(user.id, 'ward');
 
     if (matchedGuardian) {
-      this.logger.log(`handleWardRegistration matched userId=${user.id} guardianId=${matchedGuardian.id}`);
-      const guardianUser = await this.dbService.findUserById(matchedGuardian.user_id);
+      this.logger.log(
+        `handleWardRegistration matched userId=${user.id} guardianId=${matchedGuardian.id}`,
+      );
+      const guardianUser = await this.dbService.findUserById(
+        matchedGuardian.user_id,
+      );
       return {
         isNewUser: true,
         requiresRegistration: false,
@@ -266,7 +280,10 @@ export class AuthService {
     };
   }
 
-  private async issueTokens(userId: string, userType: UserType | null): Promise<AuthTokens> {
+  private async issueTokens(
+    userId: string,
+    userType: UserType | null,
+  ): Promise<AuthTokens> {
     const accessPayload: TokenPayload = {
       sub: userId,
       type: 'access',
@@ -378,7 +395,9 @@ export class AuthService {
     // 6. 새 JWT 발급 (user_type이 변경되었으므로)
     const tokens = await this.issueTokens(user.id, 'guardian');
 
-    this.logger.log(`registerGuardian userId=${user.id} guardianId=${guardian.id}`);
+    this.logger.log(
+      `registerGuardian userId=${user.id} guardianId=${guardian.id}`,
+    );
     return {
       ...tokens,
       user: {
@@ -411,11 +430,9 @@ export class AuthService {
     role: string;
     type: string;
   }): string {
-    return jwt.sign(
-      { ...payload, tokenType: 'admin_access' },
-      this.jwtSecret,
-      { expiresIn: '1h' },
-    );
+    return jwt.sign({ ...payload, tokenType: 'admin_access' }, this.jwtSecret, {
+      expiresIn: '1h',
+    });
   }
 
   signAdminRefreshToken(payload: {

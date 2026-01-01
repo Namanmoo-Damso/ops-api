@@ -41,9 +41,12 @@ export class AdminAuthService {
   }
 
   private async verifyGoogleToken(accessToken: string) {
-    const response = await fetch('https://www.googleapis.com/oauth2/v3/userinfo', {
-      headers: { Authorization: `Bearer ${accessToken}` },
-    });
+    const response = await fetch(
+      'https://www.googleapis.com/oauth2/v3/userinfo',
+      {
+        headers: { Authorization: `Bearer ${accessToken}` },
+      },
+    );
 
     if (!response.ok) {
       throw new Error('Google token verification failed');
@@ -89,8 +92,12 @@ export class AdminAuthService {
 
       const data = await response.json();
       if (!response.ok) {
-        this.logger.warn(`Kakao token exchange failed: ${JSON.stringify(data)}`);
-        throw new Error(`Kakao token exchange failed: ${data.error_description || data.error}`);
+        this.logger.warn(
+          `Kakao token exchange failed: ${JSON.stringify(data)}`,
+        );
+        throw new Error(
+          `Kakao token exchange failed: ${data.error_description || data.error}`,
+        );
       }
 
       return data.access_token;
@@ -99,7 +106,9 @@ export class AdminAuthService {
       const clientSecret = process.env.GOOGLE_CLIENT_SECRET;
 
       if (!clientId || !clientSecret) {
-        throw new Error('GOOGLE_CLIENT_ID or GOOGLE_CLIENT_SECRET not configured');
+        throw new Error(
+          'GOOGLE_CLIENT_ID or GOOGLE_CLIENT_SECRET not configured',
+        );
       }
 
       const response = await fetch('https://oauth2.googleapis.com/token', {
@@ -116,8 +125,12 @@ export class AdminAuthService {
 
       const data = await response.json();
       if (!response.ok) {
-        this.logger.warn(`Google token exchange failed: ${JSON.stringify(data)}`);
-        throw new Error(`Google token exchange failed: ${data.error_description || data.error}`);
+        this.logger.warn(
+          `Google token exchange failed: ${JSON.stringify(data)}`,
+        );
+        throw new Error(
+          `Google token exchange failed: ${data.error_description || data.error}`,
+        );
       }
 
       return data.access_token;
@@ -126,7 +139,10 @@ export class AdminAuthService {
     throw new Error(`Unknown provider: ${provider}`);
   }
 
-  async processOAuthLogin(oauthUser: { providerId: string; email?: string; name?: string }, provider: string) {
+  async processOAuthLogin(
+    oauthUser: { providerId: string; email?: string; name?: string },
+    provider: string,
+  ) {
     if (!oauthUser.email) {
       throw new HttpException(
         '이메일 정보를 가져올 수 없습니다. 이메일 제공 동의가 필요합니다.',
@@ -134,7 +150,10 @@ export class AdminAuthService {
       );
     }
 
-    let admin = await this.dbService.findAdminByProviderId(provider, oauthUser.providerId);
+    let admin = await this.dbService.findAdminByProviderId(
+      provider,
+      oauthUser.providerId,
+    );
 
     if (!admin) {
       admin = await this.dbService.findAdminByEmail(oauthUser.email);
@@ -175,11 +194,17 @@ export class AdminAuthService {
 
     const refreshTokenHash = this.authService.hashToken(jwtRefreshToken);
     const expiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
-    await this.dbService.createAdminRefreshToken(admin!.id, refreshTokenHash, expiresAt);
+    await this.dbService.createAdminRefreshToken(
+      admin!.id,
+      refreshTokenHash,
+      expiresAt,
+    );
 
     await this.dbService.updateAdminLastLogin(admin!.id);
 
-    this.logger.log(`OAuth login success adminId=${admin!.id} role=${admin!.role}`);
+    this.logger.log(
+      `OAuth login success adminId=${admin!.id} role=${admin!.role}`,
+    );
 
     return {
       accessToken: jwtAccessToken,

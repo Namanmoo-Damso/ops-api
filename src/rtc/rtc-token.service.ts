@@ -56,10 +56,16 @@ export class RtcTokenService {
     // Find existing user by device token
     const candidates: Array<{ tokenType: 'apns' | 'voip'; token: string }> = [];
     if (params.device?.voipToken) {
-      candidates.push({ tokenType: 'voip', token: params.device.voipToken.trim() });
+      candidates.push({
+        tokenType: 'voip',
+        token: params.device.voipToken.trim(),
+      });
     }
     if (params.device?.apnsToken) {
-      candidates.push({ tokenType: 'apns', token: params.device.apnsToken.trim() });
+      candidates.push({
+        tokenType: 'apns',
+        token: params.device.apnsToken.trim(),
+      });
     }
     for (const candidate of candidates) {
       if (!candidate.token) continue;
@@ -139,7 +145,9 @@ export class RtcTokenService {
     if (!params.apnsToken && !params.voipToken) {
       return;
     }
-    const env = this.configService.normalizeEnv(params.env ?? this.configService.apnsDefaultEnv);
+    const env = this.configService.normalizeEnv(
+      params.env ?? this.configService.apnsDefaultEnv,
+    );
     this.logger.log(
       `registerDevice identity=${params.identity} env=${env} supportsCallKit=${params.supportsCallKit ?? true} apns=${this.summarizeToken(params.apnsToken)} voip=${this.summarizeToken(params.voipToken)}`,
     );

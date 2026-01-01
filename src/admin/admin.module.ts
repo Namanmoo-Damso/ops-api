@@ -23,11 +23,7 @@ import { CallsService } from '../calls';
     LocationsController,
     EmergenciesController,
   ],
-  providers: [
-    AdminAuthService,
-    AuthService,
-    CallsService,
-  ],
+  providers: [AdminAuthService, AuthService, CallsService],
   exports: [AdminAuthService],
 })
 export class AdminModule {}

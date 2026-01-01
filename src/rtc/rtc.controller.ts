@@ -67,7 +67,8 @@ export class RtcController {
   @Post('v1/rtc/token')
   async issueToken(
     @Headers('authorization') authorization: string | undefined,
-    @Body() body: {
+    @Body()
+    body: {
       roomName?: string;
       identity?: string;
       name?: string;
@@ -145,7 +146,11 @@ export class RtcController {
       name,
       role,
       device:
-        body.apnsToken || body.voipToken || body.platform || body.env || body.supportsCallKit !== undefined
+        body.apnsToken ||
+        body.voipToken ||
+        body.platform ||
+        body.env ||
+        body.supportsCallKit !== undefined
           ? {
               apnsToken: body.apnsToken?.trim(),
               voipToken: body.voipToken?.trim(),

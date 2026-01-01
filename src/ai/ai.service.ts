@@ -39,7 +39,9 @@ export class AiService {
       this.logger.log('OpenAI client initialized');
     } else {
       this.openai = null;
-      this.logger.warn('OPENAI_API_KEY not set, AI analysis will use mock data');
+      this.logger.warn(
+        'OPENAI_API_KEY not set, AI analysis will use mock data',
+      );
     }
   }
 
@@ -73,10 +75,16 @@ export class AiService {
 
     // 4. 건강 알림 체크 및 생성
     if (callInfo.ward_id && callInfo.guardian_id) {
-      await this.checkHealthAlerts(callInfo.ward_id, callInfo.guardian_id, analysis);
+      await this.checkHealthAlerts(
+        callInfo.ward_id,
+        callInfo.guardian_id,
+        analysis,
+      );
     }
 
-    this.logger.log(`analyzeCall completed callId=${callId} mood=${analysis.mood}`);
+    this.logger.log(
+      `analyzeCall completed callId=${callId} mood=${analysis.mood}`,
+    );
 
     return {
       callId,
@@ -91,7 +99,9 @@ export class AiService {
     };
   }
 
-  private async analyzeWithOpenAI(transcript: string): Promise<CallAnalysisResult> {
+  private async analyzeWithOpenAI(
+    transcript: string,
+  ): Promise<CallAnalysisResult> {
     if (!this.openai) {
       return this.getMockAnalysis();
     }
@@ -149,7 +159,8 @@ export class AiService {
 
   private getMockAnalysis(): CallAnalysisResult {
     return {
-      summary: '어르신께서 오늘 날씨가 좋다고 말씀하시며 즐거워하셨습니다. 손주들 이야기를 하시며 웃으셨고, 건강 상태는 양호해 보입니다.',
+      summary:
+        '어르신께서 오늘 날씨가 좋다고 말씀하시며 즐거워하셨습니다. 손주들 이야기를 하시며 웃으셨고, 건강 상태는 양호해 보입니다.',
       mood: 'positive',
       moodScore: 0.85,
       tags: ['날씨', '손주', '긍정적'],
@@ -170,7 +181,10 @@ export class AiService {
     // 통증 관련 체크
     if (analysis.healthKeywords.pain && analysis.healthKeywords.pain > 0) {
       // 최근 3일 통증 언급 횟수 확인
-      const recentPainCount = await this.dbService.getRecentPainMentions(wardId, 3);
+      const recentPainCount = await this.dbService.getRecentPainMentions(
+        wardId,
+        3,
+      );
       if (recentPainCount >= 2) {
         await this.dbService.createHealthAlert({
           wardId,
@@ -178,7 +192,9 @@ export class AiService {
           alertType: 'warning',
           message: `${recentPainCount + 1}일 연속 통증 관련 단어가 감지되었습니다`,
         });
-        this.logger.log(`Health alert created wardId=${wardId} type=pain count=${recentPainCount + 1}`);
+        this.logger.log(
+          `Health alert created wardId=${wardId} type=pain count=${recentPainCount + 1}`,
+        );
       }
     }
 

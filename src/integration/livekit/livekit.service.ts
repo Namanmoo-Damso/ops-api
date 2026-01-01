@@ -27,12 +27,16 @@ export class LiveKitService {
       for (const room of rooms) {
         try {
           // 각 room에서 해당 participant 조회
-          const participants = await this.roomService.listParticipants(room.name);
-          const participant = participants.find((p) => p.identity === identity);
+          const participants = await this.roomService.listParticipants(
+            room.name,
+          );
+          const participant = participants.find(p => p.identity === identity);
 
           if (participant) {
             await this.roomService.removeParticipant(room.name, identity);
-            this.logger.log(`removeParticipant room=${room.name} identity=${identity}`);
+            this.logger.log(
+              `removeParticipant room=${room.name} identity=${identity}`,
+            );
           }
         } catch (err) {
           // participant가 없거나 이미 나간 경우 무시

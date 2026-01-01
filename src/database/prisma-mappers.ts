@@ -2,8 +2,27 @@
  * Prisma to Legacy Type Mappers
  * Prisma 모델을 기존 snake_case 타입으로 변환
  */
-import { User, Device, RefreshToken, Guardian, Call, CallSummary, Ward, GuardianWardRegistration } from '../generated/prisma';
-import { UserRow, DeviceRow, RefreshTokenRow, GuardianRow, CallRow, CallSummaryRow, RoomMemberRow, WardRow, GuardianWardRegistrationRow } from './types';
+import {
+  User,
+  Device,
+  RefreshToken,
+  Guardian,
+  Call,
+  CallSummary,
+  Ward,
+  GuardianWardRegistration,
+} from '../generated/prisma';
+import {
+  UserRow,
+  DeviceRow,
+  RefreshTokenRow,
+  GuardianRow,
+  CallRow,
+  CallSummaryRow,
+  RoomMemberRow,
+  WardRow,
+  GuardianWardRegistrationRow,
+} from './types';
 
 export function toUserRow(user: User): UserRow {
   return {
@@ -108,7 +127,9 @@ export function toWardRow(ward: Ward): WardRow {
   };
 }
 
-export function toGuardianWardRegistrationRow(reg: GuardianWardRegistration): GuardianWardRegistrationRow {
+export function toGuardianWardRegistrationRow(
+  reg: GuardianWardRegistration,
+): GuardianWardRegistrationRow {
   return {
     id: reg.id,
     guardian_id: reg.guardianId,

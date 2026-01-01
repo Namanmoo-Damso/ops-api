@@ -5,7 +5,7 @@
 import { Injectable } from '@nestjs/common';
 import { Pool, QueryResult, QueryResultRow } from 'pg';
 
-const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
 @Injectable()
 export class BaseRepository {
@@ -37,7 +37,10 @@ export class BaseRepository {
     await this.pool.end();
   }
 
-  protected async query<T extends QueryResultRow>(text: string, values?: unknown[]): Promise<QueryResult<T>> {
+  protected async query<T extends QueryResultRow>(
+    text: string,
+    values?: unknown[],
+  ): Promise<QueryResult<T>> {
     return this.pool.query<T>(text, values);
   }
 }

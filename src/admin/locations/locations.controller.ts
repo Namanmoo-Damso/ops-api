@@ -38,10 +38,11 @@ export class LocationsController {
     this.logger.log(`getLocations organizationId=${organizationId ?? 'all'}`);
 
     try {
-      const locations = await this.dbService.getAllWardCurrentLocations(organizationId);
+      const locations =
+        await this.dbService.getAllWardCurrentLocations(organizationId);
 
       return {
-        locations: locations.map((loc) => ({
+        locations: locations.map(loc => ({
           wardId: loc.ward_id,
           wardName: loc.ward_nickname || loc.ward_name || '이름 없음',
           latitude: parseFloat(loc.latitude),
@@ -54,7 +55,10 @@ export class LocationsController {
       };
     } catch (error) {
       this.logger.warn(`getLocations failed error=${(error as Error).message}`);
-      throw new HttpException('Failed to get locations', HttpStatus.INTERNAL_SERVER_ERROR);
+      throw new HttpException(
+        'Failed to get locations',
+        HttpStatus.INTERNAL_SERVER_ERROR,
+      );
     }
   }
 
@@ -76,7 +80,9 @@ export class LocationsController {
       throw new HttpException('wardId is required', HttpStatus.BAD_REQUEST);
     }
 
-    this.logger.log(`getLocationHistory wardId=${wardId} from=${from ?? 'none'} to=${to ?? 'none'}`);
+    this.logger.log(
+      `getLocationHistory wardId=${wardId} from=${from ?? 'none'} to=${to ?? 'none'}`,
+    );
 
     try {
       const ward = await this.dbService.findWardById(wardId);
@@ -93,7 +99,7 @@ export class LocationsController {
 
       return {
         wardId,
-        history: history.map((loc) => ({
+        history: history.map(loc => ({
           latitude: parseFloat(loc.latitude),
           longitude: parseFloat(loc.longitude),
           accuracy: loc.accuracy ? parseFloat(loc.accuracy) : null,
@@ -104,8 +110,13 @@ export class LocationsController {
       if ((error as HttpException).getStatus?.()) {
         throw error;
       }
-      this.logger.warn(`getLocationHistory failed error=${(error as Error).message}`);
-      throw new HttpException('Failed to get location history', HttpStatus.INTERNAL_SERVER_ERROR);
+      this.logger.warn(
+        `getLocationHistory failed error=${(error as Error).message}`,
+      );
+      throw new HttpException(
+        'Failed to get location history',
+        HttpStatus.INTERNAL_SERVER_ERROR,
+      );
     }
   }
 
@@ -155,8 +166,13 @@ export class LocationsController {
       if ((error as HttpException).getStatus?.()) {
         throw error;
       }
-      this.logger.warn(`updateLocationStatus failed error=${(error as Error).message}`);
-      throw new HttpException('Failed to update status', HttpStatus.INTERNAL_SERVER_ERROR);
+      this.logger.warn(
+        `updateLocationStatus failed error=${(error as Error).message}`,
+      );
+      throw new HttpException(
+        'Failed to update status',
+        HttpStatus.INTERNAL_SERVER_ERROR,
+      );
     }
   }
 }

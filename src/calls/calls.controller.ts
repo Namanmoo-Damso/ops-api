@@ -29,7 +29,8 @@ export class CallsController {
   @Post('invite')
   async invite(
     @Headers('authorization') authorization: string | undefined,
-    @Body() body: {
+    @Body()
+    body: {
       callerIdentity?: string;
       callerName?: string;
       calleeIdentity?: string;
@@ -44,11 +45,17 @@ export class CallsController {
 
     const callerIdentity = body.callerIdentity?.trim() || auth?.identity;
     if (!callerIdentity) {
-      throw new HttpException('callerIdentity is required', HttpStatus.BAD_REQUEST);
+      throw new HttpException(
+        'callerIdentity is required',
+        HttpStatus.BAD_REQUEST,
+      );
     }
     const calleeIdentity = body.calleeIdentity?.trim();
     if (!calleeIdentity) {
-      throw new HttpException('calleeIdentity is required', HttpStatus.BAD_REQUEST);
+      throw new HttpException(
+        'calleeIdentity is required',
+        HttpStatus.BAD_REQUEST,
+      );
     }
 
     this.logger.log(
@@ -102,8 +109,10 @@ export class CallsController {
     const result = await this.callsService.endCall(callId);
 
     // 비동기로 보호자에게 통화 완료 알림 전송
-    this.notificationScheduler.notifyCallComplete(callId).catch((error) => {
-      this.logger.warn(`end notifyCallComplete failed callId=${callId} error=${(error as Error).message}`);
+    this.notificationScheduler.notifyCallComplete(callId).catch(error => {
+      this.logger.warn(
+        `end notifyCallComplete failed callId=${callId} error=${(error as Error).message}`,
+      );
     });
 
     return result;
@@ -135,7 +144,10 @@ export class CallsController {
         throw new HttpException('Call not found', HttpStatus.NOT_FOUND);
       }
       this.logger.error(`analyze failed callId=${callId} error=${message}`);
-      throw new HttpException('Failed to analyze call', HttpStatus.INTERNAL_SERVER_ERROR);
+      throw new HttpException(
+        'Failed to analyze call',
+        HttpStatus.INTERNAL_SERVER_ERROR,
+      );
     }
   }
 }
