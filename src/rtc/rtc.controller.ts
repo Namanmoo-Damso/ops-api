@@ -14,6 +14,7 @@ import { AuthService } from '../auth';
 import { DbService } from '../database';
 import { ConfigService } from '../core/config';
 import { CallsService } from '../calls';
+import { LiveKitService } from '../integration/livekit';
 
 @Controller()
 export class RtcController {
@@ -25,6 +26,7 @@ export class RtcController {
     private readonly dbService: DbService,
     private readonly configService: ConfigService,
     private readonly callsService: CallsService,
+    private readonly liveKitService: LiveKitService,
   ) {}
 
   private normalizeLivekitUrl(url: string | undefined): string | undefined {
@@ -67,7 +69,8 @@ export class RtcController {
   @Post('v1/rtc/token')
   async issueToken(
     @Headers('authorization') authorization: string | undefined,
-    @Body() body: {
+    @Body()
+    body: {
       roomName?: string;
       identity?: string;
       name?: string;
@@ -145,7 +148,11 @@ export class RtcController {
       name,
       role,
       device:
-        body.apnsToken || body.voipToken || body.platform || body.env || body.supportsCallKit !== undefined
+        body.apnsToken ||
+        body.voipToken ||
+        body.platform ||
+        body.env ||
+        body.supportsCallKit !== undefined
           ? {
               apnsToken: body.apnsToken?.trim(),
               voipToken: body.voipToken?.trim(),
@@ -160,5 +167,32 @@ export class RtcController {
       ...rtcData,
       livekitUrl: livekitUrlOverride ?? rtcData.livekitUrl,
     };
+  }
+
+  @Get('v1/livekit/rooms')
+  async listLivekitRooms(
+    @Headers('authorization') authorization: string | undefined,
+  ) {
+    const config = this.configService.getConfig();
+    const auth = this.authService.getAuthContext(authorization);
+    if (config.authRequired && !auth) {
+      throw new HttpException('Unauthorized', HttpStatus.UNAUTHORIZED);
+    }
+
+    try {
+      const summary = await this.liveKitService.getRoomsSummary();
+      this.logger.log(
+        `listLivekitRooms rooms=${summary.totalRooms} participants=${summary.totalParticipants}`,
+      );
+      return summary;
+    } catch (error) {
+      this.logger.warn(
+        `listLivekitRooms failed error=${(error as Error).message}`,
+      );
+      throw new HttpException(
+        'Failed to query LiveKit rooms',
+        HttpStatus.BAD_GATEWAY,
+      );
+    }
   }
 }

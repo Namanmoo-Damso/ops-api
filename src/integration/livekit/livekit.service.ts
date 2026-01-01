@@ -6,9 +6,11 @@ import { ConfigService } from '../../core/config';
 export class LiveKitService {
   private readonly logger = new Logger(LiveKitService.name);
   private readonly roomService: RoomServiceClient;
+  private readonly livekitUrl: string;
 
   constructor(private readonly configService: ConfigService) {
     const config = this.configService.getConfig();
+    this.livekitUrl = config.livekitUrl;
     this.roomService = new RoomServiceClient(
       config.livekitUrl,
       config.livekitApiKey,
@@ -27,12 +29,16 @@ export class LiveKitService {
       for (const room of rooms) {
         try {
           // 각 room에서 해당 participant 조회
-          const participants = await this.roomService.listParticipants(room.name);
+          const participants = await this.roomService.listParticipants(
+            room.name,
+          );
           const participant = participants.find((p) => p.identity === identity);
 
           if (participant) {
             await this.roomService.removeParticipant(room.name, identity);
-            this.logger.log(`removeParticipant room=${room.name} identity=${identity}`);
+            this.logger.log(
+              `removeParticipant room=${room.name} identity=${identity}`,
+            );
           }
         } catch (err) {
           // participant가 없거나 이미 나간 경우 무시
@@ -58,5 +64,43 @@ export class LiveKitService {
 
   async removeParticipant(roomName: string, identity: string) {
     return this.roomService.removeParticipant(roomName, identity);
+  }
+
+  async getRoomsSummary() {
+    const rooms = await this.roomService.listRooms();
+    const summaries = await Promise.all(
+      rooms.map(async (room) => {
+        const participants = await this.roomService.listParticipants(room.name);
+        return {
+          name: room.name,
+          metadata: room.metadata ?? null,
+          createdAt: room.creationTime
+            ? new Date(Number(room.creationTime)).toISOString()
+            : null,
+          numParticipants: participants.length,
+          numPublishers: room.numPublishers ?? null,
+          participants: participants.map((participant) => ({
+            identity: participant.identity,
+            name: participant.name ?? participant.identity,
+            metadata: participant.metadata ?? null,
+            joinedAt: participant.joinedAt
+              ? new Date(Number(participant.joinedAt)).toISOString()
+              : null,
+          })),
+        };
+      }),
+    );
+
+    const totalParticipants = summaries.reduce(
+      (sum, room) => sum + room.numParticipants,
+      0,
+    );
+
+    return {
+      livekitUrl: this.livekitUrl,
+      totalRooms: summaries.length,
+      totalParticipants,
+      rooms: summaries,
+    };
   }
 }
