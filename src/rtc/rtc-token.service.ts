@@ -3,6 +3,7 @@ import { randomUUID } from 'node:crypto';
 import { AccessToken, type AccessTokenOptions } from 'livekit-server-sdk';
 import { ConfigService } from '../core/config';
 import { DbService } from '../database';
+import { EventsService } from '../events/events.service';
 
 type Role = 'host' | 'viewer' | 'observer';
 
@@ -31,6 +32,7 @@ export class RtcTokenService {
   constructor(
     private readonly configService: ConfigService,
     private readonly dbService: DbService,
+    private readonly eventsService: EventsService,
   ) {}
 
   async issueToken(params: {
@@ -99,6 +101,14 @@ export class RtcTokenService {
       this.logger.log(
         `Room and member created for iOS user identity=${identity} room=${roomName}`,
       );
+
+      // Emit room created event for real-time updates
+      this.eventsService.emitRoomEvent({
+        type: 'room-created',
+        roomName,
+        identity,
+        name,
+      });
     } else {
       // Web admin - don't create room, just log
       this.logger.log(

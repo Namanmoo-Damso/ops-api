@@ -103,4 +103,42 @@ export class LiveKitService {
       rooms: summaries,
     };
   }
+
+  /**
+   * Close rooms that only have admin participants
+   */
+  async closeAdminOnlyRooms(): Promise<void> {
+    try {
+      const rooms = await this.roomService.listRooms();
+
+      for (const room of rooms) {
+        const participants = await this.roomService.listParticipants(room.name);
+
+        // Check if all participants are admins
+        const hasOnlyAdmins =
+          participants.length > 0 &&
+          participants.every(p => p.identity.startsWith('admin_'));
+
+        if (hasOnlyAdmins) {
+          this.logger.log(`Closing admin-only room: ${room.name}`);
+
+          // Remove all admin participants to close the room
+          for (const participant of participants) {
+            try {
+              await this.roomService.removeParticipant(
+                room.name,
+                participant.identity,
+              );
+            } catch (err) {
+              this.logger.debug(
+                `Failed to remove participant ${participant.identity} from ${room.name}: ${(err as Error).message}`,
+              );
+            }
+          }
+        }
+      }
+    } catch (err) {
+      this.logger.warn(`closeAdminOnlyRooms failed: ${(err as Error).message}`);
+    }
+  }
 }
