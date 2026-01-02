@@ -6,9 +6,11 @@ import { ConfigService } from '../../core/config';
 export class LiveKitService {
   private readonly logger = new Logger(LiveKitService.name);
   private readonly roomService: RoomServiceClient;
+  private readonly livekitUrl: string;
 
   constructor(private readonly configService: ConfigService) {
     const config = this.configService.getConfig();
+    this.livekitUrl = config.livekitUrl;
     this.roomService = new RoomServiceClient(
       config.livekitUrl,
       config.livekitApiKey,
@@ -62,5 +64,43 @@ export class LiveKitService {
 
   async removeParticipant(roomName: string, identity: string) {
     return this.roomService.removeParticipant(roomName, identity);
+  }
+
+  async getRoomsSummary() {
+    const rooms = await this.roomService.listRooms();
+    const summaries = await Promise.all(
+      rooms.map(async room => {
+        const participants = await this.roomService.listParticipants(room.name);
+        return {
+          name: room.name,
+          metadata: room.metadata ?? null,
+          createdAt: room.creationTime
+            ? new Date(Number(room.creationTime)).toISOString()
+            : null,
+          numParticipants: participants.length,
+          numPublishers: room.numPublishers ?? null,
+          participants: participants.map(participant => ({
+            identity: participant.identity,
+            name: participant.name ?? participant.identity,
+            metadata: participant.metadata ?? null,
+            joinedAt: participant.joinedAt
+              ? new Date(Number(participant.joinedAt)).toISOString()
+              : null,
+          })),
+        };
+      }),
+    );
+
+    const totalParticipants = summaries.reduce(
+      (sum, room) => sum + room.numParticipants,
+      0,
+    );
+
+    return {
+      livekitUrl: this.livekitUrl,
+      totalRooms: summaries.length,
+      totalParticipants,
+      rooms: summaries,
+    };
   }
 }

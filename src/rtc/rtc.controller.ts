@@ -14,6 +14,7 @@ import { AuthService } from '../auth';
 import { DbService } from '../database';
 import { ConfigService } from '../core/config';
 import { CallsService } from '../calls';
+import { LiveKitService } from '../integration/livekit';
 
 @Controller()
 export class RtcController {
@@ -25,6 +26,7 @@ export class RtcController {
     private readonly dbService: DbService,
     private readonly configService: ConfigService,
     private readonly callsService: CallsService,
+    private readonly liveKitService: LiveKitService,
   ) {}
 
   private normalizeLivekitUrl(url: string | undefined): string | undefined {
@@ -91,6 +93,7 @@ export class RtcController {
     let authName: string | undefined;
 
     if (bearer) {
+      // Try Kakao auth first (mobile users - guardians/wards)
       const kakaoPayload = this.authService.verifyAccessToken(bearer);
       if (kakaoPayload) {
         const user = await this.dbService.findUserById(kakaoPayload.sub);
@@ -99,13 +102,29 @@ export class RtcController {
           authName = user.nickname ?? user.display_name ?? undefined;
         }
       } else {
+        // Try admin auth (web users - ops dashboard)
         try {
-          const payload = this.authService.verifyApiToken(bearer);
-          authIdentity = payload.identity;
-          authName = payload.displayName;
-        } catch {
-          if (config.authRequired) {
-            throw new HttpException('Unauthorized', HttpStatus.UNAUTHORIZED);
+          const adminPayload = this.authService.verifyAdminAccessToken(bearer);
+          const admin = await this.dbService.findAdminById(adminPayload.sub);
+          if (admin && admin.is_active) {
+            authIdentity = `admin_${admin.id}`;
+            authName = admin.name ?? admin.email;
+            this.logger.log(
+              `issueToken admin authenticated id=${admin.id} email=${admin.email}`,
+            );
+          } else {
+            throw new Error('Admin not found or inactive');
+          }
+        } catch (adminError) {
+          // Fall back to API token (anonymous auth)
+          try {
+            const payload = this.authService.verifyApiToken(bearer);
+            authIdentity = payload.identity;
+            authName = payload.displayName;
+          } catch {
+            if (config.authRequired) {
+              throw new HttpException('Unauthorized', HttpStatus.UNAUTHORIZED);
+            }
           }
         }
       }
@@ -165,5 +184,32 @@ export class RtcController {
       ...rtcData,
       livekitUrl: livekitUrlOverride ?? rtcData.livekitUrl,
     };
+  }
+
+  @Get('v1/livekit/rooms')
+  async listLivekitRooms(
+    @Headers('authorization') authorization: string | undefined,
+  ) {
+    const config = this.configService.getConfig();
+    const auth = this.authService.getAuthContext(authorization);
+    if (config.authRequired && !auth) {
+      throw new HttpException('Unauthorized', HttpStatus.UNAUTHORIZED);
+    }
+
+    try {
+      const summary = await this.liveKitService.getRoomsSummary();
+      this.logger.log(
+        `listLivekitRooms rooms=${summary.totalRooms} participants=${summary.totalParticipants}`,
+      );
+      return summary;
+    } catch (error) {
+      this.logger.warn(
+        `listLivekitRooms failed error=${(error as Error).message}`,
+      );
+      throw new HttpException(
+        'Failed to query LiveKit rooms',
+        HttpStatus.BAD_GATEWAY,
+      );
+    }
   }
 }
