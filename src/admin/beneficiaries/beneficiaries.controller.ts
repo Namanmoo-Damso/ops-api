@@ -12,6 +12,7 @@ import { IsBoolean, IsInt, IsOptional, IsString, Max, Min } from 'class-validato
 import { Transform, Type } from 'class-transformer';
 import { DbService } from '../../database';
 import { AdminOrganizationGuard, CurrentAdmin } from '../../common';
+import type { BeneficiaryListItem } from '../../database/repositories/ward.repository';
 
 class ListBeneficiariesQueryDto {
   @IsOptional()
@@ -37,6 +38,13 @@ class ListBeneficiariesQueryDto {
   pageSize: number = 10;
 }
 
+interface BeneficiaryListResponse {
+  data: BeneficiaryListItem[];
+  page: number;
+  pageSize: number;
+  total: number;
+}
+
 @Controller('v1/admin/beneficiaries')
 @UseGuards(AdminOrganizationGuard)
 @UsePipes(
@@ -52,7 +60,7 @@ export class BeneficiariesController {
   async list(
     @CurrentAdmin() admin: { organization_id?: string },
     @Query() query: ListBeneficiariesQueryDto,
-  ) {
+  ): Promise<BeneficiaryListResponse> {
     const organizationId = admin.organization_id;
     if (!organizationId) {
       throw new HttpException(
@@ -63,18 +71,13 @@ export class BeneficiariesController {
 
     const { search, riskOnly = false, page, pageSize } = query;
 
-    const allRows = await this.dbService.listOrganizationBeneficiaries({
+    const { data, total } = await this.dbService.listOrganizationBeneficiaries({
       organizationId,
       search,
+      riskOnly,
+      page,
+      pageSize,
     });
-
-    const filtered = riskOnly
-      ? allRows.filter(row => row.status === 'WARNING' || row.status === 'CAUTION')
-      : allRows;
-
-    const total = filtered.length;
-    const start = (page - 1) * pageSize;
-    const data = filtered.slice(start, start + pageSize);
 
     return {
       data,

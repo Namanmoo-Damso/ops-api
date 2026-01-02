@@ -18,6 +18,7 @@ import {
   LocationRepository,
   DashboardRepository,
 } from './repositories';
+import type { BeneficiaryListResult } from './repositories/ward.repository';
 
 // Re-export types for backward compatibility
 export type {
@@ -435,7 +436,10 @@ export class DbService implements OnModuleDestroy {
   async listOrganizationBeneficiaries(params: {
     organizationId: string;
     search?: string;
-  }) {
+    riskOnly?: boolean;
+    page: number;
+    pageSize: number;
+  }): Promise<BeneficiaryListResult> {
     return this.wards.listOrganizationBeneficiaries(params);
   }
 

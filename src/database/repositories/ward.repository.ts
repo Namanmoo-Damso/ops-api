@@ -8,6 +8,26 @@ import { Prisma } from '@prisma/client';
 import { WardRow } from '../types';
 import { toWardRow } from '../prisma-mappers';
 
+export enum BeneficiaryStatus {
+  WARNING = 'WARNING',
+  CAUTION = 'CAUTION',
+  NORMAL = 'NORMAL',
+}
+
+export interface BeneficiaryListItem {
+  id: string;
+  name: string;
+  address: string | null;
+  manager: string | null;
+  status: BeneficiaryStatus;
+  lastCall: string | null;
+}
+
+export interface BeneficiaryListResult {
+  data: BeneficiaryListItem[];
+  total: number;
+}
+
 @Injectable()
 export class WardRepository {
   constructor(private readonly prisma: PrismaService) {}
@@ -603,29 +623,39 @@ export class WardRepository {
   async listOrganizationBeneficiaries(params: {
     organizationId: string;
     search?: string;
-  }) {
-    const { organizationId, search } = params;
+    riskOnly?: boolean;
+    page: number;
+    pageSize: number;
+  }): Promise<BeneficiaryListResult> {
+    const { organizationId, search, riskOnly = false, page, pageSize } = params;
 
     // 연동 완료된(isRegistered=true) 대상자만 전체 대상자 관리에 노출
     const where: Prisma.OrganizationWardWhereInput = {
       organizationId,
       isRegistered: true,
     };
-    if (search) {
-      const q = search.trim();
-      if (q) {
-        where.OR = [
-          { name: { contains: q, mode: 'insensitive' } },
-          { address: { contains: q, mode: 'insensitive' } },
-          { email: { contains: q, mode: 'insensitive' } },
-          { phoneNumber: { contains: q, mode: 'insensitive' } },
-        ];
-      }
+    const q = search?.trim();
+    if (q) {
+      where.OR = [
+        { name: { contains: q, mode: 'insensitive' } },
+        { address: { contains: q, mode: 'insensitive' } },
+        { email: { contains: q, mode: 'insensitive' } },
+        { phoneNumber: { contains: q, mode: 'insensitive' } },
+      ];
+    }
+    if (riskOnly) {
+      // 위험/주의 상태를 가진 최근 통화 요약이 있는 대상자만 조회
+      where.ward = {
+        callSummaries: { some: { mood: { in: ['negative', 'neutral'] } } },
+      };
     }
 
+    const total = await this.prisma.organizationWard.count({ where });
     const rows = await this.prisma.organizationWard.findMany({
       where,
       orderBy: { createdAt: 'desc' },
+      skip: (page - 1) * pageSize,
+      take: pageSize,
       include: {
         uploadedByAdmin: { select: { name: true, email: true } },
         ward: {
@@ -640,11 +670,11 @@ export class WardRepository {
       },
     });
 
-    return rows.map(row => {
+    const data = rows.map(row => {
       const mood = row.ward?.callSummaries[0]?.mood;
-      let status: 'WARNING' | 'CAUTION' | 'NORMAL' = 'NORMAL';
-      if (mood === 'negative') status = 'WARNING';
-      else if (mood === 'neutral') status = 'CAUTION';
+      let status = BeneficiaryStatus.NORMAL;
+      if (mood === 'negative') status = BeneficiaryStatus.WARNING;
+      else if (mood === 'neutral') status = BeneficiaryStatus.CAUTION;
 
       const lastCall =
         row.ward?.callSummaries[0]?.call?.createdAt?.toISOString() ?? null;
@@ -652,9 +682,6 @@ export class WardRepository {
       return {
         id: row.id,
         name: row.name,
-        age: null,
-        gender: null,
-        type: null,
         address: row.address,
         manager:
           row.uploadedByAdmin?.name ?? row.uploadedByAdmin?.email ?? null,
@@ -662,5 +689,7 @@ export class WardRepository {
         lastCall,
       };
     });
+
+    return { data, total };
   }
 }
