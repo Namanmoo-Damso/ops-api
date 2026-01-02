@@ -1,10 +1,9 @@
 import { Module, Global } from '@nestjs/common';
 import { AiService } from './ai.service';
+import { AiAnalysisProvider } from './ai.interface';
 import { OpenAiProvider } from './providers/openai.provider';
 import { BedrockProvider } from './providers/bedrock.provider';
 import { DEFAULT_AI_INSTRUCTION, AI_RESPONSE_SCHEMA } from './ai.constants';
-
-export const AI_PROVIDER = 'AI_PROVIDER';
 
 /**
  * AI 모듈
@@ -17,7 +16,7 @@ export const AI_PROVIDER = 'AI_PROVIDER';
   providers: [
     AiService,
     {
-      provide: AI_PROVIDER,
+      provide: AiAnalysisProvider,
       useFactory: () => {
         const providerType = process.env.AI_PROVIDER || 'bedrock';
         const maxTokens = parseInt(process.env.AI_MAX_TOKENS || '1000', 10);

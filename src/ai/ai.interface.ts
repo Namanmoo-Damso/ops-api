@@ -1,5 +1,6 @@
 import { CallAnalysisResult } from './types';
 
-export interface AiAnalysisProvider {
-  analyze(transcript: string): Promise<CallAnalysisResult>;
+export abstract class AiAnalysisProvider {
+  abstract analyze(transcript: string): Promise<CallAnalysisResult>;
 }
+

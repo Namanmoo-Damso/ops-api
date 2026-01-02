@@ -1,7 +1,6 @@
-import { Injectable, Logger, Inject } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { DbService } from '../database';
-import { AI_PROVIDER } from './ai.module';
-import type { AiAnalysisProvider } from './ai.interface';
+import { AiAnalysisProvider } from './ai.interface';
 import { AnalyzeCallResult, AiResponse } from './types';
 
 @Injectable()
@@ -10,7 +9,7 @@ export class AiService {
 
   constructor(
     private readonly dbService: DbService,
-    @Inject(AI_PROVIDER) private readonly aiProvider: AiAnalysisProvider,
+    private readonly aiProvider: AiAnalysisProvider,
   ) {}
 
   async analyzeCall(callId: string): Promise<AnalyzeCallResult> {
