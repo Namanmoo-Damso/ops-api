@@ -28,6 +28,11 @@ import { DEFAULT_AI_INSTRUCTION, AI_RESPONSE_SCHEMA } from './ai.constants';
         }
 
         const maxTokens = parseInt(process.env.AI_MAX_TOKENS || '2000', 10);
+        if (isNaN(maxTokens) || maxTokens <= 0) {
+          throw new Error(
+            `Invalid AI_MAX_TOKENS: ${process.env.AI_MAX_TOKENS}. Must be a positive number.`,
+          );
+        }
 
         const instruction =
           process.env.AI_INSTRUCTION || DEFAULT_AI_INSTRUCTION;
