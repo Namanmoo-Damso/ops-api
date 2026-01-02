@@ -392,6 +392,7 @@ export class WardRepository {
       address: orgWard.address,
       notes: orgWard.notes,
       is_registered: orgWard.isRegistered,
+      ward_id: orgWard.wardId,
       created_at: orgWard.createdAt.toISOString(),
     };
   }

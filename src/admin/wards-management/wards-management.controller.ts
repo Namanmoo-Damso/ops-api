@@ -31,6 +31,105 @@ export class WardsManagementController {
     return emailRegex.test(email);
   }
 
+  private isValidPhone(phone: string): boolean {
+    return /^[\d-]+$/.test(phone);
+  }
+
+  @Post('wards')
+  async createWard(
+    @Headers('authorization') authorization: string | undefined,
+    @Body()
+    body: {
+      organizationId?: string;
+      name?: string;
+      email?: string;
+      phone_number?: string;
+      birth_date?: string;
+      address?: string;
+      notes?: string;
+    },
+  ) {
+    if (!authorization?.startsWith('Bearer ')) {
+      throw new HttpException('Unauthorized', HttpStatus.UNAUTHORIZED);
+    }
+
+    const tokenPayload = this.authService.verifyAdminAccessToken(
+      authorization.slice(7),
+    );
+    const adminId = tokenPayload.sub;
+
+    const organizationId = body.organizationId?.trim();
+    const name = body.name?.trim();
+    const email = body.email?.trim() ?? '';
+    const phoneNumber = body.phone_number?.trim() ?? '';
+    const birthDate = body.birth_date?.trim() || null;
+    const address = body.address?.trim() || null;
+    const notes = body.notes?.trim() || null;
+
+    if (!organizationId) {
+      throw new HttpException(
+        'organizationId is required',
+        HttpStatus.BAD_REQUEST,
+      );
+    }
+    if (!name) {
+      throw new HttpException('name is required', HttpStatus.BAD_REQUEST);
+    }
+    if (!email || !this.isValidEmail(email)) {
+      throw new HttpException('invalid email', HttpStatus.BAD_REQUEST);
+    }
+    if (!phoneNumber || !this.isValidPhone(phoneNumber)) {
+      throw new HttpException('invalid phone number', HttpStatus.BAD_REQUEST);
+    }
+    if (birthDate) {
+      const date = new Date(birthDate);
+      if (Number.isNaN(date.getTime())) {
+        throw new HttpException('invalid birth_date', HttpStatus.BAD_REQUEST);
+      }
+    }
+
+    const organization = await this.dbService.findOrganization(organizationId);
+    if (!organization) {
+      throw new HttpException('Organization not found', HttpStatus.NOT_FOUND);
+    }
+
+    const existing = await this.dbService.findOrganizationWard(
+      organizationId,
+      email,
+    );
+    if (existing) {
+      throw new HttpException(
+        'Ward already exists for this organization',
+        HttpStatus.CONFLICT,
+      );
+    }
+
+    const created = await this.dbService.createOrganizationWard({
+      organizationId,
+      email,
+      phoneNumber,
+      name,
+      birthDate,
+      address,
+      notes: notes ?? undefined,
+      uploadedByAdminId: adminId,
+    });
+
+    return {
+      id: created.id,
+      organizationId: created.organization_id,
+      email: created.email,
+      phoneNumber: created.phone_number,
+      name: created.name,
+      birthDate: created.birth_date,
+      address: created.address,
+      notes: created.notes,
+      isRegistered: created.is_registered,
+      wardId: created.ward_id,
+      createdAt: created.created_at,
+    };
+  }
+
   @Post('wards/bulk-upload')
   @UseInterceptors(FileInterceptor('file'))
   async bulkUploadWards(
