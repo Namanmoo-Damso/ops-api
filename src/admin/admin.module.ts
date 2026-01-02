@@ -7,6 +7,7 @@ import { DashboardController } from './dashboard/dashboard.controller';
 import { WardsManagementController } from './wards-management/wards-management.controller';
 import { LocationsController } from './locations/locations.controller';
 import { EmergenciesController } from './emergencies/emergencies.controller';
+import { BeneficiariesController } from './beneficiaries/beneficiaries.controller';
 import { AuthService } from '../auth';
 import { CallsService } from '../calls';
 import { AdminOrganizationGuard } from '../common';
@@ -23,6 +24,7 @@ import { AdminOrganizationGuard } from '../common';
     WardsManagementController,
     LocationsController,
     EmergenciesController,
+    BeneficiariesController,
   ],
   providers: [AdminAuthService, AuthService, CallsService, AdminOrganizationGuard],
   exports: [AdminAuthService],

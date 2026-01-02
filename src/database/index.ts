@@ -6,6 +6,11 @@ export { DbService } from './db.service';
 
 // Types
 export * from './types';
+export type {
+  BeneficiaryListItem,
+  BeneficiaryListResult,
+  BeneficiaryStatus,
+} from './repositories/ward.repository';
 
 // Repositories
 export {
