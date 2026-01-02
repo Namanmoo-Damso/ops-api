@@ -169,6 +169,7 @@ model Call {
   caller      User?         @relation("CallerCalls", fields: [callerUserId], references: [id], onDelete: SetNull)
   callee      User?         @relation("CalleeCalls", fields: [calleeUserId], references: [id], onDelete: SetNull)
   callSummary CallSummary[]
+  transcripts Transcript[]
 
   @@index([calleeIdentity, state])
   @@index([roomName])
@@ -525,4 +526,26 @@ model AdminRefreshToken {
   @@index([adminId])
   @@index([tokenHash])
   @@map("admin_refresh_tokens")
+}
+
+// =============================================================================
+// 24. TRANSCRIPTS - Store real-time conversation data from AI agent
+// =============================================================================
+model Transcript {
+  id            String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  callId        String   @map("call_id") @db.Uuid
+  roomName      String   @map("room_name")
+  speakerId     String   @map("speaker_id")        // participant identity
+  speakerType   String   @map("speaker_type")      // 'user' | 'agent'
+  text          String                              // transcribed text
+  timestamp     DateTime @default(now())
+  audioFeatures Json?    @map("audio_features")    // Optional: energy, pitch, etc.
+
+  // Relations
+  call Call @relation(fields: [callId], references: [callId], onDelete: Cascade)
+
+  @@index([callId])
+  @@index([roomName])
+  @@index([timestamp])
+  @@map("transcripts")
 }
