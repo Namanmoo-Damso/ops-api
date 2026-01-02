@@ -22,8 +22,17 @@ export class AiService {
       throw new Error(`Call not found: ${callId}`);
     }
 
+    if (!callInfo.transcript) {
+      this.logger.warn(`No transcript found for callId=${callId}`);
+      return {
+        success: false,
+        callId,
+        error: 'No transcript available',
+      };
+    }
+
     // 2. AI 분석
-    const analysis = await this.aiProvider.analyze(callInfo.transcript || '');
+    const analysis = await this.aiProvider.analyze(callInfo.transcript);
 
     if (!analysis.success) {
       this.logger.warn(
