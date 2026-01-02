@@ -1,3 +1,5 @@
+import os
+import sys
 from pathlib import Path
 from dotenv import load_dotenv
 from livekit.agents import (
@@ -11,17 +13,42 @@ from livekit.agents.voice import Agent, AgentSession
 from livekit.plugins import openai, silero
 import logging
 
-load_dotenv(dotenv_path=Path(__file__).parent / ".env")
+from config import validate_env_vars, get_optional_config, ConfigError
 
-# Set logging to DEBUG to see all timing information
-logging.basicConfig(level=logging.DEBUG)
+# Load environment variables
+load_dotenv(dotenv_path=Path(__file__).parent.parent / ".env")
+
+# Validate environment variables before proceeding
+try:
+    env_config = validate_env_vars()
+    optional_config = get_optional_config()
+except ConfigError as e:
+    print(f"❌ Configuration Error: {e}", file=sys.stderr)
+    sys.exit(1)
+
+# Set logging level from environment
+log_level = getattr(logging, optional_config["LOG_LEVEL"].upper(), logging.INFO)
+logging.basicConfig(
+    level=log_level,
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+)
+logger = logging.getLogger(__name__)
 
 
 async def entrypoint(ctx: JobContext):
+    """
+    Main entrypoint for the AI agent when joining a room.
 
-    print(f"--- Simple AI Agent starting in: {ctx.room.name} ---")
+    Args:
+        ctx: JobContext from LiveKit agent framework
+    """
+    try:
+        logger.info(f"Simple AI Agent starting in room: {ctx.room.name}")
 
-    await ctx.connect(auto_subscribe=AutoSubscribe.AUDIO_ONLY)
+        await ctx.connect(auto_subscribe=AutoSubscribe.AUDIO_ONLY)
+    except Exception as e:
+        logger.error(f"Failed to connect to room {ctx.room.name}: {e}")
+        raise
 
     agent = Agent(
         instructions=(
@@ -80,17 +107,27 @@ async def entrypoint(ctx: JobContext):
         discard_audio_if_uninterruptible=False,
     )
 
-    await session.start(agent, room=ctx.room)
+    try:
+        await session.start(agent, room=ctx.room)
 
-    # Greeting in Korean (not English!)
-    session.say("안녕하세요, 어르신. 오늘 어떻게 지내셨어요?")
+        # Greeting in Korean (not English!)
+        session.say("안녕하세요, 어르신. 오늘 어떻게 지내셨어요?")
 
-    print(f"--- Agent ready and listening! ---")
+        logger.info(f"Agent ready and listening in room: {ctx.room.name}")
+    except Exception as e:
+        logger.error(f"Failed to start agent session: {e}")
+        raise
 
 
 if __name__ == "__main__":
     print("=" * 50)
-    print("SIMPLE VOICE ASSISTANT")
-    print("Requires: OPENAI_API_KEY in .env")
+    print("KOREAN VOICE ASSISTANT FOR ELDERLY CARE")
     print("=" * 50)
-    cli.run_app(WorkerOptions(entrypoint_fnc=entrypoint))
+    try:
+        cli.run_app(WorkerOptions(entrypoint_fnc=entrypoint))
+    except KeyboardInterrupt:
+        logger.info("Agent stopped by user")
+        sys.exit(0)
+    except Exception as e:
+        logger.error(f"Fatal error: {e}")
+        sys.exit(1)

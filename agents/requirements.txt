@@ -1,4 +1,10 @@
-python-dotenv
-livekit-agents
-livekit-plugins-openai
-livekit-plugins-silero
+# Environment management
+python-dotenv>=1.0.0,<2.0.0
+
+# LiveKit AI Agents framework
+livekit-agents>=0.8.0,<1.0.0
+livekit-plugins-openai>=0.6.0,<1.0.0
+livekit-plugins-silero>=0.6.0,<1.0.0
+
+# Note: Pin exact versions in production for reproducible builds
+# To generate exact versions: pip freeze > requirements.txt

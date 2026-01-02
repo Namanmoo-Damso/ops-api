@@ -14,4 +14,5 @@ COPY . .
 
 ENV PYTHONUNBUFFERED=1
 
-CMD ["python", "main.py"]
+# Default to simple_agent.py (can override in docker-compose)
+CMD ["python", "voice/simple_agent.py"]
