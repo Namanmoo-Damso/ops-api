@@ -81,9 +81,29 @@ export class BedrockProvider implements AiAnalysisProvider {
 
       // Extract JSON from content if it contains other text
       const jsonMatch = content.match(/\{[\s\S]*\}/);
-      const jsonString = jsonMatch ? jsonMatch[0] : content;
+      if (!jsonMatch) {
+        this.logger.error(
+          `Failed to extract JSON from Bedrock response: ${content}`,
+        );
+        return {
+          success: false,
+          error: 'Failed to extract valid JSON from response',
+        };
+      }
 
-      const result = JSON.parse(jsonString) as AiResponse;
+      let result: AiResponse;
+      try {
+        result = JSON.parse(jsonMatch[0]) as AiResponse;
+      } catch (parseError) {
+        this.logger.error(
+          `JSON parsing failed: ${(parseError as Error).message}`,
+        );
+        return {
+          success: false,
+          error: 'Invalid JSON format in response',
+        };
+      }
+
 
       return {
         success: true,
