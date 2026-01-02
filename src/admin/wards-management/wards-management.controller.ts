@@ -3,69 +3,111 @@ import {
   Get,
   Post,
   Body,
-  Headers,
   HttpException,
   HttpStatus,
   Logger,
+  UseGuards,
   UseInterceptors,
+  UsePipes,
   UploadedFile,
+  ValidationPipe,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { parse } from 'csv-parse/sync';
-import { ConfigService } from '../../core/config';
-import { AuthService } from '../../auth';
+import { plainToInstance } from 'class-transformer';
+import { validateSync } from 'class-validator';
 import { DbService } from '../../database';
+import { CurrentAdmin } from '../../common';
+import { AdminOrganizationGuard } from '../../common/guards/admin-organization.guard';
+import {
+  BulkUploadWardsDto,
+  CreateWardDto,
+} from './dto';
 
 @Controller('v1/admin')
+@UseGuards(AdminOrganizationGuard)
+@UsePipes(
+  new ValidationPipe({
+    whitelist: true,
+    transform: true,
+  }),
+)
 export class WardsManagementController {
   private readonly logger = new Logger(WardsManagementController.name);
 
-  constructor(
-    private readonly configService: ConfigService,
-    private readonly authService: AuthService,
-    private readonly dbService: DbService,
-  ) {}
+  constructor(private readonly dbService: DbService) {}
 
-  private isValidEmail(email: string): boolean {
-    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-    return emailRegex.test(email);
+  private validateWardInput(payload: Partial<CreateWardDto>) {
+    const dto = plainToInstance(CreateWardDto, payload);
+    const errors = validateSync(dto, { whitelist: true, forbidUnknownValues: true });
+
+    if (errors.length > 0) {
+      const constraints = errors[0].constraints;
+      const [firstError] = constraints ? Object.values(constraints) : [];
+      throw new Error(firstError || '잘못된 입력입니다.');
+    }
+  }
+
+  @Post('wards')
+  async createWard(
+    @CurrentAdmin() admin: { sub: string; organization_id?: string },
+    @Body() body: CreateWardDto,
+  ) {
+    const organizationId = body.organizationId;
+    const email = body.email;
+    const organization = await this.dbService.findOrganization(organizationId);
+    if (!organization) {
+      throw new HttpException('Organization not found', HttpStatus.NOT_FOUND);
+    }
+
+    const existing = await this.dbService.findOrganizationWard(
+      organizationId,
+      email,
+    );
+    if (existing) {
+      throw new HttpException(
+        'Ward already exists for this organization',
+        HttpStatus.CONFLICT,
+      );
+    }
+
+    const created = await this.dbService.createOrganizationWard({
+      organizationId,
+      email: body.email,
+      phoneNumber: body.phone_number,
+      name: body.name,
+      birthDate: body.birth_date ?? null,
+      address: body.address ?? null,
+      notes: body.notes,
+      uploadedByAdminId: admin.sub,
+    });
+
+    return {
+      id: created.id,
+      organizationId: created.organization_id,
+      email: created.email,
+      phoneNumber: created.phone_number,
+      name: created.name,
+      birthDate: created.birth_date,
+      address: created.address,
+      notes: created.notes,
+      isRegistered: created.is_registered,
+      wardId: created.ward_id,
+      createdAt: created.created_at,
+    };
   }
 
   @Post('wards/bulk-upload')
   @UseInterceptors(FileInterceptor('file'))
   async bulkUploadWards(
-    @Headers('authorization') authorization: string | undefined,
+    @CurrentAdmin() admin: { sub: string; role?: string; organization_id?: string },
     @UploadedFile() file: Express.Multer.File,
-    @Body() body: { organizationId?: string },
+    @Body() body: BulkUploadWardsDto,
   ) {
-    const config = this.configService.getConfig();
-    const auth = this.authService.getAuthContext(authorization);
-    if (config.authRequired && !auth) {
-      throw new HttpException('Unauthorized', HttpStatus.UNAUTHORIZED);
-    }
-
-    let adminId: string | undefined;
-    if (authorization?.startsWith('Bearer ')) {
-      try {
-        const tokenPayload = this.authService.verifyAdminAccessToken(
-          authorization.slice(7),
-        );
-        adminId = tokenPayload.sub;
-      } catch {
-        // Non-admin token, continue without admin ID
-      }
-    }
+    const organizationId = body.organizationId;
 
     if (!file) {
       throw new HttpException('file is required', HttpStatus.BAD_REQUEST);
-    }
-
-    const organizationId = body.organizationId?.trim();
-    if (!organizationId) {
-      throw new HttpException(
-        'organizationId is required',
-        HttpStatus.BAD_REQUEST,
-      );
     }
 
     const maxSize = 5 * 1024 * 1024;
@@ -82,7 +124,7 @@ export class WardsManagementController {
     }
 
     this.logger.log(
-      `bulkUploadWards organizationId=${organizationId} adminId=${adminId ?? 'none'} fileSize=${file.size}`,
+      `bulkUploadWards organizationId=${organizationId} adminId=${admin.sub} fileSize=${file.size}`,
     );
 
     try {
@@ -111,17 +153,22 @@ export class WardsManagementController {
         const record = records[i];
         const row = i + 2;
         const email = record.email?.trim() ?? '';
+        const phoneNumber = record.phone_number?.trim() ?? '';
+        const name = record.name?.trim() ?? '';
+        const birthDate = record.birth_date?.trim() || null;
+        const address = record.address?.trim() || null;
+        const notes = record.notes?.trim() || undefined;
 
         try {
-          if (!email || !this.isValidEmail(email)) {
-            throw new Error('잘못된 이메일 형식');
-          }
-          if (!record.phone_number?.trim()) {
-            throw new Error('전화번호 필수');
-          }
-          if (!record.name?.trim()) {
-            throw new Error('이름 필수');
-          }
+          this.validateWardInput({
+            organizationId,
+            email,
+            phone_number: phoneNumber,
+            name,
+            birth_date: birthDate ?? undefined,
+            address: address ?? undefined,
+            notes,
+          });
 
           const existing = await this.dbService.findOrganizationWard(
             organizationId,
@@ -135,12 +182,12 @@ export class WardsManagementController {
           await this.dbService.createOrganizationWard({
             organizationId,
             email,
-            phoneNumber: record.phone_number.trim(),
-            name: record.name.trim(),
-            birthDate: record.birth_date?.trim() || null,
-            address: record.address?.trim() || null,
-            uploadedByAdminId: adminId,
-            notes: record.notes?.trim() || undefined,
+            phoneNumber,
+            name,
+            birthDate,
+            address,
+            uploadedByAdminId: admin.sub,
+            notes,
           });
 
           results.created++;
@@ -155,7 +202,7 @@ export class WardsManagementController {
       }
 
       this.logger.log(
-        `bulkUploadWards completed organizationId=${organizationId} adminId=${adminId ?? 'none'} total=${results.total} created=${results.created} skipped=${results.skipped} failed=${results.failed}`,
+        `bulkUploadWards completed organizationId=${organizationId} adminId=${admin.sub} total=${results.total} created=${results.created} skipped=${results.skipped} failed=${results.failed}`,
       );
 
       return {
@@ -175,20 +222,11 @@ export class WardsManagementController {
 
   @Get('my-wards')
   async getMyManagedWards(
-    @Headers('authorization') authorization: string | undefined,
+    @CurrentAdmin() admin: { sub: string },
   ) {
-    if (!authorization?.startsWith('Bearer ')) {
-      throw new HttpException('Unauthorized', HttpStatus.UNAUTHORIZED);
-    }
-
-    const tokenPayload = this.authService.verifyAdminAccessToken(
-      authorization.slice(7),
-    );
-    const adminId = tokenPayload.sub;
-
     const [wards, stats] = await Promise.all([
-      this.dbService.getMyManagedWards(adminId),
-      this.dbService.getMyManagedWardsStats(adminId),
+      this.dbService.getMyManagedWards(admin.sub),
+      this.dbService.getMyManagedWardsStats(admin.sub),
     ]);
 
     return {
