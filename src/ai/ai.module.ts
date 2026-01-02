@@ -1,6 +1,7 @@
 import { Module, Global } from '@nestjs/common';
 import { AiService } from './ai.service';
 import { OpenAiProvider } from './providers/openai.provider';
+import { BedrockProvider } from './providers/bedrock.provider';
 
 export const AI_PROVIDER = 'AI_PROVIDER';
 
@@ -17,7 +18,21 @@ export const AI_PROVIDER = 'AI_PROVIDER';
     {
       provide: AI_PROVIDER,
       useFactory: () => {
-        return new OpenAiProvider(process.env.OPENAI_API_KEY);
+        const providerType = process.env.AI_PROVIDER || 'bedrock';
+
+        if (providerType === 'bedrock') {
+          return new BedrockProvider(
+            process.env.AWS_REGION,
+            process.env.AWS_ACCESS_KEY_ID,
+            process.env.AWS_SECRET_ACCESS_KEY,
+            process.env.BEDROCK_MODEL,
+          );
+        }
+
+        return new OpenAiProvider(
+          process.env.OPENAI_API_KEY,
+          process.env.OPENAI_MODEL,
+        );
       },
     },
   ],

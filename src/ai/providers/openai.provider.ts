@@ -6,8 +6,10 @@ import { CallAnalysisResult, AiResponse } from '../types';
 export class OpenAiProvider implements AiAnalysisProvider {
   private readonly logger = new Logger(OpenAiProvider.name);
   private readonly openai: OpenAI | null;
+  private readonly model: string;
 
-  constructor(apiKey?: string) {
+  constructor(apiKey?: string, model: string = 'gpt-4o-mini') {
+    this.model = model;
     if (apiKey) {
       this.openai = new OpenAI({ apiKey });
       this.logger.log('OpenAI client initialized');
@@ -39,7 +41,7 @@ export class OpenAiProvider implements AiAnalysisProvider {
 
     try {
       const response = await this.openai.chat.completions.create({
-        model: 'gpt-4o-mini',
+        model: this.model,
         messages: [
           { role: 'system', content: systemPrompt },
           { role: 'user', content: transcript || '(대화 내용 없음)' },
