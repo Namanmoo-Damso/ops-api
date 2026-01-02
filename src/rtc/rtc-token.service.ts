@@ -1,4 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
+import { randomUUID } from 'node:crypto';
 import { AccessToken, type AccessTokenOptions } from 'livekit-server-sdk';
 import { ConfigService } from '../core/config';
 import { DbService } from '../database';
@@ -43,11 +44,15 @@ export class RtcTokenService {
     const ttlSeconds = config.livekitTokenTtlSeconds;
     const expiresAt = new Date(Date.now() + ttlSeconds * 1000).toISOString();
 
+    // Generate unique room name for iOS users
+    const isIosUser = !!(params.device?.apnsToken || params.device?.voipToken);
+    const roomName = isIosUser ? `room-${randomUUID()}` : params.roomName;
+
     const deviceSummary = params.device
       ? `apns=${this.summarizeToken(params.device.apnsToken)} voip=${this.summarizeToken(params.device.voipToken)} env=${params.device.env ?? 'default'} platform=${params.device.platform ?? 'ios'}`
       : 'none';
     this.logger.log(
-      `issueToken room=${params.roomName} identity=${params.identity} role=${params.role} device=${deviceSummary}`,
+      `issueToken room=${roomName} (original=${params.roomName}, isIos=${isIosUser}) identity=${params.identity} role=${params.role} device=${deviceSummary}`,
     );
 
     let identity = params.identity;
@@ -80,13 +85,26 @@ export class RtcTokenService {
       }
     }
 
-    // Upsert user and room member
+    // Upsert user
     const user = await this.dbService.upsertUser(identity, name);
-    await this.dbService.upsertRoomMember({
-      roomName: params.roomName,
-      userId: user.id,
-      role: params.role,
-    });
+
+    // Create room and add member for iOS users
+    // Web admins don't create rooms, they only join existing rooms created by iOS users
+    if (isIosUser) {
+      await this.dbService.upsertRoomMember({
+        roomName: roomName,
+        userId: user.id,
+        role: params.role,
+      });
+      this.logger.log(
+        `Room and member created for iOS user identity=${identity} room=${roomName}`,
+      );
+    } else {
+      // Web admin - don't create room, just log
+      this.logger.log(
+        `Web admin token issued without room creation identity=${identity} room=${roomName}`,
+      );
+    }
 
     // Register device if provided
     if (params.device?.apnsToken || params.device?.voipToken) {
@@ -115,7 +133,7 @@ export class RtcTokenService {
 
     accessToken.addGrant({
       roomJoin: true,
-      room: params.roomName,
+      room: roomName,
       canPublish: params.role !== 'observer',
       canSubscribe: true,
       canPublishData: params.role !== 'observer',
@@ -124,7 +142,7 @@ export class RtcTokenService {
 
     return {
       livekitUrl: config.livekitUrl,
-      roomName: params.roomName,
+      roomName: roomName,
       token: await accessToken.toJwt(),
       expiresAt,
       identity,
