@@ -1,17 +1,23 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { RoomServiceClient } from 'livekit-server-sdk';
+import { RoomServiceClient, AgentDispatchClient } from 'livekit-server-sdk';
 import { ConfigService } from '../../core/config';
 
 @Injectable()
 export class LiveKitService {
   private readonly logger = new Logger(LiveKitService.name);
   private readonly roomService: RoomServiceClient;
+  private readonly agentDispatchService: AgentDispatchClient;
   private readonly livekitUrl: string;
 
   constructor(private readonly configService: ConfigService) {
     const config = this.configService.getConfig();
     this.livekitUrl = config.livekitUrl;
     this.roomService = new RoomServiceClient(
+      config.livekitUrl,
+      config.livekitApiKey,
+      config.livekitApiSecret,
+    );
+    this.agentDispatchService = new AgentDispatchClient(
       config.livekitUrl,
       config.livekitApiKey,
       config.livekitApiSecret,
@@ -139,6 +145,57 @@ export class LiveKitService {
       }
     } catch (err) {
       this.logger.warn(`closeAdminOnlyRooms failed: ${(err as Error).message}`);
+    }
+  }
+
+  /**
+   * Dispatch AI agent to a LiveKit room
+   * Creates the room first, then dispatches the agent
+   */
+  async dispatchAgentToRoom(roomName: string): Promise<void> {
+    try {
+      // First, ensure the room exists
+      await this.roomService.createRoom({
+        name: roomName,
+        emptyTimeout: 60, // Room auto-closes after 60 seconds if empty
+        maxParticipants: 10,
+      });
+      this.logger.log(`Created room: ${roomName}`);
+
+      // [Agent 명시적 호출]
+      // LiveKit Cloud에 'voice-assistant'라는 이름의 Agent를 해당 방으로 보내달라고 요청
+      // Agent의 agent_name 설정과 정확히 일치해야 함
+      const dispatch = await this.agentDispatchService.createDispatch(
+        roomName,
+        'voice-assistant', // Python Agent의 agent_name과 동일해야 함
+      );
+
+      this.logger.log(
+        `Created agent dispatch for room: ${roomName}, dispatch_id: ${dispatch.id}`,
+      );
+    } catch (err) {
+      // If room already exists, that's ok - just try to dispatch
+      if ((err as Error).message.includes('already exists')) {
+        try {
+          const dispatch = await this.agentDispatchService.createDispatch(
+            roomName,
+            'voice-assistant', // Explicit agent name
+          );
+          this.logger.log(
+            `Room exists, created agent dispatch: ${roomName}, dispatch_id: ${dispatch.id}`,
+          );
+        } catch (dispatchErr) {
+          this.logger.error(
+            `Failed to dispatch agent to existing room ${roomName}: ${(dispatchErr as Error).message}`,
+          );
+          throw dispatchErr;
+        }
+      } else {
+        this.logger.error(
+          `Failed to dispatch agent to room ${roomName}: ${(err as Error).message}`,
+        );
+        throw err;
+      }
     }
   }
 }

@@ -46,15 +46,13 @@ export class RtcTokenService {
     const ttlSeconds = config.livekitTokenTtlSeconds;
     const expiresAt = new Date(Date.now() + ttlSeconds * 1000).toISOString();
 
-    // Generate unique room name for iOS users
-    const isIosUser = !!(params.device?.apnsToken || params.device?.voipToken);
-    const roomName = isIosUser ? `room-${randomUUID()}` : params.roomName;
+    const roomName = params.roomName;
 
     const deviceSummary = params.device
       ? `apns=${this.summarizeToken(params.device.apnsToken)} voip=${this.summarizeToken(params.device.voipToken)} env=${params.device.env ?? 'default'} platform=${params.device.platform ?? 'ios'}`
       : 'none';
     this.logger.log(
-      `issueToken room=${roomName} (original=${params.roomName}, isIos=${isIosUser}) identity=${params.identity} role=${params.role} device=${deviceSummary}`,
+      `issueToken room=${roomName} identity=${params.identity} role=${params.role} device=${deviceSummary}`,
     );
 
     let identity = params.identity;
@@ -90,8 +88,10 @@ export class RtcTokenService {
     // Upsert user
     const user = await this.dbService.upsertUser(identity, name);
 
-    // Create room and add member for iOS users
-    // Web admins don't create rooms, they only join existing rooms created by iOS users
+    // [방 생성 권한 분리]
+    // iOS 사용자(어르신/보호자): 새 방을 생성하고 AI Agent를 자동으로 호출
+    // 웹 관제센터: 기존 방에만 참여 (방 생성 안함)
+    const isIosUser = !!(params.device?.apnsToken || params.device?.voipToken);
     if (isIosUser) {
       await this.dbService.upsertRoomMember({
         roomName: roomName,
@@ -102,7 +102,8 @@ export class RtcTokenService {
         `Room and member created for iOS user identity=${identity} room=${roomName}`,
       );
 
-      // Emit room created event for real-time updates
+      // [실시간 이벤트 발행]
+      // room-created 이벤트를 발행하여 Auto-dispatch 로직이 AI Agent를 투입하도록 트리거
       this.eventsService.emitRoomEvent({
         type: 'room-created',
         roomName,
@@ -149,6 +150,9 @@ export class RtcTokenService {
       canPublishData: params.role !== 'observer',
       roomAdmin: params.role === 'host',
     });
+
+    // Use automatic agent dispatch (no explicit configuration needed)
+    // The agent worker will automatically join any new room
 
     return {
       livekitUrl: config.livekitUrl,
