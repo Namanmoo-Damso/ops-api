@@ -377,6 +377,9 @@ export class WardRepository {
         name: params.name,
         birthDate: params.birthDate ? new Date(params.birthDate) : null,
         address: params.address,
+        // 신규 등록은 기본적으로 미연동 상태
+        isRegistered: false,
+        wardId: null,
         notes: params.notes ?? null,
       },
     });
@@ -594,6 +597,70 @@ export class WardRepository {
     await this.prisma.callSchedule.update({
       where: { id: scheduleId },
       data: { reminderSentAt: new Date() },
+    });
+  }
+
+  async listOrganizationBeneficiaries(params: {
+    organizationId: string;
+    search?: string;
+  }) {
+    const { organizationId, search } = params;
+
+    // 연동 완료된(isRegistered=true) 대상자만 전체 대상자 관리에 노출
+    const where: Prisma.OrganizationWardWhereInput = {
+      organizationId,
+      isRegistered: true,
+    };
+    if (search) {
+      const q = search.trim();
+      if (q) {
+        where.OR = [
+          { name: { contains: q, mode: 'insensitive' } },
+          { address: { contains: q, mode: 'insensitive' } },
+          { email: { contains: q, mode: 'insensitive' } },
+          { phoneNumber: { contains: q, mode: 'insensitive' } },
+        ];
+      }
+    }
+
+    const rows = await this.prisma.organizationWard.findMany({
+      where,
+      orderBy: { createdAt: 'desc' },
+      include: {
+        uploadedByAdmin: { select: { name: true, email: true } },
+        ward: {
+          include: {
+            callSummaries: {
+              orderBy: { createdAt: 'desc' },
+              take: 1,
+              select: { mood: true, call: { select: { createdAt: true } } },
+            },
+          },
+        },
+      },
+    });
+
+    return rows.map(row => {
+      const mood = row.ward?.callSummaries[0]?.mood;
+      let status: 'WARNING' | 'CAUTION' | 'NORMAL' = 'NORMAL';
+      if (mood === 'negative') status = 'WARNING';
+      else if (mood === 'neutral') status = 'CAUTION';
+
+      const lastCall =
+        row.ward?.callSummaries[0]?.call?.createdAt?.toISOString() ?? null;
+
+      return {
+        id: row.id,
+        name: row.name,
+        age: null,
+        gender: null,
+        type: null,
+        address: row.address,
+        manager:
+          row.uploadedByAdmin?.name ?? row.uploadedByAdmin?.email ?? null,
+        status,
+        lastCall,
+      };
     });
   }
 }

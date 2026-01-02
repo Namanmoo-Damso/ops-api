@@ -432,6 +432,13 @@ export class DbService implements OnModuleDestroy {
     return this.wards.markReminderSent(scheduleId);
   }
 
+  async listOrganizationBeneficiaries(params: {
+    organizationId: string;
+    search?: string;
+  }) {
+    return this.wards.listOrganizationBeneficiaries(params);
+  }
+
   // ============================================================
   // Admin methods
   // ============================================================
