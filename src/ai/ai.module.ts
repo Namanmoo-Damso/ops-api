@@ -1,5 +1,8 @@
 import { Module, Global } from '@nestjs/common';
 import { AiService } from './ai.service';
+import { OpenAiProvider } from './providers/openai.provider';
+
+export const AI_PROVIDER = 'AI_PROVIDER';
 
 /**
  * AI 모듈
@@ -9,7 +12,15 @@ import { AiService } from './ai.service';
  */
 @Global()
 @Module({
-  providers: [AiService],
+  providers: [
+    AiService,
+    {
+      provide: AI_PROVIDER,
+      useFactory: () => {
+        return new OpenAiProvider(process.env.OPENAI_API_KEY);
+      },
+    },
+  ],
   exports: [AiService],
 })
 export class AiModule {}
