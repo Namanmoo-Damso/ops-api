@@ -4,7 +4,7 @@
  */
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../../prisma';
-import { Prisma } from '../../generated/prisma';
+import { Prisma } from '@prisma/client';
 import { CallRow, CallSummaryRow } from '../types';
 import { toCallRow, toCallSummaryRow } from '../prisma-mappers';
 

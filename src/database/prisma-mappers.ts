@@ -11,7 +11,8 @@ import {
   CallSummary,
   Ward,
   GuardianWardRegistration,
-} from '../generated/prisma';
+} from '@prisma/client';
+
 import {
   UserRow,
   DeviceRow,
