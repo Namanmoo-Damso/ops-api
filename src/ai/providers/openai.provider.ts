@@ -44,7 +44,7 @@ export class OpenAiProvider implements AiAnalysisProvider {
         model: this.model,
         messages: [
           { role: 'system', content: systemPrompt },
-          { role: 'user', content: transcript || '(대화 내용 없음)' },
+          { role: 'user', content: transcript },
         ],
         response_format: { type: 'json_object' },
         max_tokens: 1000,
