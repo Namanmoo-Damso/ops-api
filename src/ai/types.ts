@@ -11,20 +11,29 @@ export type AiResponse = {
   };
 };
 
-export type CallAnalysisResult =
-  | ({ success: true } & AiResponse)
-  | { success: false; error: string };
+export type CallAnalysisSuccess = AiResponse & {
+  success: true;
+};
 
-export type AnalyzeCallResult =
-  | ({ success: true } & AiResponse & {
-      callId: string;
-      wardId: string | null;
-      duration: number | null;
-      createdAt: string;
-    })
-  | {
-      success: false;
-      callId: string;
-      error: string;
-    };
+export type CallAnalysisFailure = {
+  success: false;
+  error: string;
+};
 
+export type CallAnalysisResult = CallAnalysisSuccess | CallAnalysisFailure;
+
+export type AnalyzeCallSuccess = AiResponse & {
+  success: true;
+  callId: string;
+  wardId: string | null;
+  duration: number | null;
+  createdAt: string;
+};
+
+export type AnalyzeCallFailure = {
+  success: false;
+  callId: string;
+  error: string;
+};
+
+export type AnalyzeCallResult = AnalyzeCallSuccess | AnalyzeCallFailure;
