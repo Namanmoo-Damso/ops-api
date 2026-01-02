@@ -9,6 +9,7 @@ import { LocationsController } from './locations/locations.controller';
 import { EmergenciesController } from './emergencies/emergencies.controller';
 import { AuthService } from '../auth';
 import { CallsService } from '../calls';
+import { AdminOrganizationGuard } from '../common';
 
 @Module({
   imports: [
@@ -23,7 +24,7 @@ import { CallsService } from '../calls';
     LocationsController,
     EmergenciesController,
   ],
-  providers: [AdminAuthService, AuthService, CallsService],
+  providers: [AdminAuthService, AuthService, CallsService, AdminOrganizationGuard],
   exports: [AdminAuthService],
 })
 export class AdminModule {}

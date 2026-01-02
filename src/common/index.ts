@@ -11,6 +11,7 @@ export type {
 // Guards
 export { JwtAuthGuard } from './guards/jwt-auth.guard';
 export { AdminAuthGuard } from './guards/admin-auth.guard';
+export { AdminOrganizationGuard } from './guards/admin-organization.guard';
 
 // Filters
 export { HttpExceptionFilter } from './filters/http-exception.filter';
