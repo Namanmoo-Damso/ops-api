@@ -348,6 +348,7 @@ model OrganizationWard {
 
   @@unique([organizationId, email])
   @@index([organizationId])
+  @@index([organizationId, isRegistered, wardId])
   @@index([email])
   @@index([isRegistered])
   @@index([uploadedByAdminId])
