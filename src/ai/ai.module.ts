@@ -2,6 +2,7 @@ import { Module, Global } from '@nestjs/common';
 import { AiService } from './ai.service';
 import { OpenAiProvider } from './providers/openai.provider';
 import { BedrockProvider } from './providers/bedrock.provider';
+import { DEFAULT_AI_INSTRUCTION, AI_RESPONSE_SCHEMA } from './ai.constants';
 
 export const AI_PROVIDER = 'AI_PROVIDER';
 
@@ -19,6 +20,10 @@ export const AI_PROVIDER = 'AI_PROVIDER';
       provide: AI_PROVIDER,
       useFactory: () => {
         const providerType = process.env.AI_PROVIDER || 'bedrock';
+        const maxTokens = parseInt(process.env.AI_MAX_TOKENS || '1000', 10);
+        const instruction =
+          process.env.AI_INSTRUCTION || DEFAULT_AI_INSTRUCTION;
+        const systemPrompt = `${instruction}\n${AI_RESPONSE_SCHEMA}`;
 
         if (providerType === 'bedrock') {
           return new BedrockProvider(
@@ -26,12 +31,16 @@ export const AI_PROVIDER = 'AI_PROVIDER';
             process.env.AWS_ACCESS_KEY_ID,
             process.env.AWS_SECRET_ACCESS_KEY,
             process.env.BEDROCK_MODEL,
+            maxTokens,
+            systemPrompt,
           );
         }
 
         return new OpenAiProvider(
           process.env.OPENAI_API_KEY,
           process.env.OPENAI_MODEL,
+          maxTokens,
+          systemPrompt,
         );
       },
     },

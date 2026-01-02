@@ -6,18 +6,26 @@ import {
 import { AiAnalysisProvider } from '../ai.interface';
 import { CallAnalysisResult, AiResponse } from '../types';
 
+import { DEFAULT_SYSTEM_PROMPT } from '../ai.constants';
+
 export class BedrockProvider implements AiAnalysisProvider {
   private readonly logger = new Logger(BedrockProvider.name);
   private readonly client: BedrockRuntimeClient | null;
   private readonly modelId: string;
+  private readonly maxTokens: number;
+  private readonly systemPrompt: string;
 
   constructor(
     region?: string,
     accessKeyId?: string,
     secretAccessKey?: string,
     modelId: string = 'anthropic.claude-3-haiku-20240307-v1:0',
+    maxTokens: number = 1000,
+    systemPrompt: string = DEFAULT_SYSTEM_PROMPT,
   ) {
     this.modelId = modelId;
+    this.maxTokens = maxTokens;
+    this.systemPrompt = systemPrompt;
     if (region && accessKeyId && secretAccessKey) {
       this.client = new BedrockRuntimeClient({
         region,
@@ -38,25 +46,10 @@ export class BedrockProvider implements AiAnalysisProvider {
       return { success: false, error: 'AWS credentials are not configured' };
     }
 
-    const systemPrompt = `당신은 어르신과 AI(다미)의 대화를 분석하는 전문가입니다.
-다음 JSON 형식으로 분석 결과를 반환해주세요:
-{
-  "summary": "대화 요약 (2-3문장, 한국어)",
-  "mood": "positive" | "neutral" | "negative",
-  "moodScore": 0.0 ~ 1.0 (감정 점수, 1이 가장 긍정적),
-  "tags": ["키워드1", "키워드2", ...] (최대 5개, 한국어),
-  "healthKeywords": {
-    "pain": 언급 횟수 (숫자) 또는 null,
-    "sleep": "good" | "bad" | "mentioned" 또는 null,
-    "meal": "regular" | "irregular" | "mentioned" 또는 null,
-    "medication": "compliant" | "non-compliant" | "mentioned" 또는 null
-  }
-}`;
-
     const payload = {
       anthropic_version: 'bedrock-2023-05-31',
-      max_tokens: 1000,
-      system: systemPrompt,
+      max_tokens: this.maxTokens,
+      system: this.systemPrompt,
       messages: [
         {
           role: 'user',

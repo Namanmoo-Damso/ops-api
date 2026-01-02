@@ -3,13 +3,24 @@ import OpenAI from 'openai';
 import { AiAnalysisProvider } from '../ai.interface';
 import { CallAnalysisResult, AiResponse } from '../types';
 
+import { DEFAULT_SYSTEM_PROMPT } from '../ai.constants';
+
 export class OpenAiProvider implements AiAnalysisProvider {
   private readonly logger = new Logger(OpenAiProvider.name);
   private readonly openai: OpenAI | null;
   private readonly model: string;
+  private readonly maxTokens: number;
+  private readonly systemPrompt: string;
 
-  constructor(apiKey?: string, model: string = 'gpt-4o-mini') {
+  constructor(
+    apiKey?: string,
+    model: string = 'gpt-4o-mini',
+    maxTokens: number = 1000,
+    systemPrompt: string = DEFAULT_SYSTEM_PROMPT,
+  ) {
     this.model = model;
+    this.maxTokens = maxTokens;
+    this.systemPrompt = systemPrompt;
     if (apiKey) {
       this.openai = new OpenAI({ apiKey });
       this.logger.log('OpenAI client initialized');
@@ -24,30 +35,15 @@ export class OpenAiProvider implements AiAnalysisProvider {
       return { success: false, error: 'OpenAI API key is not configured' };
     }
 
-    const systemPrompt = `당신은 어르신과 AI(다미)의 대화를 분석하는 전문가입니다.
-다음 JSON 형식으로 분석 결과를 반환해주세요:
-{
-  "summary": "대화 요약 (2-3문장, 한국어)",
-  "mood": "positive" | "neutral" | "negative",
-  "moodScore": 0.0 ~ 1.0 (감정 점수, 1이 가장 긍정적),
-  "tags": ["키워드1", "키워드2", ...] (최대 5개, 한국어),
-  "healthKeywords": {
-    "pain": 언급 횟수 (숫자) 또는 null,
-    "sleep": "good" | "bad" | "mentioned" 또는 null,
-    "meal": "regular" | "irregular" | "mentioned" 또는 null,
-    "medication": "compliant" | "non-compliant" | "mentioned" 또는 null
-  }
-}`;
-
     try {
       const response = await this.openai.chat.completions.create({
         model: this.model,
         messages: [
-          { role: 'system', content: systemPrompt },
+          { role: 'system', content: this.systemPrompt },
           { role: 'user', content: transcript },
         ],
         response_format: { type: 'json_object' },
-        max_tokens: 1000,
+        max_tokens: this.maxTokens,
       });
 
       const content = response.choices[0]?.message?.content;
