@@ -2,7 +2,7 @@ import { Injectable, Logger, Inject } from '@nestjs/common';
 import { DbService } from '../database';
 import { AI_PROVIDER } from './ai.module';
 import type { AiAnalysisProvider } from './ai.interface';
-import { CallAnalysisResult, AnalyzeCallResult } from './types';
+import { AnalyzeCallResult, AiResponse } from './types';
 
 @Injectable()
 export class AiService {
@@ -22,8 +22,19 @@ export class AiService {
       throw new Error(`Call not found: ${callId}`);
     }
 
-    // 2. AI 분석 (또는 Mock)
+    // 2. AI 분석
     const analysis = await this.aiProvider.analyze(callInfo.transcript || '');
+
+    if (!analysis.success) {
+      this.logger.warn(
+        `Analysis failed for callId=${callId}: ${analysis.error}`,
+      );
+      return {
+        success: false,
+        callId,
+        error: analysis.error,
+      };
+    }
 
     // 3. call_summaries 저장
     const summary = await this.dbService.createCallSummary({
@@ -50,6 +61,7 @@ export class AiService {
     );
 
     return {
+      success: true,
       callId,
       wardId: callInfo.ward_id,
       summary: analysis.summary,
@@ -65,9 +77,10 @@ export class AiService {
   private async checkHealthAlerts(
     wardId: string,
     guardianId: string,
-    analysis: CallAnalysisResult,
+    analysis: AiResponse,
   ) {
     // 통증 관련 체크
+
     if (analysis.healthKeywords.pain && analysis.healthKeywords.pain > 0) {
       // 최근 3일 통증 언급 횟수 확인
       const recentPainCount = await this.dbService.getRecentPainMentions(

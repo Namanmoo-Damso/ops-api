@@ -1,7 +1,7 @@
 import { Logger } from '@nestjs/common';
 import OpenAI from 'openai';
 import { AiAnalysisProvider } from '../ai.interface';
-import { CallAnalysisResult } from '../types';
+import { CallAnalysisResult, AiResponse } from '../types';
 
 export class OpenAiProvider implements AiAnalysisProvider {
   private readonly logger = new Logger(OpenAiProvider.name);
@@ -13,15 +13,13 @@ export class OpenAiProvider implements AiAnalysisProvider {
       this.logger.log('OpenAI client initialized');
     } else {
       this.openai = null;
-      this.logger.warn(
-        'OPENAI_API_KEY not set, AI analysis will use mock data',
-      );
+      this.logger.warn('OPENAI_API_KEY not set, AI analysis will fail');
     }
   }
 
   async analyze(transcript: string): Promise<CallAnalysisResult> {
     if (!this.openai) {
-      return this.getMockAnalysis();
+      return { success: false, error: 'OpenAI API key is not configured' };
     }
 
     const systemPrompt = `당신은 어르신과 AI(다미)의 대화를 분석하는 전문가입니다.
@@ -52,12 +50,12 @@ export class OpenAiProvider implements AiAnalysisProvider {
 
       const content = response.choices[0]?.message?.content;
       if (!content) {
-        this.logger.warn('OpenAI returned empty response, using mock data');
-        return this.getMockAnalysis();
+        return { success: false, error: 'OpenAI returned empty response' };
       }
 
-      const result = JSON.parse(content) as CallAnalysisResult;
+      const result = JSON.parse(content) as AiResponse;
       return {
+        success: true,
         summary: result.summary || '',
         mood: result.mood || 'neutral',
         moodScore: Math.max(0, Math.min(1, result.moodScore || 0.5)),
@@ -71,23 +69,7 @@ export class OpenAiProvider implements AiAnalysisProvider {
       };
     } catch (error) {
       this.logger.error(`OpenAI analysis failed: ${(error as Error).message}`);
-      return this.getMockAnalysis();
+      return { success: false, error: (error as Error).message };
     }
-  }
-
-  private getMockAnalysis(): CallAnalysisResult {
-    return {
-      summary:
-        '어르신께서 오늘 날씨가 좋다고 말씀하시며 즐거워하셨습니다. 손주들 이야기를 하시며 웃으셨고, 건강 상태는 양호해 보입니다.',
-      mood: 'positive',
-      moodScore: 0.85,
-      tags: ['날씨', '손주', '긍정적'],
-      healthKeywords: {
-        pain: null,
-        sleep: 'good',
-        meal: 'regular',
-        medication: null,
-      },
-    };
   }
 }

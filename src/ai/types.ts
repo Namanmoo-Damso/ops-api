@@ -1,4 +1,4 @@
-export type CallAnalysisResult = {
+export type AiResponse = {
   summary: string;
   mood: 'positive' | 'neutral' | 'negative';
   moodScore: number;
@@ -11,14 +11,20 @@ export type CallAnalysisResult = {
   };
 };
 
-export type AnalyzeCallResult = {
-  callId: string;
-  wardId: string | null;
-  summary: string;
-  mood: string;
-  moodScore: number;
-  tags: string[];
-  healthKeywords: Record<string, unknown>;
-  duration: number | null;
-  createdAt: string;
-};
+export type CallAnalysisResult =
+  | ({ success: true } & AiResponse)
+  | { success: false; error: string };
+
+export type AnalyzeCallResult =
+  | ({ success: true } & AiResponse & {
+      callId: string;
+      wardId: string | null;
+      duration: number | null;
+      createdAt: string;
+    })
+  | {
+      success: false;
+      callId: string;
+      error: string;
+    };
+
