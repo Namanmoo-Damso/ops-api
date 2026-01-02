@@ -537,9 +537,9 @@ model Transcript {
   roomName      String   @map("room_name")
   speakerId     String   @map("speaker_id")        // participant identity
   speakerType   String   @map("speaker_type")      // 'user' | 'agent'
-  text          String                              // transcribed text
+  text          String                              // transcribed text (validated non-empty at app level)
   timestamp     DateTime @default(now())
-  audioFeatures Json?    @map("audio_features")    // Optional: energy, pitch, etc.
+  audioFeatures Json?    @map("audio_features")    // Optional: { energy, pitch, etc. }
 
   // Relations
   call Call @relation(fields: [callId], references: [callId], onDelete: Cascade)
@@ -547,5 +547,6 @@ model Transcript {
   @@index([callId])
   @@index([roomName])
   @@index([timestamp])
+  @@index([speakerId, speakerType])
   @@map("transcripts")
 }
