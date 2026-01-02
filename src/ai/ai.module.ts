@@ -18,15 +18,28 @@ import { DEFAULT_AI_INSTRUCTION, AI_RESPONSE_SCHEMA } from './ai.constants';
     {
       provide: AiAnalysisProvider,
       useFactory: () => {
-        const providerType = process.env.AI_PROVIDER || 'bedrock';
-        const maxTokens = parseInt(process.env.AI_MAX_TOKENS || '1000', 10);
+        const providerType = process.env.AI_PROVIDER || 'openai';
+        const validProviders = ['bedrock', 'openai'];
+
+        if (!validProviders.includes(providerType)) {
+          throw new Error(
+            `Invalid AI_PROVIDER: ${providerType}. Must be one of: ${validProviders.join(', ')}`,
+          );
+        }
+
+        const maxTokens = parseInt(process.env.AI_MAX_TOKENS || '2000', 10);
+
         const instruction =
           process.env.AI_INSTRUCTION || DEFAULT_AI_INSTRUCTION;
         const systemPrompt = `${instruction}\n${AI_RESPONSE_SCHEMA}`;
 
         if (providerType === 'bedrock') {
+          if (!process.env.AWS_REGION) {
+            throw new Error('AWS_REGION is required for Bedrock provider');
+          }
           return new BedrockProvider(
             process.env.AWS_REGION,
+
             process.env.AWS_ACCESS_KEY_ID,
             process.env.AWS_SECRET_ACCESS_KEY,
             process.env.BEDROCK_MODEL,
@@ -35,8 +48,13 @@ import { DEFAULT_AI_INSTRUCTION, AI_RESPONSE_SCHEMA } from './ai.constants';
           );
         }
 
+        if (!process.env.OPENAI_API_KEY) {
+          throw new Error('OPENAI_API_KEY is required for OpenAI provider');
+        }
+
         return new OpenAiProvider(
           process.env.OPENAI_API_KEY,
+
           process.env.OPENAI_MODEL,
           maxTokens,
           systemPrompt,
