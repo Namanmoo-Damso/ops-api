@@ -1,17 +1,23 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { RoomServiceClient } from 'livekit-server-sdk';
+import { RoomServiceClient, AgentDispatchClient } from 'livekit-server-sdk';
 import { ConfigService } from '../../core/config';
 
 @Injectable()
 export class LiveKitService {
   private readonly logger = new Logger(LiveKitService.name);
   private readonly roomService: RoomServiceClient;
+  private readonly agentDispatch: AgentDispatchClient;
   private readonly livekitUrl: string;
 
   constructor(private readonly configService: ConfigService) {
     const config = this.configService.getConfig();
     this.livekitUrl = config.livekitUrl;
     this.roomService = new RoomServiceClient(
+      config.livekitUrl,
+      config.livekitApiKey,
+      config.livekitApiSecret,
+    );
+    this.agentDispatch = new AgentDispatchClient(
       config.livekitUrl,
       config.livekitApiKey,
       config.livekitApiSecret,
@@ -64,6 +70,26 @@ export class LiveKitService {
 
   async removeParticipant(roomName: string, identity: string) {
     return this.roomService.removeParticipant(roomName, identity);
+  }
+
+  /**
+   * Dispatch a voice agent to join the room
+   */
+  async dispatchVoiceAgent(
+    roomName: string,
+    metadata?: Record<string, unknown>,
+  ): Promise<void> {
+    try {
+      const metadataStr = metadata ? JSON.stringify(metadata) : undefined;
+      await this.agentDispatch.createDispatch(roomName, 'voice-agent', {
+        metadata: metadataStr,
+      });
+      this.logger.log(`Voice agent dispatched to room=${roomName}`);
+    } catch (err) {
+      this.logger.warn(
+        `Failed to dispatch voice agent to room=${roomName}: ${(err as Error).message}`,
+      );
+    }
   }
 
   async getRoomsSummary() {

@@ -81,16 +81,16 @@ async def entrypoint(ctx: JobContext):
         # ✅ Configure models IN THE AGENT (not session) for proper instruction binding
         stt=aws.STT(language="ko-KR"),  # Amazon Transcribe - Korean
         llm=aws.LLM(
-            model="anthropic.claude-sonnet-4-20250514-v1:0",  # Bedrock Claude Sonnet 4
+            model="global.anthropic.claude-haiku-4-5-20251001-v1:0",  # Bedrock Claude 4.5 Haiku (cross-region)
             temperature=0.7,
         ),
         tts=aws.TTS(
-            voice="Seoyeon",  # Amazon Polly - 한국어 여성 음성
-            engine="neural",  # neural 엔진 사용 (더 자연스러운 음성)
+            voice="Seoyeon",  # Amazon Polly - 한국어 여성 음성 (neural engine 기본)
         ),
         vad=silero.VAD.load(
-            min_speech_duration=0.1,  # Detect speech faster (default 0.25s)
+            min_speech_duration=0.3,  # 최소 0.3초 이상 음성이어야 인식 (노이즈 필터)
             min_silence_duration=1.0,  # 어르신들 느린 속도 고려
+            activation_threshold=0.7,  # 음성 감지 임계값 (0.7 = 70% 확률 이상만 음성)
         ),
         # Timing optimizations - REDUCE transcript delay
         allow_interruptions=True,
@@ -105,6 +105,8 @@ async def entrypoint(ctx: JobContext):
         false_interruption_timeout=3.0,
         resume_false_interruption=True,
         discard_audio_if_uninterruptible=False,
+        # TTS-aligned transcription for iOS subtitles
+        use_tts_aligned_transcript=True,
     )
 
     try:
@@ -119,12 +121,28 @@ async def entrypoint(ctx: JobContext):
         raise
 
 
+async def request_fnc(ctx):
+    """
+    Automatically accept job requests when a room is created.
+    This allows the agent to join rooms without explicit dispatch.
+    """
+    logger.info(f"Received job request for room: {ctx.room.name}")
+    # Accept all job requests - agent will join any room
+    await ctx.accept()
+
+
 if __name__ == "__main__":
     print("=" * 50)
     print("KOREAN VOICE ASSISTANT FOR ELDERLY CARE")
     print("=" * 50)
     try:
-        cli.run_app(WorkerOptions(entrypoint_fnc=entrypoint))
+        cli.run_app(
+            WorkerOptions(
+                entrypoint_fnc=entrypoint,
+                request_fnc=request_fnc,
+                agent_name="voice-agent",  # Agent name for explicit dispatch
+            )
+        )
     except KeyboardInterrupt:
         logger.info("Agent stopped by user")
         sys.exit(0)

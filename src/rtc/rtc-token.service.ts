@@ -4,6 +4,7 @@ import { AccessToken, type AccessTokenOptions } from 'livekit-server-sdk';
 import { ConfigService } from '../core/config';
 import { DbService } from '../database';
 import { EventsService } from '../events/events.service';
+import { LiveKitService } from '../integration/livekit/livekit.service';
 
 type Role = 'host' | 'viewer' | 'observer';
 
@@ -33,6 +34,7 @@ export class RtcTokenService {
     private readonly configService: ConfigService,
     private readonly dbService: DbService,
     private readonly eventsService: EventsService,
+    private readonly liveKitService: LiveKitService,
   ) {}
 
   async issueToken(params: {
@@ -109,6 +111,13 @@ export class RtcTokenService {
         identity,
         name,
       });
+
+      // Dispatch voice agent to the room
+      await this.liveKitService.dispatchVoiceAgent(roomName, {
+        userId: user.id,
+        identity,
+        name,
+      });
     } else {
       // Web admin - don't create room, just log
       this.logger.log(
@@ -148,6 +157,7 @@ export class RtcTokenService {
       canSubscribe: true,
       canPublishData: params.role !== 'observer',
       roomAdmin: params.role === 'host',
+      hidden: params.role === 'host', // Admin은 다른 참가자에게 안 보임
     });
 
     return {
