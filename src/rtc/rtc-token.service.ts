@@ -43,6 +43,7 @@ export class RtcTokenService {
     name: string;
     role: Role;
     device?: DeviceInfo;
+    isAuthenticated?: boolean;
   }): Promise<RtcTokenResult> {
     const config = this.configService.getConfig();
     const ttlSeconds = config.livekitTokenTtlSeconds;
@@ -89,8 +90,19 @@ export class RtcTokenService {
       }
     }
 
-    // Upsert user
-    const user = await this.dbService.upsertUser(identity, name);
+    // 인증된 경우만 upsert, 아니면 find만 (익명 사용자 생성 방지)
+    let user;
+    if (params.isAuthenticated) {
+      user = await this.dbService.upsertUser(identity, name);
+    } else {
+      user = await this.dbService.findUserByIdentity(identity);
+      if (!user) {
+        this.logger.warn(
+          `issueToken rejected - user not found identity=${identity} (login required)`,
+        );
+        throw new Error('로그인이 필요합니다');
+      }
+    }
 
     // Create room and add member for iOS users
     // Web admins don't create rooms, they only join existing rooms created by iOS users

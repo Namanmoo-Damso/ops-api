@@ -178,6 +178,7 @@ export class RtcController {
               supportsCallKit: body.supportsCallKit,
             }
           : undefined,
+      isAuthenticated: !!authIdentity,
     });
 
     return {
