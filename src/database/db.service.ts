@@ -118,7 +118,11 @@ export class DbService implements OnModuleDestroy {
     voipToken?: string;
     supportsCallKit?: boolean;
   }) {
-    const user = await this.upsertUser(params.identity, params.displayName);
+    // 익명 사용자 생성 차단 - 기존 사용자만 허용
+    const user = await this.findUserByIdentity(params.identity);
+    if (!user) {
+      throw new Error('로그인이 필요합니다');
+    }
     return this.devices.upsert(user, params);
   }
 
