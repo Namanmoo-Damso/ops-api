@@ -73,12 +73,16 @@ type KakaoLoginResult =
       accessToken: string;
       refreshToken: string;
       user: UserInfo;
-      matchStatus: 'matched' | 'not_matched';
+      matchStatus: 'matched';
       wardInfo?: {
         phoneNumber: string;
         linkedGuardian?: {
           id: string;
           nickname: string | null;
+        };
+        linkedOrganization?: {
+          id: string;
+          name: string;
         };
       };
     };
@@ -207,12 +211,29 @@ export class AuthService {
   private async handleWardRegistration(
     kakaoProfile: KakaoProfile,
   ): Promise<KakaoLoginResult> {
-    // 어르신의 이메일로 보호자 매칭 시도
+    // 1. 어르신의 이메일로 보호자 매칭 시도
     const matchedGuardian = kakaoProfile.email
       ? await this.dbService.findGuardianByWardEmail(kakaoProfile.email)
       : undefined;
 
-    // 사용자 생성
+    // 2. 어르신의 이메일로 기관 피보호자 매칭 시도
+    const matchedOrganizationWard = kakaoProfile.email
+      ? await this.dbService.findPendingOrganizationWardByEmail(
+          kakaoProfile.email,
+        )
+      : undefined;
+
+    // 3. 보호자도 기관도 없으면 가입 차단
+    if (!matchedGuardian && !matchedOrganizationWard) {
+      this.logger.warn(
+        `Ward registration blocked - no guardian or organization found for email=${kakaoProfile.email}`,
+      );
+      throw new UnauthorizedException(
+        '등록된 보호자 또는 기관이 없습니다. 보호자에게 먼저 등록을 요청해주세요.',
+      );
+    }
+
+    // 4. 사용자 생성
     const user = await this.dbService.createUserWithKakao({
       kakaoId: kakaoProfile.kakaoId,
       email: kakaoProfile.email,
@@ -221,47 +242,72 @@ export class AuthService {
       userType: 'ward',
     });
 
-    // 어르신 정보 생성
+    // 5. 어르신 정보 생성
     const ward = await this.dbService.createWard({
       userId: user.id,
       phoneNumber: '', // 이후 설정에서 입력
       guardianId: matchedGuardian?.id ?? null,
     });
 
+    // 6. 기관 피보호자 자동 연동 처리
+    let linkedOrganization: { id: string; name: string } | undefined;
+    if (matchedOrganizationWard) {
+      try {
+        // organizationWard 연동 (isRegistered=true, wardId 설정)
+        await this.dbService.linkOrganizationWard({
+          organizationWardId: matchedOrganizationWard.id,
+          wardId: ward.id,
+        });
+        // ward에 organizationId 설정
+        await this.dbService.updateWardOrganization({
+          wardId: ward.id,
+          organizationId: matchedOrganizationWard.organization_id,
+        });
+
+        // 기관 정보 조회
+        const organization = await this.dbService.findOrganizationById(
+          matchedOrganizationWard.organization_id,
+        );
+        if (organization) {
+          linkedOrganization = {
+            id: organization.id,
+            name: organization.name,
+          };
+        }
+
+        this.logger.log(
+          `Auto-linked ward=${ward.id} to organization=${matchedOrganizationWard.organization_id}`,
+        );
+      } catch (error) {
+        this.logger.error(
+          `Failed to auto-link organization ward: ${(error as Error).message}`,
+        );
+        // 연동 실패 시 DB 롤백
+        await this.dbService.deleteUser(user.id);
+        throw new Error('기관 연동에 실패했습니다. 다시 시도해주세요.');
+      }
+    }
+
     const tokens = await this.issueTokens(user.id, 'ward');
 
+    // 7. 개인 보호자 매칭 정보 조회
+    let linkedGuardian: { id: string; nickname: string | null } | undefined;
     if (matchedGuardian) {
-      this.logger.log(
-        `handleWardRegistration matched userId=${user.id} guardianId=${matchedGuardian.id}`,
-      );
       const guardianUser = await this.dbService.findUserById(
         matchedGuardian.user_id,
       );
-      return {
-        isNewUser: true,
-        requiresRegistration: false,
-        ...tokens,
-        user: {
-          id: user.id,
-          email: user.email,
-          nickname: user.nickname,
-          profileImageUrl: user.profile_image_url,
-          userType: 'ward',
-        },
-        matchStatus: 'matched',
-        wardInfo: {
-          phoneNumber: ward.phone_number,
-          linkedGuardian: guardianUser
-            ? {
-                id: guardianUser.id,
-                nickname: guardianUser.nickname,
-              }
-            : undefined,
-        },
-      };
+      if (guardianUser) {
+        linkedGuardian = {
+          id: guardianUser.id,
+          nickname: guardianUser.nickname,
+        };
+      }
     }
 
-    this.logger.log(`handleWardRegistration not matched userId=${user.id}`);
+    this.logger.log(
+      `Ward registration success userId=${user.id} guardian=${!!matchedGuardian} organization=${!!matchedOrganizationWard}`,
+    );
+
     return {
       isNewUser: true,
       requiresRegistration: false,
@@ -273,9 +319,11 @@ export class AuthService {
         profileImageUrl: user.profile_image_url,
         userType: 'ward',
       },
-      matchStatus: 'not_matched',
+      matchStatus: 'matched',
       wardInfo: {
         phoneNumber: ward.phone_number,
+        linkedGuardian,
+        linkedOrganization,
       },
     };
   }

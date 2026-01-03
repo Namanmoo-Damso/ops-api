@@ -378,6 +378,56 @@ export class WardRepository {
     };
   }
 
+  /**
+   * Find pending organization ward by email (across all organizations)
+   * Used for auto-linking when ward signs up
+   */
+  async findPendingOrganizationWardByEmail(email: string) {
+    const orgWard = await this.prisma.organizationWard.findFirst({
+      where: {
+        email,
+        isRegistered: false,
+        wardId: null,
+      },
+      orderBy: { createdAt: 'asc' }, // Match oldest registration first
+    });
+    if (!orgWard) return undefined;
+    return {
+      id: orgWard.id,
+      organization_id: orgWard.organizationId,
+      email: orgWard.email,
+    };
+  }
+
+  /**
+   * Link organization ward to actual ward (auto-approval)
+   */
+  async linkOrganizationWard(params: {
+    organizationWardId: string;
+    wardId: string;
+  }): Promise<void> {
+    await this.prisma.organizationWard.update({
+      where: { id: params.organizationWardId },
+      data: {
+        isRegistered: true,
+        wardId: params.wardId,
+      },
+    });
+  }
+
+  /**
+   * Update ward's organization ID
+   */
+  async updateWardOrganization(params: {
+    wardId: string;
+    organizationId: string;
+  }): Promise<void> {
+    await this.prisma.ward.update({
+      where: { id: params.wardId },
+      data: { organizationId: params.organizationId },
+    });
+  }
+
   async createOrganizationWard(params: {
     organizationId: string;
     email: string;
