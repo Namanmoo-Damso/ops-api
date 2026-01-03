@@ -63,8 +63,9 @@ export class GuardianRepository {
   }
 
   async findByWardEmail(wardEmail: string): Promise<GuardianRow | undefined> {
+    const normalizedEmail = wardEmail.toLowerCase().trim();
     const guardian = await this.prisma.guardian.findFirst({
-      where: { wardEmail },
+      where: { wardEmail: { equals: normalizedEmail, mode: 'insensitive' } },
     });
     return guardian ? toGuardianRow(guardian) : undefined;
   }

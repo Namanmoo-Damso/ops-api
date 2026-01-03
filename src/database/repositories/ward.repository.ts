@@ -381,11 +381,13 @@ export class WardRepository {
   /**
    * Find pending organization ward by email (across all organizations)
    * Used for auto-linking when ward signs up
+   * Case-insensitive email matching
    */
   async findPendingOrganizationWardByEmail(email: string) {
+    const normalizedEmail = email.toLowerCase().trim();
     const orgWard = await this.prisma.organizationWard.findFirst({
       where: {
-        email,
+        email: { equals: normalizedEmail, mode: 'insensitive' },
         isRegistered: false,
         wardId: null,
       },

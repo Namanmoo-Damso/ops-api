@@ -106,10 +106,23 @@ export class UserRepository {
       });
     }
 
-    // 5. Delete ward record if user is a ward
-    await this.prisma.ward.deleteMany({
+    // 5. Reset organization ward links and delete ward record if user is a ward
+    const ward = await this.prisma.ward.findFirst({
       where: { userId },
     });
+    if (ward) {
+      // Reset OrganizationWard to allow re-registration
+      await this.prisma.organizationWard.updateMany({
+        where: { wardId: ward.id },
+        data: {
+          wardId: null,
+          isRegistered: false,
+        },
+      });
+      await this.prisma.ward.delete({
+        where: { id: ward.id },
+      });
+    }
 
     // 6. Delete user
     await this.prisma.user.delete({
