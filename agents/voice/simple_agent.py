@@ -85,12 +85,13 @@ def prewarm(proc: JobProcess):
 server.setup_fnc = prewarm
 
 
-def extract_ward_id(room) -> Optional[str]:
+def extract_ward_id(room) -> str:
     """
     Extract ward ID from room information.
 
-    Expected format: "call_{ward_id}_{timestamp}"
-    Returns None if format is invalid.
+    Supported formats:
+    - "call_{ward_id}_{timestamp}" -> returns ward_id
+    - "room-{uuid}" or other -> returns room name as fallback
     """
     room_name = room.name
     if "_" in room_name:
@@ -100,8 +101,9 @@ def extract_ward_id(room) -> Optional[str]:
             if ward_id and len(ward_id) > 0:
                 return ward_id
 
-    logger.warning(f"Invalid room name format: {room_name}")
-    return None
+    # Fallback: use room name as ward_id
+    logger.info(f"Using room name as ward_id: {room_name}")
+    return room_name
 
 
 def _get_auth_headers() -> dict:
@@ -156,10 +158,6 @@ async def entrypoint(ctx: JobContext):
     # Extract identifiers
     ward_id = extract_ward_id(ctx.room)
     call_id = ctx.room.name
-
-    if not ward_id:
-        logger.error(f"Cannot extract ward_id from room: {ctx.room.name}")
-        return
 
     logger.info(f"Session info: ward_id={ward_id}, call_id={call_id}")
 
