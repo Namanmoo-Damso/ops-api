@@ -207,9 +207,16 @@ export class AuthService {
   private async handleWardRegistration(
     kakaoProfile: KakaoProfile,
   ): Promise<KakaoLoginResult> {
-    // 어르신의 이메일로 보호자 매칭 시도
+    // 1. 어르신의 이메일로 보호자 매칭 시도
     const matchedGuardian = kakaoProfile.email
       ? await this.dbService.findGuardianByWardEmail(kakaoProfile.email)
+      : undefined;
+
+    // 2. 어르신의 이메일로 기관 피보호자 매칭 시도
+    const matchedOrganizationWard = kakaoProfile.email
+      ? await this.dbService.findPendingOrganizationWardByEmail(
+          kakaoProfile.email,
+        )
       : undefined;
 
     // 사용자 생성
@@ -227,6 +234,30 @@ export class AuthService {
       phoneNumber: '', // 이후 설정에서 입력
       guardianId: matchedGuardian?.id ?? null,
     });
+
+    // 3. 기관 피보호자 자동 연동 처리
+    if (matchedOrganizationWard) {
+      try {
+        // organizationWard 연동 (isRegistered=true, wardId 설정)
+        await this.dbService.linkOrganizationWard({
+          organizationWardId: matchedOrganizationWard.id,
+          wardId: ward.id,
+        });
+        // ward에 organizationId 설정
+        await this.dbService.updateWardOrganization({
+          wardId: ward.id,
+          organizationId: matchedOrganizationWard.organization_id,
+        });
+        this.logger.log(
+          `Auto-linked ward=${ward.id} to organization=${matchedOrganizationWard.organization_id}`,
+        );
+      } catch (error) {
+        this.logger.error(
+          `Failed to auto-link organization ward: ${(error as Error).message}`,
+        );
+        // 에러가 나도 사용자 생성은 완료되었으므로 진행
+      }
+    }
 
     const tokens = await this.issueTokens(user.id, 'ward');
 

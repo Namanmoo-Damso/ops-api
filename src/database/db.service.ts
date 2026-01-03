@@ -396,6 +396,24 @@ export class DbService implements OnModuleDestroy {
     return this.wards.findOrganizationWard(organizationId, email);
   }
 
+  async findPendingOrganizationWardByEmail(email: string) {
+    return this.wards.findPendingOrganizationWardByEmail(email);
+  }
+
+  async linkOrganizationWard(params: {
+    organizationWardId: string;
+    wardId: string;
+  }) {
+    return this.wards.linkOrganizationWard(params);
+  }
+
+  async updateWardOrganization(params: {
+    wardId: string;
+    organizationId: string;
+  }) {
+    return this.wards.updateWardOrganization(params);
+  }
+
   async createOrganizationWard(params: {
     organizationId: string;
     email: string;
