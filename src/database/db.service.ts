@@ -6,6 +6,7 @@
  */
 import { Injectable, Inject, OnModuleDestroy } from '@nestjs/common';
 import { Pool } from 'pg';
+import { PrismaService } from '../prisma';
 import {
   UserRepository,
   DeviceRepository,
@@ -18,7 +19,10 @@ import {
   LocationRepository,
   DashboardRepository,
 } from './repositories';
-import type { BeneficiaryListResult } from './repositories/ward.repository';
+import type {
+  BeneficiaryDetailItem,
+  BeneficiaryListResult,
+} from './repositories/ward.repository';
 
 // Re-export types for backward compatibility
 export type {
@@ -33,6 +37,7 @@ export type {
 export class DbService implements OnModuleDestroy {
   constructor(
     @Inject('DATABASE_POOL') private readonly pool: Pool,
+    private readonly prisma: PrismaService,
     private readonly users: UserRepository,
     private readonly devices: DeviceRepository,
     private readonly rooms: RoomRepository,
@@ -467,6 +472,101 @@ export class DbService implements OnModuleDestroy {
     pageSize: number;
   }): Promise<BeneficiaryListResult> {
     return this.wards.listOrganizationBeneficiaries(params);
+  }
+
+  async deleteOrganizationBeneficiary(params: {
+    organizationId: string;
+    beneficiaryId: string;
+  }): Promise<boolean> {
+    const { organizationId, beneficiaryId } = params;
+
+    return this.prisma.$transaction(async tx => {
+      const info = await tx.organizationWard.findFirst({
+        where: {
+          id: beneficiaryId,
+          organizationId,
+          isRegistered: true,
+        },
+        select: {
+          id: true,
+          ward: { select: { userId: true } },
+        },
+      });
+
+      if (!info) return false;
+
+      const deletion = await tx.organizationWard.deleteMany({
+        where: {
+          id: beneficiaryId,
+          organizationId,
+          isRegistered: true,
+        },
+      });
+
+      const wardUserId = info.ward?.userId ?? null;
+      if (!wardUserId) {
+        return deletion.count > 0;
+      }
+
+      await tx.refreshToken.deleteMany({ where: { userId: wardUserId } });
+      await tx.roomMember.deleteMany({ where: { userId: wardUserId } });
+      await tx.device.deleteMany({ where: { userId: wardUserId } });
+
+      const guardian = await tx.guardian.findUnique({
+        where: { userId: wardUserId },
+      });
+      if (guardian) {
+        await tx.ward.updateMany({
+          where: { guardianId: guardian.id },
+          data: { guardianId: null },
+        });
+        await tx.guardian.delete({ where: { id: guardian.id } });
+      }
+
+      const ward = await tx.ward.findFirst({
+        where: { userId: wardUserId },
+      });
+      if (ward) {
+        await tx.organizationWard.updateMany({
+          where: { wardId: ward.id },
+          data: {
+            wardId: null,
+            isRegistered: false,
+          },
+        });
+        await tx.ward.delete({ where: { id: ward.id } });
+      }
+
+      await tx.user.delete({ where: { id: wardUserId } });
+
+      return deletion.count > 0;
+    });
+  }
+
+  async updateOrganizationBeneficiary(params: {
+    organizationId: string;
+    beneficiaryId: string;
+    data: {
+      name?: string;
+      phoneNumber?: string | null;
+      birthDate?: string | null;
+      address?: string | null;
+      gender?: string | null;
+      wardType?: string | null;
+      guardian?: string | null;
+      diseases?: string[];
+      medication?: string | null;
+      notes?: string | null;
+    };
+  }): Promise<BeneficiaryDetailItem | null> {
+    return this.wards.updateOrganizationBeneficiary(params);
+  }
+
+  async getOrganizationBeneficiaryDetail(params: {
+    organizationId: string;
+    beneficiaryId: string;
+  }): Promise<BeneficiaryDetailItem | null> {
+    return this.wards.getOrganizationBeneficiaryDetail(params);
   }
 
   // ============================================================

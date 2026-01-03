@@ -335,7 +335,8 @@ model OrganizationWard {
   name              String
   birthDate         DateTime? @map("birth_date") @db.Date
   address           String?
-  notes             String?
+  gender            String?
+  wardType          String?   @map("ward_type")
   isRegistered      Boolean   @default(false) @map("is_registered")
   wardId            String?   @map("ward_id") @db.Uuid
   createdAt         DateTime  @default(now()) @map("created_at")
@@ -345,6 +346,7 @@ model OrganizationWard {
   organization    Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   uploadedByAdmin Admin?       @relation(fields: [uploadedByAdminId], references: [id], onDelete: SetNull)
   ward            Ward?        @relation(fields: [wardId], references: [id], onDelete: SetNull)
+  detail          OrganizationWardDetail?
 
   @@unique([organizationId, email])
   @@index([organizationId])
@@ -357,6 +359,20 @@ model OrganizationWard {
   @@index([email(ops: raw("gin_trgm_ops"))], type: Gin, map: "organization_wards_email_trgm_idx")
   @@index([phoneNumber(ops: raw("gin_trgm_ops"))], type: Gin, map: "organization_wards_phone_trgm_idx")
   @@map("organization_wards")
+}
+
+model OrganizationWardDetail {
+  organizationWardId String   @id @map("organization_ward_id") @db.Uuid
+  guardian           String?
+  diseases           String[] @default([])
+  medication         String?
+  notes              String?
+  createdAt          DateTime @default(now()) @map("created_at")
+  updatedAt          DateTime @default(now()) @updatedAt @map("updated_at")
+
+  organizationWard OrganizationWard @relation(fields: [organizationWardId], references: [id], onDelete: Cascade)
+
+  @@map("organization_ward_details")
 }
 
 // =============================================================================
