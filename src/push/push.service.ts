@@ -1,5 +1,5 @@
 import { Injectable, Logger, OnModuleDestroy } from '@nestjs/common';
-import apn from 'apn';
+import apn from '@parse/node-apn';
 
 type PushType = 'alert' | 'voip';
 type PushEnvMode = 'prod' | 'sandbox' | 'both';
