@@ -10,7 +10,7 @@ from livekit.agents import (
 )
 
 from livekit.agents.voice import Agent, AgentSession
-from livekit.plugins import openai, silero
+from livekit.plugins import aws, silero
 import logging
 
 from config import validate_env_vars, get_optional_config, ConfigError
@@ -79,14 +79,14 @@ async def entrypoint(ctx: JobContext):
             "- Weather and seasons"
         ),
         # ✅ Configure models IN THE AGENT (not session) for proper instruction binding
-        stt=openai.STT(language="ko"),  # Korean speech-to-text
-        llm=openai.LLM(
-            model="gpt-4o-mini", #문맥 이해도가 더 높으며 3.5보다 저렴함
-            temperature=0.7,  # Slightly lower for more consistent responses
+        stt=aws.STT(language="ko-KR"),  # Amazon Transcribe - Korean
+        llm=aws.LLM(
+            model="anthropic.claude-sonnet-4-20250514-v1:0",  # Bedrock Claude Sonnet 4
+            temperature=0.7,
         ),
-        tts=openai.TTS(
-            voice="shimmer", # 차분한 여성 목소리, 아니면 echo(중후한 남성)으로 안정감, ElevenLabsTrubo v.25(손녀/손자 따듯한 목소리) 근데 더 비쌈
-            speed=0.85,  # 알아 듣기 쉽게 천천히 말하기
+        tts=aws.TTS(
+            voice="Seoyeon",  # Amazon Polly - 한국어 여성 음성
+            engine="neural",  # neural 엔진 사용 (더 자연스러운 음성)
         ),
         vad=silero.VAD.load(
             min_speech_duration=0.1,  # Detect speech faster (default 0.25s)

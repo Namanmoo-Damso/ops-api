@@ -24,7 +24,9 @@ def validate_env_vars() -> dict[str, str]:
         "LIVEKIT_URL",
         "LIVEKIT_API_KEY",
         "LIVEKIT_API_SECRET",
-        "OPENAI_API_KEY",
+        "AWS_ACCESS_KEY_ID",
+        "AWS_SECRET_ACCESS_KEY",
+        "AWS_DEFAULT_REGION",
     ]
 
     missing_vars = []
@@ -51,11 +53,11 @@ def validate_env_vars() -> dict[str, str]:
             f"LIVEKIT_URL must start with ws:// or wss://, got: {livekit_url}"
         )
 
-    # Validate API key format (basic check)
-    openai_key = config["OPENAI_API_KEY"]
-    if not openai_key.startswith("sk-"):
+    # Validate AWS credentials format (basic check)
+    aws_key = config["AWS_ACCESS_KEY_ID"]
+    if not aws_key.startswith("AKIA"):
         raise ConfigError(
-            "OPENAI_API_KEY appears invalid (should start with 'sk-')"
+            "AWS_ACCESS_KEY_ID appears invalid (should start with 'AKIA')"
         )
 
     return config
