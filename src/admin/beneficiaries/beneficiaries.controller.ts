@@ -1,5 +1,6 @@
 import {
   Controller,
+  Delete,
   Get,
   HttpException,
   HttpStatus,
@@ -81,13 +82,7 @@ export class BeneficiariesController {
     @CurrentAdmin() admin: { organization_id?: string },
     @Query() query: ListBeneficiariesQueryDto,
   ): Promise<BeneficiaryListResponse> {
-    const organizationId = admin.organization_id;
-    if (!organizationId) {
-      throw new HttpException(
-        '조직이 설정되지 않은 관리자입니다. 조직 설정 후 다시 시도해주세요.',
-        HttpStatus.BAD_REQUEST,
-      );
-    }
+    const organizationId = this.getOrganizationId(admin);
 
     const { search, riskOnly = false, page, pageSize } = query;
 
@@ -112,13 +107,7 @@ export class BeneficiariesController {
     @CurrentAdmin() admin: { organization_id?: string },
     @Param('id', new ParseUUIDPipe()) id: string,
   ): Promise<BeneficiaryDetailResponse> {
-    const organizationId = admin.organization_id;
-    if (!organizationId) {
-      throw new HttpException(
-        '조직이 설정되지 않은 관리자입니다. 조직 설정 후 다시 시도해주세요.',
-        HttpStatus.BAD_REQUEST,
-      );
-    }
+    const organizationId = this.getOrganizationId(admin);
 
     const detail = await this.dbService.getOrganizationBeneficiaryDetail({
       organizationId,
@@ -130,5 +119,35 @@ export class BeneficiariesController {
     }
 
     return { data: detail };
+  }
+
+  @Delete(':id')
+  async remove(
+    @CurrentAdmin() admin: { organization_id?: string },
+    @Param('id', new ParseUUIDPipe()) id: string,
+  ): Promise<{ success: true; message: string }> {
+    const organizationId = this.getOrganizationId(admin);
+
+    const deleted = await this.dbService.deleteOrganizationBeneficiary({
+      organizationId,
+      beneficiaryId: id,
+    });
+
+    if (!deleted) {
+      throw new HttpException('대상자 정보를 찾을 수 없습니다.', HttpStatus.NOT_FOUND);
+    }
+
+    return { success: true, message: '대상자 정보가 삭제되었습니다.' };
+  }
+
+  private getOrganizationId(admin: { organization_id?: string }): string {
+    const organizationId = admin.organization_id;
+    if (!organizationId) {
+      throw new HttpException(
+        '조직이 설정되지 않은 관리자입니다. 조직 설정 후 다시 시도해주세요.',
+        HttpStatus.BAD_REQUEST,
+      );
+    }
+    return organizationId;
   }
 }

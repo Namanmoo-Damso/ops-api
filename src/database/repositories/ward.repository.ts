@@ -49,6 +49,11 @@ export interface BeneficiaryDetailItem {
   recentLogs: BeneficiaryDetailLog[];
 }
 
+export interface BeneficiaryDeleteInfo {
+  id: string;
+  ward_user_id: string | null;
+}
+
 @Injectable()
 export class WardRepository {
   constructor(private readonly prisma: PrismaService) {}
@@ -778,6 +783,42 @@ export class WardRepository {
     });
 
     return { data, total };
+  }
+
+  async findOrganizationBeneficiaryForDeletion(params: {
+    organizationId: string;
+    beneficiaryId: string;
+  }): Promise<BeneficiaryDeleteInfo | null> {
+    const row = await this.prisma.organizationWard.findFirst({
+      where: {
+        id: params.beneficiaryId,
+        organizationId: params.organizationId,
+      },
+      select: {
+        id: true,
+        ward: { select: { userId: true } },
+      },
+    });
+
+    if (!row) return null;
+
+    return {
+      id: row.id,
+      ward_user_id: row.ward?.userId ?? null,
+    };
+  }
+
+  async deleteOrganizationBeneficiary(params: {
+    organizationId: string;
+    beneficiaryId: string;
+  }): Promise<boolean> {
+    const result = await this.prisma.organizationWard.deleteMany({
+      where: {
+        id: params.beneficiaryId,
+        organizationId: params.organizationId,
+      },
+    });
+    return result.count > 0;
   }
 
   async getOrganizationBeneficiaryDetail(params: {

@@ -472,6 +472,20 @@ export class DbService implements OnModuleDestroy {
     return this.wards.listOrganizationBeneficiaries(params);
   }
 
+  async deleteOrganizationBeneficiary(params: {
+    organizationId: string;
+    beneficiaryId: string;
+  }): Promise<boolean> {
+    const info = await this.wards.findOrganizationBeneficiaryForDeletion(params);
+    if (!info) return false;
+
+    if (info.ward_user_id) {
+      await this.deleteUser(info.ward_user_id);
+    }
+
+    return this.wards.deleteOrganizationBeneficiary(params);
+  }
+
   async getOrganizationBeneficiaryDetail(params: {
     organizationId: string;
     beneficiaryId: string;
