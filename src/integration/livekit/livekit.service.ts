@@ -131,7 +131,9 @@ export class LiveKitService {
   }
 
   /**
-   * Close rooms that only have admin participants
+   * Close rooms that only have admin and/or agent participants
+   * (i.e., no real users like kakao_ or google_ users remain)
+   * Also deletes empty rooms
    */
   async closeAdminOnlyRooms(): Promise<void> {
     try {
@@ -140,15 +142,33 @@ export class LiveKitService {
       for (const room of rooms) {
         const participants = await this.roomService.listParticipants(room.name);
 
-        // Check if all participants are admins
-        const hasOnlyAdmins =
-          participants.length > 0 &&
-          participants.every(p => p.identity.startsWith('admin_'));
+        // Delete empty rooms
+        if (participants.length === 0) {
+          this.logger.log(`Deleting empty room: ${room.name}`);
+          try {
+            await this.roomService.deleteRoom(room.name);
+          } catch (err) {
+            this.logger.debug(
+              `Failed to delete empty room ${room.name}: ${(err as Error).message}`,
+            );
+          }
+          continue;
+        }
 
-        if (hasOnlyAdmins) {
-          this.logger.log(`Closing admin-only room: ${room.name}`);
+        // Check if there are any real users (not admin or agent)
+        const hasRealUsers = participants.some(
+          p =>
+            !p.identity.startsWith('admin_') &&
+            !p.identity.startsWith('agent-'),
+        );
 
-          // Remove all admin participants to close the room
+        // If no real users remain (only admin and/or agent), close the room
+        if (!hasRealUsers) {
+          this.logger.log(
+            `Closing room with only admin/agent participants: ${room.name}`,
+          );
+
+          // Remove all participants first, then delete the room
           for (const participant of participants) {
             try {
               await this.roomService.removeParticipant(
@@ -160,6 +180,16 @@ export class LiveKitService {
                 `Failed to remove participant ${participant.identity} from ${room.name}: ${(err as Error).message}`,
               );
             }
+          }
+
+          // Delete the room after removing participants
+          try {
+            await this.roomService.deleteRoom(room.name);
+            this.logger.log(`Deleted room: ${room.name}`);
+          } catch (err) {
+            this.logger.debug(
+              `Failed to delete room ${room.name}: ${(err as Error).message}`,
+            );
           }
         }
       }
