@@ -64,6 +64,10 @@ export class DbService implements OnModuleDestroy {
     return this.users.findByKakaoId(kakaoId);
   }
 
+  async findUserByIdentity(identity: string) {
+    return this.users.findByIdentity(identity);
+  }
+
   async updateUserType(userId: string, userType: 'guardian' | 'ward') {
     return this.users.updateType(userId, userType);
   }

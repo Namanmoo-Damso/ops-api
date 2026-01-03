@@ -40,6 +40,13 @@ export class UserRepository {
     return user ? toUserRow(user) : undefined;
   }
 
+  async findByIdentity(identity: string): Promise<UserRow | undefined> {
+    const user = await this.prisma.user.findUnique({
+      where: { identity },
+    });
+    return user ? toUserRow(user) : undefined;
+  }
+
   async updateType(
     userId: string,
     userType: 'guardian' | 'ward',
