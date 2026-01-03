@@ -104,8 +104,17 @@ class ElderlyCompanionAgent(Agent):
         import httpx
         import os
 
-        api_base = os.getenv("API_BASE_URL", "http://localhost:3000")
+        api_base = os.getenv("API_BASE_URL")
+        if not api_base:
+            logger.error("API_BASE_URL not configured")
+            return "시스템 설정 오류가 발생했습니다."
+
+        api_token = os.getenv("API_INTERNAL_TOKEN")
         ward_id = context.userdata.ward_id
+
+        headers = {"Content-Type": "application/json"}
+        if api_token:
+            headers["Authorization"] = f"Bearer {api_token}"
 
         logger.info(f"RAG search: ward={ward_id}, query={query}")
 
@@ -118,6 +127,7 @@ class ElderlyCompanionAgent(Agent):
                         "query": query,
                         "topK": 5,
                     },
+                    headers=headers,
                     timeout=3.0,
                 )
 

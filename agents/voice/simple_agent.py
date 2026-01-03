@@ -3,10 +3,12 @@ Korean Voice AI Agent for Elderly Care.
 
 LiveKit Agents 1.3.10 - AgentServer pattern
 """
+import asyncio
 import os
 import sys
 import logging
 from pathlib import Path
+from typing import Optional
 
 import httpx
 from dotenv import load_dotenv
@@ -43,8 +45,18 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# API base URL for backend calls
-API_BASE = os.getenv("API_BASE_URL", "http://localhost:3000")
+# API configuration
+API_BASE = os.getenv("API_BASE_URL")
+if not API_BASE:
+    logger.warning("API_BASE_URL not set, using default localhost:3000")
+    API_BASE = "http://localhost:3000"
+
+API_INTERNAL_TOKEN = os.getenv("API_INTERNAL_TOKEN")
+
+# Timeouts (seconds)
+TIMEOUT_RAG_INDEXING = 5.0
+TIMEOUT_CALL_ANALYSIS = 5.0
+TIMEOUT_POST_SESSION = 10.0
 
 # Create AgentServer instance
 server = AgentServer()
@@ -56,50 +68,48 @@ def prewarm(proc: JobProcess):
 
     Use this to load models that should be shared across sessions.
     """
-    logger.info("Prewarming: Loading VAD model...")
-    proc.userdata["vad"] = silero.VAD.load(
-        min_speech_duration=0.3,
-        min_silence_duration=1.0,
-        activation_threshold=0.7,
-    )
-    logger.info("Prewarm complete")
+    try:
+        logger.info("Prewarming: Loading VAD model...")
+        proc.userdata["vad"] = silero.VAD.load(
+            min_speech_duration=0.3,
+            min_silence_duration=1.0,
+            activation_threshold=0.7,
+        )
+        logger.info("Prewarm complete")
+    except Exception as e:
+        logger.error(f"Failed to load VAD model: {e}")
+        raise RuntimeError("Prewarm failed - cannot start worker") from e
 
 
 # Register prewarm function
 server.setup_fnc = prewarm
 
 
-def extract_ward_id(room) -> str:
+def extract_ward_id(room) -> Optional[str]:
     """
     Extract ward ID from room information.
 
-    Room name format: "call_{ward_id}_{timestamp}" or similar
+    Expected format: "call_{ward_id}_{timestamp}"
+    Returns None if format is invalid.
     """
     room_name = room.name
     if "_" in room_name:
         parts = room_name.split("_")
-        if len(parts) >= 2:
-            return parts[1]
-    return room_name
+        if len(parts) >= 2 and parts[0] == "call":
+            ward_id = parts[1]
+            if ward_id and len(ward_id) > 0:
+                return ward_id
+
+    logger.warning(f"Invalid room name format: {room_name}")
+    return None
 
 
-async def prefetch_context(ward_id: str) -> str:
-    """
-    Pre-fetch context for the ward (optional, for hybrid RAG mode).
-
-    Returns recent conversation summaries if available.
-    """
-    try:
-        async with httpx.AsyncClient() as client:
-            res = await client.get(
-                f"{API_BASE}/v1/rag/prefetch/{ward_id}",
-                timeout=0.5,
-            )
-            if res.status_code == 200:
-                return res.json().get("context", "")
-    except Exception as e:
-        logger.warning(f"Prefetch context failed: {e}")
-    return ""
+def _get_auth_headers() -> dict:
+    """Get authentication headers for internal API calls."""
+    headers = {"Content-Type": "application/json"}
+    if API_INTERNAL_TOKEN:
+        headers["Authorization"] = f"Bearer {API_INTERNAL_TOKEN}"
+    return headers
 
 
 async def trigger_rag_indexing(call_id: str, ward_id: str):
@@ -112,7 +122,8 @@ async def trigger_rag_indexing(call_id: str, ward_id: str):
                     "callId": call_id,
                     "wardId": ward_id,
                 },
-                timeout=5.0,
+                headers=_get_auth_headers(),
+                timeout=TIMEOUT_RAG_INDEXING,
             )
             logger.info(f"RAG indexing triggered: call={call_id}")
     except Exception as e:
@@ -125,7 +136,8 @@ async def trigger_call_analysis(call_id: str):
         async with httpx.AsyncClient() as client:
             await client.post(
                 f"{API_BASE}/v1/calls/{call_id}/analyze",
-                timeout=5.0,
+                headers=_get_auth_headers(),
+                timeout=TIMEOUT_CALL_ANALYSIS,
             )
             logger.info(f"Call analysis triggered: call={call_id}")
     except Exception as e:
@@ -144,6 +156,10 @@ async def entrypoint(ctx: JobContext):
     # Extract identifiers
     ward_id = extract_ward_id(ctx.room)
     call_id = ctx.room.name
+
+    if not ward_id:
+        logger.error(f"Cannot extract ward_id from room: {ctx.room.name}")
+        return
 
     logger.info(f"Session info: ward_id={ward_id}, call_id={call_id}")
 
@@ -198,10 +214,20 @@ async def entrypoint(ctx: JobContext):
         logger.info(f"Session ended: {report.session_id if hasattr(report, 'session_id') else call_id}")
         logger.info(f"Total transcripts: {len(userdata.transcripts)}")
 
-        # Trigger async tasks (don't block shutdown)
+        # Run post-session tasks with timeout
+        tasks = [
+            trigger_rag_indexing(call_id, ward_id),
+            trigger_call_analysis(call_id),
+        ]
+
         try:
-            await trigger_rag_indexing(call_id, ward_id)
-            await trigger_call_analysis(call_id)
+            await asyncio.wait_for(
+                asyncio.gather(*tasks, return_exceptions=True),
+                timeout=TIMEOUT_POST_SESSION,
+            )
+            logger.info("Post-session tasks completed")
+        except asyncio.TimeoutError:
+            logger.warning("Post-session tasks timed out")
         except Exception as e:
             logger.error(f"Post-session tasks failed: {e}")
 

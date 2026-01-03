@@ -1,7 +1,12 @@
 """Session userdata for voice agent."""
+import logging
 from dataclasses import dataclass, field
-from typing import Optional
 from datetime import datetime
+
+logger = logging.getLogger(__name__)
+
+# Maximum number of transcripts to keep in memory
+MAX_TRANSCRIPTS = 500
 
 
 @dataclass
@@ -26,12 +31,17 @@ class SessionUserdata:
     session_start: datetime = field(default_factory=datetime.now)
 
     def add_transcript(self, speaker_type: str, text: str, is_final: bool = True):
-        """Add a transcript entry."""
+        """Add a transcript entry with memory limit."""
         self.transcripts.append(TranscriptEntry(
             speaker_type=speaker_type,
             text=text,
             is_final=is_final,
         ))
+
+        # Prevent memory leak by limiting transcript count
+        if len(self.transcripts) > MAX_TRANSCRIPTS:
+            self.transcripts = self.transcripts[-MAX_TRANSCRIPTS:]
+            logger.warning(f"Transcript limit reached, keeping last {MAX_TRANSCRIPTS}")
 
     def get_user_transcripts(self) -> list[str]:
         """Get all user transcripts as text."""
