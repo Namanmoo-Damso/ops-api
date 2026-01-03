@@ -41,7 +41,13 @@ export interface BeneficiaryDetailLog {
 
 export interface BeneficiaryDetailItem {
   id: string;
+  name: string;
+  email: string;
   phoneNumber: string | null;
+  birthDate: string | null;
+  address: string | null;
+  gender: string | null;
+  type: string | null;
   guardian: string | null;
   diseases: string[];
   medication: string | null;
@@ -53,6 +59,53 @@ export interface BeneficiaryDeleteInfo {
   id: string;
   ward_user_id: string | null;
 }
+
+export interface BeneficiaryUpdateInput {
+  name?: string | null;
+  phoneNumber?: string | null;
+  birthDate?: string | null;
+  address?: string | null;
+  gender?: string | null;
+  wardType?: string | null;
+  guardian?: string | null;
+  diseases?: string[];
+  medication?: string | null;
+  notes?: string | null;
+}
+
+const beneficiaryDetailInclude = {
+  detail: true,
+  ward: {
+    include: {
+      guardian: {
+        include: {
+          user: {
+            select: {
+              displayName: true,
+              nickname: true,
+              email: true,
+            },
+          },
+        },
+      },
+      callSummaries: {
+        orderBy: { createdAt: 'desc' },
+        take: 10,
+        select: {
+          id: true,
+          summary: true,
+          mood: true,
+          createdAt: true,
+          call: { select: { createdAt: true } },
+        },
+      },
+    },
+  },
+} satisfies Prisma.OrganizationWardInclude;
+
+type OrganizationWardWithDetail = Prisma.OrganizationWardGetPayload<{
+  include: typeof beneficiaryDetailInclude;
+}>;
 
 @Injectable()
 export class WardRepository {
@@ -821,6 +874,91 @@ export class WardRepository {
     return result.count > 0;
   }
 
+  async updateOrganizationBeneficiary(params: {
+    organizationId: string;
+    beneficiaryId: string;
+    data: BeneficiaryUpdateInput;
+  }): Promise<BeneficiaryDetailItem | null> {
+    const existing = await this.prisma.organizationWard.findFirst({
+      where: {
+        id: params.beneficiaryId,
+        organizationId: params.organizationId,
+      },
+    });
+    if (!existing) return null;
+
+    const updateData: Prisma.OrganizationWardUpdateInput = {};
+    if (params.data.name !== undefined && params.data.name !== null) {
+      updateData.name = params.data.name;
+    }
+    if (params.data.phoneNumber !== undefined && params.data.phoneNumber !== null) {
+      updateData.phoneNumber = params.data.phoneNumber;
+    }
+    if (params.data.birthDate !== undefined) {
+      updateData.birthDate = params.data.birthDate
+        ? new Date(params.data.birthDate)
+        : null;
+    }
+    if (params.data.address !== undefined)
+      updateData.address = params.data.address;
+    if (params.data.gender !== undefined)
+      updateData.gender = params.data.gender;
+    if (params.data.wardType !== undefined)
+      updateData.wardType = params.data.wardType;
+
+    const hasDetailUpdate =
+      params.data.guardian !== undefined ||
+      params.data.diseases !== undefined ||
+      params.data.medication !== undefined ||
+      params.data.notes !== undefined;
+    if (hasDetailUpdate) {
+      updateData.detail = {
+        upsert: {
+          create: {
+            guardian: params.data.guardian ?? null,
+            diseases: params.data.diseases ?? [],
+            medication: params.data.medication ?? null,
+            notes: params.data.notes ?? null,
+          },
+          update: {
+            ...(params.data.guardian !== undefined && {
+              guardian: params.data.guardian ?? null,
+            }),
+            ...(params.data.diseases !== undefined && {
+              diseases: params.data.diseases ?? [],
+            }),
+            ...(params.data.medication !== undefined && {
+              medication: params.data.medication ?? null,
+            }),
+            ...(params.data.notes !== undefined && {
+              notes: params.data.notes ?? null,
+            }),
+          },
+        },
+      };
+    }
+
+    if (Object.keys(updateData).length === 0) {
+      const existingDetail = await this.prisma.organizationWard.findFirst({
+        where: {
+          id: existing.id,
+          organizationId: params.organizationId,
+        },
+        include: beneficiaryDetailInclude,
+      });
+
+      return existingDetail ? toBeneficiaryDetailItem(existingDetail) : null;
+    }
+
+    const updated = await this.prisma.organizationWard.update({
+      where: { id: existing.id },
+      data: updateData,
+      include: beneficiaryDetailInclude,
+    });
+
+    return toBeneficiaryDetailItem(updated);
+  }
+
   async getOrganizationBeneficiaryDetail(params: {
     organizationId: string;
     beneficiaryId: string;
@@ -832,63 +970,47 @@ export class WardRepository {
         organizationId,
         isRegistered: true,
       },
-      include: {
-        detail: true,
-        ward: {
-          include: {
-            guardian: {
-              include: {
-                user: {
-                  select: {
-                    displayName: true,
-                    nickname: true,
-                    email: true,
-                  },
-                },
-              },
-            },
-            callSummaries: {
-              orderBy: { createdAt: 'desc' },
-              take: 10,
-              select: {
-                id: true,
-                summary: true,
-                mood: true,
-                createdAt: true,
-                call: { select: { createdAt: true } },
-              },
-            },
-          },
-        },
-      },
+      include: beneficiaryDetailInclude,
     });
 
     if (!row) return null;
 
-    const guardianUser = row.ward?.guardian?.user;
-    const guardian = row.detail?.guardian ?? formatGuardian(guardianUser);
-    const recentLogs =
-      row.ward?.callSummaries.map(summary => {
-        const createdAt = summary.call?.createdAt ?? summary.createdAt;
-        return {
-          id: summary.id,
-          date: createdAt.toISOString(),
-          type: 'AI 안부',
-          content: summary.summary ?? '요약 정보 없음',
-          sentiment: mapMoodToSentiment(summary.mood),
-        };
-      }) ?? [];
-
-    return {
-      id: row.id,
-      phoneNumber: row.phoneNumber ?? null,
-      guardian,
-      diseases: row.detail?.diseases ?? [],
-      medication: row.detail?.medication ?? null,
-      notes: row.detail?.notes ?? null,
-      recentLogs,
-    };
+    return toBeneficiaryDetailItem(row);
   }
+}
+
+function toBeneficiaryDetailItem(
+  row: OrganizationWardWithDetail,
+): BeneficiaryDetailItem {
+  const guardianUser = row.ward?.guardian?.user;
+  const guardian = row.detail?.guardian ?? formatGuardian(guardianUser);
+  const recentLogs =
+    row.ward?.callSummaries.map(summary => {
+      const createdAt = summary.call?.createdAt ?? summary.createdAt;
+      return {
+        id: summary.id,
+        date: createdAt.toISOString(),
+        type: 'AI 안부',
+        content: summary.summary ?? '요약 정보 없음',
+        sentiment: mapMoodToSentiment(summary.mood),
+      };
+    }) ?? [];
+
+  return {
+    id: row.id,
+    name: row.name,
+    email: row.email,
+    phoneNumber: row.phoneNumber ?? null,
+    birthDate: row.birthDate?.toISOString().split('T')[0] ?? null,
+    address: row.address ?? null,
+    gender: row.gender ?? null,
+    type: row.wardType ?? null,
+    guardian,
+    diseases: row.detail?.diseases ?? [],
+    medication: row.detail?.medication ?? null,
+    notes: row.detail?.notes ?? null,
+    recentLogs,
+  };
 }
 
 function calculateAge(birthDate: Date | null): number | null {

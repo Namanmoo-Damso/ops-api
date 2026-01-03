@@ -486,6 +486,25 @@ export class DbService implements OnModuleDestroy {
     return this.wards.deleteOrganizationBeneficiary(params);
   }
 
+  async updateOrganizationBeneficiary(params: {
+    organizationId: string;
+    beneficiaryId: string;
+    data: {
+      name?: string | null;
+      phoneNumber?: string | null;
+      birthDate?: string | null;
+      address?: string | null;
+      gender?: string | null;
+      wardType?: string | null;
+      guardian?: string | null;
+      diseases?: string[];
+      medication?: string | null;
+      notes?: string | null;
+    };
+  }): Promise<BeneficiaryDetailItem | null> {
+    return this.wards.updateOrganizationBeneficiary(params);
+  }
+
   async getOrganizationBeneficiaryDetail(params: {
     organizationId: string;
     beneficiaryId: string;
