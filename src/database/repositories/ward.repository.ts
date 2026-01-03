@@ -538,7 +538,7 @@ export class WardRepository {
         },
       },
       include: {
-        detail: true,
+        detail: { select: { notes: true } },
       },
     });
 
@@ -563,7 +563,7 @@ export class WardRepository {
       where: { organizationId },
       orderBy: { createdAt: 'desc' },
       include: {
-        detail: true,
+        detail: { select: { notes: true } },
       },
     });
 
@@ -596,7 +596,7 @@ export class WardRepository {
             },
           },
         },
-        detail: true,
+        detail: { select: { notes: true } },
       },
       orderBy: { createdAt: 'desc' },
     });
@@ -1022,11 +1022,11 @@ function toBeneficiaryDetailItem(
 function calculateAge(birthDate: Date | null): number | null {
   if (!birthDate) return null;
   const today = new Date();
-  let age = today.getFullYear() - birthDate.getFullYear();
-  const monthDiff = today.getMonth() - birthDate.getMonth();
+  let age = today.getUTCFullYear() - birthDate.getUTCFullYear();
+  const monthDiff = today.getUTCMonth() - birthDate.getUTCMonth();
   if (
     monthDiff < 0 ||
-    (monthDiff === 0 && today.getDate() < birthDate.getDate())
+    (monthDiff === 0 && today.getUTCDate() < birthDate.getUTCDate())
   ) {
     age -= 1;
   }

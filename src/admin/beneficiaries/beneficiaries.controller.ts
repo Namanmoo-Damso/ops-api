@@ -23,9 +23,14 @@ import {
   Max,
   Min,
 } from 'class-validator';
-import { Transform, Type } from 'class-transformer';
+import { Type } from 'class-transformer';
 import { DbService } from '../../database';
-import { AdminOrganizationGuard, CurrentAdmin } from '../../common';
+import {
+  AdminOrganizationGuard,
+  CurrentAdmin,
+  TransformEmptyToNull,
+  TransformEmptyToUndefined,
+} from '../../common';
 import type { BeneficiaryListItem } from '../../database/repositories/ward.repository';
 
 class ListBeneficiariesQueryDto {
@@ -54,39 +59,37 @@ class ListBeneficiariesQueryDto {
 
 class UpdateBeneficiaryDto {
   @IsOptional()
-  @Transform(({ value }) =>
-    value === '' || value === null ? undefined : value,
-  )
+  @TransformEmptyToUndefined()
   @IsString()
   name?: string;
 
   @IsOptional()
-  @Transform(({ value }) => (value === '' ? null : value))
+  @TransformEmptyToNull()
   @IsString()
   phoneNumber?: string | null;
 
   @IsOptional()
-  @Transform(({ value }) => (value === '' ? null : value))
+  @TransformEmptyToNull()
   @IsDateString()
   birthDate?: string | null;
 
   @IsOptional()
-  @Transform(({ value }) => (value === '' ? null : value))
+  @TransformEmptyToNull()
   @IsString()
   address?: string | null;
 
   @IsOptional()
-  @Transform(({ value }) => (value === '' ? null : value))
+  @TransformEmptyToNull()
   @IsString()
   gender?: string | null;
 
   @IsOptional()
-  @Transform(({ value }) => (value === '' ? null : value))
+  @TransformEmptyToNull()
   @IsString()
   wardType?: string | null;
 
   @IsOptional()
-  @Transform(({ value }) => (value === '' ? null : value))
+  @TransformEmptyToNull()
   @IsString()
   guardian?: string | null;
 
@@ -96,12 +99,12 @@ class UpdateBeneficiaryDto {
   diseases?: string[];
 
   @IsOptional()
-  @Transform(({ value }) => (value === '' ? null : value))
+  @TransformEmptyToNull()
   @IsString()
   medication?: string | null;
 
   @IsOptional()
-  @Transform(({ value }) => (value === '' ? null : value))
+  @TransformEmptyToNull()
   @IsString()
   notes?: string | null;
 }
