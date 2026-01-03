@@ -27,8 +27,8 @@ SELECT
   COALESCE(diseases, ARRAY[]::text[]),
   medication,
   notes,
-  now(),
-  now()
+  created_at,
+  updated_at
 FROM organization_wards
 ON CONFLICT (organization_ward_id) DO NOTHING;
 

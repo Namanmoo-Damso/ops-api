@@ -61,7 +61,7 @@ export interface BeneficiaryDeleteInfo {
 }
 
 export interface BeneficiaryUpdateInput {
-  name?: string | null;
+  name?: string;
   phoneNumber?: string | null;
   birthDate?: string | null;
   address?: string | null;
@@ -846,6 +846,7 @@ export class WardRepository {
       where: {
         id: params.beneficiaryId,
         organizationId: params.organizationId,
+        isRegistered: true,
       },
       select: {
         id: true,
@@ -869,6 +870,7 @@ export class WardRepository {
       where: {
         id: params.beneficiaryId,
         organizationId: params.organizationId,
+        isRegistered: true,
       },
     });
     return result.count > 0;
@@ -883,15 +885,19 @@ export class WardRepository {
       where: {
         id: params.beneficiaryId,
         organizationId: params.organizationId,
+        isRegistered: true,
       },
     });
     if (!existing) return null;
 
     const updateData: Prisma.OrganizationWardUpdateInput = {};
-    if (params.data.name !== undefined && params.data.name !== null) {
+    if (params.data.name !== undefined) {
       updateData.name = params.data.name;
     }
-    if (params.data.phoneNumber !== undefined && params.data.phoneNumber !== null) {
+    if (
+      params.data.phoneNumber !== undefined &&
+      params.data.phoneNumber !== null
+    ) {
       updateData.phoneNumber = params.data.phoneNumber;
     }
     if (params.data.birthDate !== undefined) {

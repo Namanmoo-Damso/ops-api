@@ -54,9 +54,11 @@ class ListBeneficiariesQueryDto {
 
 class UpdateBeneficiaryDto {
   @IsOptional()
-  @Transform(({ value }) => (value === '' ? null : value))
+  @Transform(({ value }) =>
+    value === '' || value === null ? undefined : value,
+  )
   @IsString()
-  name?: string | null;
+  name?: string;
 
   @IsOptional()
   @Transform(({ value }) => (value === '' ? null : value))
