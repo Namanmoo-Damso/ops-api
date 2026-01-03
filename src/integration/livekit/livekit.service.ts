@@ -168,18 +168,40 @@ export class LiveKitService {
             `Closing room with only admin/agent participants: ${room.name}`,
           );
 
-          // Remove all participants first, then delete the room
+          let removedCount = 0;
           for (const participant of participants) {
             try {
               await this.roomService.removeParticipant(
                 room.name,
                 participant.identity,
               );
+              removedCount++;
             } catch (err) {
-              this.logger.debug(
-                `Failed to remove participant ${participant.identity} from ${room.name}: ${(err as Error).message}`,
+              this.logger.error(
+                `Failed to remove participant ${participant.identity}: ${(err as Error).message}`,
               );
             }
+          }
+
+          this.logger.log(
+            `Removed ${removedCount}/${participants.length} participants from room: ${room.name}`,
+          );
+
+          // Re-check if any real users joined during cleanup
+          const updatedParticipants = await this.roomService.listParticipants(
+            room.name,
+          );
+          const stillHasNoRealUsers = !updatedParticipants.some(
+            p =>
+              !p.identity.startsWith('admin_') &&
+              !p.identity.startsWith('agent-'),
+          );
+
+          if (!stillHasNoRealUsers) {
+            this.logger.log(
+              `Real user joined ${room.name} during cleanup, skipping deletion`,
+            );
+            continue;
           }
 
           // Delete the room after removing participants
@@ -187,8 +209,8 @@ export class LiveKitService {
             await this.roomService.deleteRoom(room.name);
             this.logger.log(`Deleted room: ${room.name}`);
           } catch (err) {
-            this.logger.debug(
-              `Failed to delete room ${room.name}: ${(err as Error).message}`,
+            this.logger.warn(
+              `Failed to delete room ${room.name} (removed ${removedCount} participants): ${(err as Error).message}`,
             );
           }
         }
