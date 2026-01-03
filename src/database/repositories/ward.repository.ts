@@ -17,6 +17,9 @@ export enum BeneficiaryStatus {
 export interface BeneficiaryListItem {
   id: string;
   name: string;
+  age: number | null;
+  gender: string | null;
+  type: string | null;
   address: string | null;
   manager: string | null;
   status: BeneficiaryStatus;
@@ -26,6 +29,24 @@ export interface BeneficiaryListItem {
 export interface BeneficiaryListResult {
   data: BeneficiaryListItem[];
   total: number;
+}
+
+export interface BeneficiaryDetailLog {
+  id: string;
+  date: string;
+  type: string;
+  content: string;
+  sentiment?: 'positive' | 'neutral' | 'negative';
+}
+
+export interface BeneficiaryDetailItem {
+  id: string;
+  phoneNumber: string | null;
+  guardian: string | null;
+  diseases: string[];
+  medication: string | null;
+  notes: string | null;
+  recentLogs: BeneficiaryDetailLog[];
 }
 
 @Injectable()
@@ -452,7 +473,14 @@ export class WardRepository {
         // 신규 등록은 기본적으로 미연동 상태
         isRegistered: false,
         wardId: null,
-        notes: params.notes ?? null,
+        detail: {
+          create: {
+            notes: params.notes ?? null,
+          },
+        },
+      },
+      include: {
+        detail: true,
       },
     });
 
@@ -465,7 +493,7 @@ export class WardRepository {
       name: orgWard.name,
       birth_date: orgWard.birthDate?.toISOString().split('T')[0] ?? null,
       address: orgWard.address,
-      notes: orgWard.notes,
+      notes: orgWard.detail?.notes ?? null,
       is_registered: orgWard.isRegistered,
       ward_id: orgWard.wardId,
       created_at: orgWard.createdAt.toISOString(),
@@ -476,6 +504,9 @@ export class WardRepository {
     const wards = await this.prisma.organizationWard.findMany({
       where: { organizationId },
       orderBy: { createdAt: 'desc' },
+      include: {
+        detail: true,
+      },
     });
 
     return wards.map(w => ({
@@ -485,7 +516,7 @@ export class WardRepository {
       name: w.name,
       birth_date: w.birthDate?.toISOString().split('T')[0] ?? null,
       address: w.address,
-      notes: w.notes,
+      notes: w.detail?.notes ?? null,
       is_registered: w.isRegistered,
       ward_id: w.wardId,
       uploaded_by_admin_id: w.uploadedByAdminId,
@@ -507,6 +538,7 @@ export class WardRepository {
             },
           },
         },
+        detail: true,
       },
       orderBy: { createdAt: 'desc' },
     });
@@ -558,7 +590,7 @@ export class WardRepository {
         name: ow.name,
         birth_date: ow.birthDate?.toISOString().split('T')[0] ?? null,
         address: ow.address,
-        notes: ow.notes,
+        notes: ow.detail?.notes ?? null,
         is_registered: ow.isRegistered,
         ward_id: ow.wardId,
         created_at: ow.createdAt.toISOString(),
@@ -734,6 +766,9 @@ export class WardRepository {
       return {
         id: row.id,
         name: row.name,
+        age: calculateAge(row.birthDate),
+        gender: row.gender ?? null,
+        type: row.wardType ?? null,
         address: row.address,
         manager:
           row.uploadedByAdmin?.name ?? row.uploadedByAdmin?.email ?? null,
@@ -744,4 +779,108 @@ export class WardRepository {
 
     return { data, total };
   }
+
+  async getOrganizationBeneficiaryDetail(params: {
+    organizationId: string;
+    beneficiaryId: string;
+  }): Promise<BeneficiaryDetailItem | null> {
+    const { organizationId, beneficiaryId } = params;
+    const row = await this.prisma.organizationWard.findFirst({
+      where: {
+        id: beneficiaryId,
+        organizationId,
+        isRegistered: true,
+      },
+      include: {
+        detail: true,
+        ward: {
+          include: {
+            guardian: {
+              include: {
+                user: {
+                  select: {
+                    displayName: true,
+                    nickname: true,
+                    email: true,
+                  },
+                },
+              },
+            },
+            callSummaries: {
+              orderBy: { createdAt: 'desc' },
+              take: 10,
+              select: {
+                id: true,
+                summary: true,
+                mood: true,
+                createdAt: true,
+                call: { select: { createdAt: true } },
+              },
+            },
+          },
+        },
+      },
+    });
+
+    if (!row) return null;
+
+    const guardianUser = row.ward?.guardian?.user;
+    const guardian = row.detail?.guardian ?? formatGuardian(guardianUser);
+    const recentLogs =
+      row.ward?.callSummaries.map(summary => {
+        const createdAt = summary.call?.createdAt ?? summary.createdAt;
+        return {
+          id: summary.id,
+          date: createdAt.toISOString(),
+          type: 'AI 안부',
+          content: summary.summary ?? '요약 정보 없음',
+          sentiment: mapMoodToSentiment(summary.mood),
+        };
+      }) ?? [];
+
+    return {
+      id: row.id,
+      phoneNumber: row.phoneNumber ?? null,
+      guardian,
+      diseases: row.detail?.diseases ?? [],
+      medication: row.detail?.medication ?? null,
+      notes: row.detail?.notes ?? null,
+      recentLogs,
+    };
+  }
+}
+
+function calculateAge(birthDate: Date | null): number | null {
+  if (!birthDate) return null;
+  const today = new Date();
+  let age = today.getFullYear() - birthDate.getFullYear();
+  const monthDiff = today.getMonth() - birthDate.getMonth();
+  if (
+    monthDiff < 0 ||
+    (monthDiff === 0 && today.getDate() < birthDate.getDate())
+  ) {
+    age -= 1;
+  }
+  return age;
+}
+
+function formatGuardian(user?: {
+  displayName: string | null;
+  nickname: string | null;
+  email: string | null;
+}): string | null {
+  if (!user) return null;
+  const name = user.displayName ?? user.nickname ?? null;
+  const email = user.email ?? null;
+  if (name && email) return `${name} (${email})`;
+  return name ?? email;
+}
+
+function mapMoodToSentiment(
+  mood?: string | null,
+): 'positive' | 'neutral' | 'negative' | undefined {
+  if (mood === 'positive' || mood === 'neutral' || mood === 'negative') {
+    return mood;
+  }
+  return undefined;
 }

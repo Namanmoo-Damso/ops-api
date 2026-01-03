@@ -3,6 +3,8 @@ import {
   Get,
   HttpException,
   HttpStatus,
+  Param,
+  ParseUUIDPipe,
   Query,
   UseGuards,
   UsePipes,
@@ -45,6 +47,24 @@ interface BeneficiaryListResponse {
   total: number;
 }
 
+interface BeneficiaryDetailResponse {
+  data: {
+    id: string;
+    phoneNumber: string | null;
+    guardian: string | null;
+    diseases: string[];
+    medication: string | null;
+    notes: string | null;
+    recentLogs: Array<{
+      id: string;
+      date: string;
+      type: string;
+      content: string;
+      sentiment?: 'positive' | 'neutral' | 'negative';
+    }>;
+  };
+}
+
 @Controller('v1/admin/beneficiaries')
 @UseGuards(AdminOrganizationGuard)
 @UsePipes(
@@ -85,5 +105,30 @@ export class BeneficiariesController {
       pageSize,
       total,
     };
+  }
+
+  @Get(':id')
+  async detail(
+    @CurrentAdmin() admin: { organization_id?: string },
+    @Param('id', new ParseUUIDPipe()) id: string,
+  ): Promise<BeneficiaryDetailResponse> {
+    const organizationId = admin.organization_id;
+    if (!organizationId) {
+      throw new HttpException(
+        '조직이 설정되지 않은 관리자입니다. 조직 설정 후 다시 시도해주세요.',
+        HttpStatus.BAD_REQUEST,
+      );
+    }
+
+    const detail = await this.dbService.getOrganizationBeneficiaryDetail({
+      organizationId,
+      beneficiaryId: id,
+    });
+
+    if (!detail) {
+      throw new HttpException('대상자 정보를 찾을 수 없습니다.', HttpStatus.NOT_FOUND);
+    }
+
+    return { data: detail };
   }
 }

@@ -18,7 +18,10 @@ import {
   LocationRepository,
   DashboardRepository,
 } from './repositories';
-import type { BeneficiaryListResult } from './repositories/ward.repository';
+import type {
+  BeneficiaryDetailItem,
+  BeneficiaryListResult,
+} from './repositories/ward.repository';
 
 // Re-export types for backward compatibility
 export type {
@@ -467,6 +470,13 @@ export class DbService implements OnModuleDestroy {
     pageSize: number;
   }): Promise<BeneficiaryListResult> {
     return this.wards.listOrganizationBeneficiaries(params);
+  }
+
+  async getOrganizationBeneficiaryDetail(params: {
+    organizationId: string;
+    beneficiaryId: string;
+  }): Promise<BeneficiaryDetailItem | null> {
+    return this.wards.getOrganizationBeneficiaryDetail(params);
   }
 
   // ============================================================
