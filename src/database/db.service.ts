@@ -539,6 +539,10 @@ export class DbService implements OnModuleDestroy {
     return this.admins.findOrganization(organizationId);
   }
 
+  async findOrganizationById(organizationId: string) {
+    return this.admins.findOrganization(organizationId);
+  }
+
   async listAllOrganizations() {
     return this.admins.listAllOrganizations();
   }
