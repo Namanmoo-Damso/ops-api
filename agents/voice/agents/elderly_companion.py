@@ -5,7 +5,7 @@ from typing import Annotated
 from livekit.agents import Agent, RunContext, function_tool
 from pydantic import Field
 
-from ..userdata import SessionUserdata
+from userdata import SessionUserdata
 
 logger = logging.getLogger(__name__)
 
