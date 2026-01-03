@@ -6,5 +6,8 @@ livekit-agents>=1.0.0
 livekit-plugins-aws>=1.0.0
 livekit-plugins-silero>=1.0.0
 
+# AWS Transcribe streaming (required for STT)
+aws_sdk_transcribe_streaming>=0.1.0
+
 # Note: Pin exact versions in production for reproducible builds
 # To generate exact versions: pip freeze > requirements.txt
