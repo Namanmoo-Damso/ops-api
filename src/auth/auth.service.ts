@@ -134,6 +134,23 @@ export class AuthService {
     );
 
     if (existingUser) {
+      // 기존 사용자인데 ward 타입이면 ward 정보가 실제로 있는지 확인
+      if (existingUser.user_type === 'ward') {
+        const ward = await this.dbService.findWardByUserId(existingUser.id);
+        if (!ward) {
+          // ward 정보가 없는 불완전한 사용자 - 삭제 후 재생성
+          this.logger.warn(
+            `Incomplete ward user found userId=${existingUser.id}, deleting and recreating`,
+          );
+          await this.dbService.deleteUser(existingUser.id);
+          // 재생성 로직으로 진행
+          if (params.userType === 'ward') {
+            return this.handleWardRegistration(kakaoProfile);
+          }
+          // userType이 없으면 보호자로 처리
+        }
+      }
+
       // 기존 사용자 - JWT 발급
       this.logger.log(`kakaoLogin existing user id=${existingUser.id}`);
       const tokens = await this.issueTokens(
