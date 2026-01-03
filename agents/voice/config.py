@@ -68,4 +68,9 @@ def get_optional_config() -> dict[str, Optional[str]]:
     return {
         "OPS_API_URL": os.getenv("OPS_API_URL", "http://backend:8080"),
         "LOG_LEVEL": os.getenv("LOG_LEVEL", "INFO"),
+        "SODAM_VOICE": os.getenv("SODAM_VOICE", "Seoyeon"),
+        "SODAM_LLM_MODEL": os.getenv(
+            "SODAM_LLM_MODEL", 
+            "anthropic.claude-sonnet-4-20250514-v1:0"
+        ),
     }

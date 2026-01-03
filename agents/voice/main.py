@@ -1,16 +1,46 @@
+"""
+소담이 Voice Agent - 메인 엔트리포인트
+LiveKit Agent v1.3+ API
+
+이 파일은 Docker 컨테이너에서 실행되는 엔트리포인트입니다.
+실제 에이전트 로직은 agent.py에 있습니다.
+
+실행 방법:
+    python main.py download-files  # 모델 다운로드 (최초 1회)
+    python main.py dev             # 개발 모드
+    python main.py start           # 프로덕션 모드
+"""
+
 import sys
 from pathlib import Path
+
 from dotenv import load_dotenv
-from livekit.agents import JobContext, WorkerOptions, cli, JobRequest
-from livekit import rtc
+from livekit.agents import AgentServer, AgentSession, cli
+from livekit.agents.voice import room_io
+from livekit.plugins import silero
 import logging
 
+# 로컬 모듈
 from config import validate_env_vars, get_optional_config, ConfigError
+from agent import SodamAgent, SodamUserData
+
+# AWS 플러그인
+try:
+    from livekit.plugins import aws
+except ImportError:
+    print("❌ livekit-plugins-aws 패키지가 필요합니다")
+    print("   설치: pip install livekit-plugins-aws")
+    sys.exit(1)
+
+
+# ============================================================================
+# 환경 설정
+# ============================================================================
 
 # Load environment variables
-load_dotenv(dotenv_path=Path(__file__).parent.parent / ".env")
+load_dotenv(dotenv_path=Path(__file__).parent / ".env")
 
-# Validate environment variables before proceeding
+# Validate configuration
 try:
     env_config = validate_env_vars()
     optional_config = get_optional_config()
@@ -18,72 +48,113 @@ except ConfigError as e:
     print(f"❌ Configuration Error: {e}", file=sys.stderr)
     sys.exit(1)
 
-# Set logging
+# Logging
 log_level = getattr(logging, optional_config["LOG_LEVEL"].upper(), logging.INFO)
 logging.basicConfig(
     level=log_level,
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
 )
-logger = logging.getLogger(__name__)
+logger = logging.getLogger("sodam.main")
 
-# 1. 방에 참여했을 때 수행할 동작 (가공 공장의 실제 로직)
-async def entrypoint(ctx: JobContext):
+
+# ============================================================================
+# 에이전트 서버
+# ============================================================================
+
+server = AgentServer()
+
+
+@server.rtc_session()
+async def entrypoint(ctx):
     """
-    Main entrypoint when agent joins a room.
-
-    Args:
-        ctx: JobContext from LiveKit agent framework
+    LiveKit 룸 연결 시 실행되는 엔트리포인트
     """
-    try:
-        logger.info(f"Agent attempting to join room: {ctx.room.name}")
+    logger.info(f"🌸 소담이가 방에 입장합니다: {ctx.room.name}")
+    
+    # 룸 연결
+    await ctx.connect()
+    
+    # 메타데이터 설정 (프론트엔드에서 에이전트 식별용)
+    await ctx.room.local_participant.set_metadata(
+        '{"type": "agent", "name": "소담이", "language": "ko"}'
+    )
+    
+    # =========================================================================
+    # AgentSession 설정
+    # =========================================================================
+    session = AgentSession[SodamUserData](
+        # VAD: 어르신 말속도 고려
+        vad=silero.VAD.load(
+            min_speech_duration=0.1,
+            min_silence_duration=0.8,
+            prefix_padding_duration=0.5,
+        ),
+        
+        # STT: Amazon Transcribe 한국어
+        stt=aws.STT(language="ko-KR"),
+        
+        # LLM: AWS Bedrock Claude
+        llm=aws.LLM(
+            model=optional_config.get("SODAM_LLM_MODEL", "anthropic.claude-sonnet-4-20250514-v1:0"),
+            temperature=0.7,
+        ),
+        
+        # TTS: Amazon Polly 한국어
+        tts=aws.TTS(
+            voice=optional_config.get("SODAM_VOICE", "Seoyeon"),
+        ),
+        
+        # Turn Detection
+        turn_detection="vad",
+        
+        # 타이밍 (어르신 말속도 고려)
+        min_endpointing_delay=0.8,
+        max_endpointing_delay=6.0,
+        
+        # 인터럽션
+        allow_interruptions=True,
+        min_interruption_duration=0.8,
+        false_interruption_timeout=2.5,
+        resume_false_interruption=True,
+        
+        # 사용자 데이터
+        userdata=SodamUserData(),
+    )
+    
+    # =========================================================================
+    # 세션 시작
+    # =========================================================================
+    await session.start(
+        room=ctx.room,
+        agent=SodamAgent(),
+        room_options=room_io.RoomOptions(
+            audio_input=True,
+            video_input=False,
+            text_output=room_io.TextOutputOptions(
+                sync_transcription=True,
+            ),
+        ),
+    )
+    
+    logger.info(f"✅ 소담이 준비 완료: {ctx.room.name}")
 
-        await ctx.connect()
-        # 접속 후 메타데이터를 설정해 프론트에서 필터링할 수 있게 합니다.
-        await ctx.room.local_participant.set_metadata(
-            '{"type": "agent", "name": "AI"}'
-        )
-        logger.info(f"Successfully connected to room: {ctx.room.name}")
 
-        # 참여자가 트랙(오디오/비디오)을 보낼 때 감지
-        @ctx.room.on("track_subscribed")
-        def on_track_subscribed(track: rtc.Track, publication: rtc.TrackPublication, participant: rtc.RemoteParticipant):
-            if track.kind == rtc.TrackKind.KIND_AUDIO:
-                logger.info(f"Audio track subscribed from: {participant.identity} (ID: {participant.sid})")
-                # 나중에 여기에 AI(STT) 로직이 들어갑니다.
-    except Exception as e:
-        logger.error(f"Failed to join or connect to room {ctx.room.name}: {e}")
-        raise
+# ============================================================================
+# 실행
+# ============================================================================
 
-# 2. 서버의 일거리 요청(Job Request)을 어떻게 처리할지 결정
-async def request_fnc(req: JobRequest):
-    """
-    Handle incoming job requests from LiveKit server.
-
-    Args:
-        req: JobRequest from LiveKit
-    """
-    try:
-        logger.info(f"Received job request for room: {req.room.name}")
-        # 모든 요청을 수락합니다.
-        # 실제 서비스에서는 여기서 특정 방만 수락하거나 권한을 확인할 수 있습니다.
-        await req.accept(name="AI")
-    except Exception as e:
-        logger.error(f"Failed to accept job request for room {req.room.name}: {e}")
-        raise
-
-# 3. 워커 실행 설정
 if __name__ == "__main__":
-    print("=" * 50)
-    print("AI AGENT WORKER (Basic)")
-    print("=" * 50)
+    print()
+    print("🌸" + "=" * 58 + "🌸")
+    print("   소담이 - 한국 어르신 음성 AI 동반자")
+    print("🌸" + "=" * 58 + "🌸")
+    print()
+    
     try:
-        cli.run_app(WorkerOptions(
-            entrypoint_fnc=entrypoint,
-            request_fnc=request_fnc, # ★ 이 부분을 추가해야 서버의 요청을 수락합니다.
-        ))
+        cli.run_app(server)
     except KeyboardInterrupt:
-        logger.info("Worker stopped by user")
+        logger.info("👋 소담이가 종료됩니다...")
         sys.exit(0)
     except Exception as e:
-        logger.error(f"Fatal error: {e}")
+        logger.error(f"❌ 오류 발생: {e}")
         sys.exit(1)
