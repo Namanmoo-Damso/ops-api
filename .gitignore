@@ -34,5 +34,6 @@ prisma/*.db-journal
 # 동적 생성
 src/generated/
 
-
-agents/venv/
+# python venv
+agents/venv
+agents/voice/__pycache__/

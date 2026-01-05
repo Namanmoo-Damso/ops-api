@@ -72,6 +72,10 @@ export class LiveKitService {
     return this.roomService.removeParticipant(roomName, identity);
   }
 
+  async deleteRoom(roomName: string) {
+    return this.roomService.deleteRoom(roomName);
+  }
+
   /**
    * Dispatch a voice agent to join the room
    */

@@ -213,4 +213,62 @@ export class RtcController {
       );
     }
   }
+
+  @Post('v1/livekit/bot')
+  async createBotWithAgent(
+    @Headers('authorization') authorization: string | undefined,
+  ) {
+    const config = this.configService.getConfig();
+    const auth = this.authService.getAuthContext(authorization);
+    if (config.authRequired && !auth) {
+      throw new HttpException('Unauthorized', HttpStatus.UNAUTHORIZED);
+    }
+
+    try {
+      const rtcData = await this.rtcTokenService.createBotWithAgent();
+      this.logger.log(
+        `createBotWithAgent room=${rtcData.roomName} identity=${rtcData.identity}`,
+      );
+      return rtcData;
+    } catch (error) {
+      this.logger.error(
+        `createBotWithAgent failed: ${(error as Error).message}`,
+      );
+      throw new HttpException(
+        'Failed to create bot session',
+        HttpStatus.BAD_GATEWAY,
+      );
+    }
+  }
+
+  @Post('v1/livekit/rooms/:roomName/delete')
+  async deleteLivekitRoom(
+    @Headers('authorization') authorization: string | undefined,
+    @Param('roomName') roomNameParam: string,
+  ) {
+    const config = this.configService.getConfig();
+    const auth = this.authService.getAuthContext(authorization);
+    if (config.authRequired && !auth) {
+      throw new HttpException('Unauthorized', HttpStatus.UNAUTHORIZED);
+    }
+
+    const roomName = roomNameParam?.trim();
+    if (!roomName) {
+      throw new HttpException('roomName is required', HttpStatus.BAD_REQUEST);
+    }
+
+    try {
+      await this.liveKitService.deleteRoom(roomName);
+      this.logger.log(`deleteLivekitRoom room=${roomName}`);
+      return { success: true, roomName };
+    } catch (error) {
+      this.logger.error(
+        `deleteLivekitRoom failed room=${roomName}: ${(error as Error).message}`,
+      );
+      throw new HttpException(
+        'Failed to delete LiveKit room',
+        HttpStatus.BAD_GATEWAY,
+      );
+    }
+  }
 }

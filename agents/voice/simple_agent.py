@@ -235,23 +235,39 @@ async def entrypoint(ctx: JobContext):
     # Create agent instance
     agent = ElderlyCompanionAgent()
 
-    # Start session with room options
+    # Connect to room first
+    await ctx.connect()
+
+    # Wait for bot to join
+    await asyncio.sleep(3)
+
+    # Find bot participant (ignore admin)
+    bot_identity = None
+    logger.info(f"Participants in room: {len(ctx.room.remote_participants)}")
+    for p in ctx.room.remote_participants.values():
+        logger.info(f"  - {p.identity}")
+        if p.identity.startswith('bot-'):
+            bot_identity = p.identity
+            logger.info(f"Agent will listen to bot: {bot_identity}")
+            break
+
+    if not bot_identity:
+        logger.warning("No bot participant found - will listen to first participant")
+
+    # Start session with bot as target
     await session.start(
         agent=agent,
         room=ctx.room,
         room_input_options=RoomInputOptions(
-            # Keep session alive briefly on disconnect (browser refresh)
             close_on_disconnect=False,
+            participant_identity=bot_identity,  # Listen ONLY to bot
         ),
     )
-
-    # Connect to room
-    await ctx.connect()
 
     # Greeting
     session.say("안녕하세요, 어르신. 오늘 어떻게 지내셨어요?")
 
-    logger.info(f"Agent ready in room: {ctx.room.name}")
+    logger.info(f"Agent ready in room: {ctx.room.name}, listening to bot: {bot_identity}")
 
 
 if __name__ == "__main__":
