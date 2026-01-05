@@ -47,6 +47,14 @@ export class UserRepository {
     return user ? toUserRow(user) : undefined;
   }
 
+  async findByEmail(email: string): Promise<UserRow | undefined> {
+    const normalizedEmail = email.toLowerCase().trim();
+    const user = await this.prisma.user.findFirst({
+      where: { email: { equals: normalizedEmail, mode: 'insensitive' } },
+    });
+    return user ? toUserRow(user) : undefined;
+  }
+
   async updateType(
     userId: string,
     userType: 'guardian' | 'ward',

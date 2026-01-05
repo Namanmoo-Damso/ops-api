@@ -175,6 +175,48 @@ export class AuthService {
       // 어르신 - 자동 매칭 시도
       return this.handleWardRegistration(kakaoProfile);
     } else {
+      // 보호자 로그인 시도 - 해당 이메일이 이미 ward로 등록/예정인지 체크
+      if (kakaoProfile.email) {
+        // 3-1. users 테이블에서 이미 ward로 등록된 사용자인지 확인
+        const existingWardUser = await this.dbService.findUserByEmail(
+          kakaoProfile.email,
+        );
+        if (existingWardUser?.user_type === 'ward') {
+          this.logger.warn(
+            `Guardian login blocked - email already registered as ward: ${kakaoProfile.email}`,
+          );
+          throw new UnauthorizedException(
+            '이 이메일은 이미 어르신으로 등록되어 있습니다. 어르신 버튼을 눌러 로그인해주세요.',
+          );
+        }
+
+        // 3-2. organization_wards에 ward로 사전 등록된 이메일인지 확인
+        const pendingOrgWard =
+          await this.dbService.findPendingOrganizationWardByEmail(
+            kakaoProfile.email,
+          );
+        if (pendingOrgWard) {
+          this.logger.warn(
+            `Guardian login blocked - email pre-registered as ward in organization: ${kakaoProfile.email}`,
+          );
+          throw new UnauthorizedException(
+            '이 이메일은 기관에서 어르신으로 등록되어 있습니다. 어르신 버튼을 눌러 로그인해주세요.',
+          );
+        }
+
+        // 3-3. guardians 테이블에서 다른 보호자가 등록한 어르신 이메일인지 확인
+        const existingGuardianForEmail =
+          await this.dbService.findGuardianByWardEmail(kakaoProfile.email);
+        if (existingGuardianForEmail) {
+          this.logger.warn(
+            `Guardian login blocked - email registered as ward by another guardian: ${kakaoProfile.email}`,
+          );
+          throw new UnauthorizedException(
+            '이 이메일은 이미 어르신으로 등록되어 있습니다. 어르신 버튼을 눌러 로그인해주세요.',
+          );
+        }
+      }
+
       // 보호자 - 사용자 먼저 생성 (user_type은 null로, 추가 정보 입력 후 guardian으로 변경)
       const user = await this.dbService.createUserWithKakao({
         kakaoId: kakaoProfile.kakaoId,
@@ -259,10 +301,14 @@ export class AuthService {
       userType: 'ward',
     });
 
-    // 5. 어르신 정보 생성
+    // 5. 어르신 정보 생성 (기관 또는 보호자가 등록한 전화번호 사용)
+    const phoneNumber =
+      matchedOrganizationWard?.phone_number ??
+      matchedGuardian?.ward_phone_number ??
+      '';
     const ward = await this.dbService.createWard({
       userId: user.id,
-      phoneNumber: '', // 이후 설정에서 입력
+      phoneNumber,
       guardianId: matchedGuardian?.id ?? null,
     });
 
