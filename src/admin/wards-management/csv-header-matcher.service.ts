@@ -99,8 +99,21 @@ JSON만 반환하고 다른 텍스트는 포함하지 마세요.`;
         return {};
       }
 
-      const mapping: HeaderMapping = JSON.parse(jsonMatch[0]);
-      this.logger.log(`LLM matched ${Object.keys(mapping).length} headers`);
+      const rawMapping = JSON.parse(jsonMatch[0]);
+
+      // 허용된 필드명만 필터링
+      const allowedFields = ['name', 'email', 'phone_number', 'birth_date', 'address', 'notes'];
+      const mapping: HeaderMapping = {};
+
+      for (const [key, value] of Object.entries(rawMapping)) {
+        if (typeof value === 'string' && allowedFields.includes(value)) {
+          mapping[key] = value;
+        } else if (value === null) {
+          mapping[key] = null;
+        }
+      }
+
+      this.logger.log(`LLM matched ${Object.keys(mapping).length} headers (validated)`);
 
       return mapping;
     } catch (error) {
