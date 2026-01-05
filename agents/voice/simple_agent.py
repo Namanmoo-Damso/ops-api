@@ -200,7 +200,7 @@ async def entrypoint(ctx: JobContext):
 
     # Event: Session end
     @session.on("session_end")
-    async def on_session_end(report):
+    def on_session_end(report):
         """
         Handle session end - trigger analysis and indexing.
 
@@ -209,28 +209,31 @@ async def entrypoint(ctx: JobContext):
         - duration
         - turns (list of conversation turns)
         """
-        logger.info(f"Session ended: {report.session_id if hasattr(report, 'session_id') else call_id}")
-        logger.info(f"Total transcripts: {len(userdata.transcripts)}")
+        async def _run_post_session_tasks():
+            logger.info(f"Session ended: {report.session_id if hasattr(report, 'session_id') else call_id}")
+            logger.info(f"Total transcripts: {len(userdata.transcripts)}")
 
-        # Run post-session tasks with timeout
-        tasks = [
-            trigger_rag_indexing(call_id, ward_id),
-            trigger_call_analysis(call_id),
-        ]
+            # Run post-session tasks with timeout
+            tasks = [
+                trigger_rag_indexing(call_id, ward_id),
+                trigger_call_analysis(call_id),
+            ]
 
-        try:
-            await asyncio.wait_for(
-                asyncio.gather(*tasks, return_exceptions=True),
-                timeout=TIMEOUT_POST_SESSION,
-            )
-            logger.info("Post-session tasks completed")
-        except asyncio.TimeoutError:
-            logger.warning("Post-session tasks timed out")
-        except Exception as e:
-            logger.error(f"Post-session tasks failed: {e}")
+            try:
+                await asyncio.wait_for(
+                    asyncio.gather(*tasks, return_exceptions=True),
+                    timeout=TIMEOUT_POST_SESSION,
+                )
+                logger.info("Post-session tasks completed")
+            except asyncio.TimeoutError:
+                logger.warning("Post-session tasks timed out")
+            except Exception as e:
+                logger.error(f"Post-session tasks failed: {e}")
+
+        asyncio.create_task(_run_post_session_tasks())
 
     # Create agent instance
-    agent = ElderlyCompanionAgent(ward_id=ward_id)
+    agent = ElderlyCompanionAgent()
 
     # Start session with room options
     await session.start(
