@@ -11,6 +11,7 @@ import { BeneficiariesController } from './beneficiaries/beneficiaries.controlle
 import { AuthService } from '../auth';
 import { CallsService } from '../calls';
 import { AdminOrganizationGuard } from '../common';
+import { CsvHeaderMatcherService } from './wards-management/csv-header-matcher.service';
 
 @Module({
   imports: [
@@ -26,7 +27,13 @@ import { AdminOrganizationGuard } from '../common';
     EmergenciesController,
     BeneficiariesController,
   ],
-  providers: [AdminAuthService, AuthService, CallsService, AdminOrganizationGuard],
+  providers: [
+    AdminAuthService,
+    AuthService,
+    CallsService,
+    AdminOrganizationGuard,
+    CsvHeaderMatcherService,
+  ],
   exports: [AdminAuthService],
 })
 export class AdminModule {}
