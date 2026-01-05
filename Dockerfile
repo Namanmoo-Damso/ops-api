@@ -13,6 +13,8 @@ ENV NODE_ENV=production
 COPY --from=build /app/dist ./dist
 COPY --from=build /app/node_modules ./node_modules
 COPY --from=build /app/prisma ./prisma
+COPY scripts/check-prisma-sync.sh ./scripts/
 COPY package*.json ./
+RUN chmod +x ./scripts/check-prisma-sync.sh
 EXPOSE 8080
-CMD ["sh", "-c", "npx prisma migrate deploy && node dist/main.js"]
+CMD ["sh", "-c", "./scripts/check-prisma-sync.sh && node dist/main.js"]

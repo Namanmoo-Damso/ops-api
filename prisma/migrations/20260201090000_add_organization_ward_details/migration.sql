@@ -13,26 +13,20 @@ CREATE TABLE IF NOT EXISTS organization_ward_details (
     ON DELETE CASCADE
 );
 
--- Backfill existing detail fields from organization_wards.
+-- Backfill existing notes from organization_wards to the new details table.
 INSERT INTO organization_ward_details (
   organization_ward_id,
-  diseases,
-  medication,
   notes,
   created_at,
   updated_at
 )
 SELECT
   id,
-  COALESCE(diseases, ARRAY[]::text[]),
-  medication,
   notes,
   created_at,
   updated_at
 FROM organization_wards
 ON CONFLICT (organization_ward_id) DO NOTHING;
 
--- Drop duplicated detail columns from organization_wards.
-ALTER TABLE organization_wards DROP COLUMN IF EXISTS diseases;
-ALTER TABLE organization_wards DROP COLUMN IF EXISTS medication;
+-- Drop notes column from organization_wards (now in details table).
 ALTER TABLE organization_wards DROP COLUMN IF EXISTS notes;
