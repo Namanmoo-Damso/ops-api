@@ -1,23 +1,43 @@
 #!/usr/bin/env sh
-. "$(dirname -- "$0")/_/husky.sh"
 
 # Prisma schema 변경 감지
 if git diff --cached --name-only | grep -q "prisma/schema.prisma"; then
   echo "🔍 Detected changes in prisma/schema.prisma"
 
-  # 마이그레이션 파일도 변경되었는지 확인
-  if git diff --cached --name-only | grep -q "prisma/migrations/"; then
-    echo "✅ Migration files also changed - OK"
+  # 새로운 마이그레이션 파일이 추가되었는지 확인
+  NEW_MIGRATIONS=$(git diff --cached --name-status | grep "^A.*prisma/migrations/.*migration.sql$" | wc -l)
+
+  if [ "$NEW_MIGRATIONS" -gt 0 ]; then
+    echo "✅ New migration files detected ($NEW_MIGRATIONS) - OK"
   else
-    echo ""
-    echo "❌ ERROR: schema.prisma changed but no migration files were staged!"
-    echo ""
-    echo "Please run:"
-    echo "  npx prisma migrate dev --name describe_your_change"
-    echo ""
-    echo "Then stage the new migration files and commit again."
-    echo ""
-    exit 1
+    # 기존 마이그레이션 수정 확인
+    MODIFIED_MIGRATIONS=$(git diff --cached --name-status | grep "^M.*prisma/migrations/" | wc -l)
+
+    if [ "$MODIFIED_MIGRATIONS" -gt 0 ]; then
+      echo ""
+      echo "⚠️  WARNING: Existing migration files were modified!"
+      echo "Modified migrations can cause issues in other environments."
+      echo ""
+      echo "If this is intentional (hotfix), you can proceed."
+      echo "Otherwise, create a NEW migration instead:"
+      echo "  npx prisma migrate dev --name describe_your_change"
+      echo ""
+      read -p "Continue anyway? (y/N) " -n 1 -r
+      echo
+      if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+        exit 1
+      fi
+    else
+      echo ""
+      echo "❌ ERROR: schema.prisma changed but no new migration files were added!"
+      echo ""
+      echo "Please run:"
+      echo "  npx prisma migrate dev --name describe_your_change"
+      echo ""
+      echo "Then stage the new migration files and commit again."
+      echo ""
+      exit 1
+    fi
   fi
 fi
 

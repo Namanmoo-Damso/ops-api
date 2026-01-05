@@ -3,15 +3,15 @@ name: Prisma Schema Validation
 on:
   pull_request:
     paths:
-      - 'ops-api/prisma/schema.prisma'
-      - 'ops-api/prisma/migrations/**'
+      - 'prisma/schema.prisma'
+      - 'prisma/migrations/**'
   push:
     branches:
       - dev
       - main
     paths:
-      - 'ops-api/prisma/schema.prisma'
-      - 'ops-api/prisma/migrations/**'
+      - 'prisma/schema.prisma'
+      - 'prisma/migrations/**'
 
 jobs:
   validate-prisma:
@@ -41,23 +41,23 @@ jobs:
         with:
           node-version: '20'
           cache: 'npm'
-          cache-dependency-path: ops-api/package-lock.json
+          cache-dependency-path: package-lock.json
 
       - name: Install dependencies
-        working-directory: ops-api
         run: npm ci
 
       - name: Check schema.prisma changes
         id: schema-check
-        working-directory: ops-api
         run: |
           # schema.prisma가 변경되었는지 확인
-          if git diff --name-only ${{ github.event.before }} ${{ github.sha }} | grep -q "ops-api/prisma/schema.prisma"; then
+          if git diff --name-only ${{ github.event.before }} ${{ github.sha }} | grep -q "prisma/schema.prisma"; then
             echo "schema_changed=true" >> $GITHUB_OUTPUT
 
-            # 마이그레이션 파일도 변경되었는지 확인
-            if git diff --name-only ${{ github.event.before }} ${{ github.sha }} | grep -q "ops-api/prisma/migrations/"; then
+            # 새로운 마이그레이션 파일이 추가되었는지 확인
+            NEW_MIGRATIONS=$(git diff --name-status ${{ github.event.before }} ${{ github.sha }} | grep "^A.*prisma/migrations/.*migration.sql$" | wc -l)
+            if [ "$NEW_MIGRATIONS" -gt 0 ]; then
               echo "migrations_changed=true" >> $GITHUB_OUTPUT
+              echo "new_migration_count=$NEW_MIGRATIONS" >> $GITHUB_OUTPUT
             else
               echo "migrations_changed=false" >> $GITHUB_OUTPUT
             fi
@@ -73,29 +73,24 @@ jobs:
           exit 1
 
       - name: Validate Prisma schema
-        working-directory: ops-api
         env:
           DATABASE_URL: postgresql://test:test@localhost:5432/test
         run: npx prisma validate
 
       - name: Apply migrations
-        working-directory: ops-api
         env:
           DATABASE_URL: postgresql://test:test@localhost:5432/test
         run: npx prisma migrate deploy
 
       - name: Check migration status
-        working-directory: ops-api
         env:
           DATABASE_URL: postgresql://test:test@localhost:5432/test
         run: npx prisma migrate status
 
       - name: Generate Prisma Client
-        working-directory: ops-api
         run: npx prisma generate
 
       - name: Run database diff check
-        working-directory: ops-api
         env:
           DATABASE_URL: postgresql://test:test@localhost:5432/test
         run: |
