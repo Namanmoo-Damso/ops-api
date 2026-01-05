@@ -22,7 +22,9 @@ import { AdminOrganizationGuard } from '../../common/guards/admin-organization.g
 import {
   BulkUploadWardsDto,
   CreateWardDto,
+  MatchCsvHeadersDto,
 } from './dto';
+import { CsvHeaderMatcherService } from './csv-header-matcher.service';
 
 @Controller('v1/admin')
 @UseGuards(AdminOrganizationGuard)
@@ -35,7 +37,10 @@ import {
 export class WardsManagementController {
   private readonly logger = new Logger(WardsManagementController.name);
 
-  constructor(private readonly dbService: DbService) {}
+  constructor(
+    private readonly dbService: DbService,
+    private readonly csvHeaderMatcher: CsvHeaderMatcherService,
+  ) {}
 
   private validateWardInput(payload: Partial<CreateWardDto>) {
     const dto = plainToInstance(CreateWardDto, payload);
@@ -218,6 +223,20 @@ export class WardsManagementController {
         HttpStatus.BAD_REQUEST,
       );
     }
+  }
+
+  @Post('csv/match-headers')
+  async matchCsvHeaders(@Body() body: MatchCsvHeadersDto) {
+    const { headers } = body;
+
+    this.logger.log(`Matching ${headers.length} CSV headers with LLM`);
+
+    const mapping = await this.csvHeaderMatcher.matchHeaders(headers);
+
+    return {
+      success: true,
+      mapping,
+    };
   }
 
   @Get('my-wards')
