@@ -37,6 +37,64 @@ export class RtcTokenService {
     private readonly liveKitService: LiveKitService,
   ) {}
 
+  /**
+   * Create an isolated LiveKit room for a bot participant (identity starting with "bot-")
+   * and dispatch the existing voice agent (identity starting with "agent-") into the same room
+   * so they can interact with each other.
+   */
+  async createBotWithAgent(): Promise<RtcTokenResult> {
+    const config = this.configService.getConfig();
+    const ttlSeconds = config.livekitTokenTtlSeconds;
+    const expiresAt = new Date(Date.now() + ttlSeconds * 1000).toISOString();
+
+    const roomName = `bot-${randomUUID()}`;
+    const identity = `bot-${randomUUID()}`;
+    const name = identity;
+    const role: Role = 'host';
+
+    this.logger.log(
+      `createBotWithAgent room=${roomName} identity=${identity} role=${role}`,
+    );
+
+    // Dispatch existing voice agent (agent-*) into the bot room
+    await this.liveKitService.dispatchVoiceAgent(roomName, {
+      identity,
+      name,
+      type: 'bot',
+    });
+
+    const options: AccessTokenOptions = {
+      identity,
+      name,
+      ttl: ttlSeconds,
+    };
+    const accessToken = new AccessToken(
+      config.livekitApiKey,
+      config.livekitApiSecret,
+      options,
+    );
+
+    accessToken.addGrant({
+      roomJoin: true,
+      room: roomName,
+      canPublish: true,
+      canSubscribe: true,
+      canPublishData: true,
+      roomAdmin: true,
+      hidden: false,
+    });
+
+    return {
+      livekitUrl: config.livekitUrl,
+      roomName,
+      token: await accessToken.toJwt(),
+      expiresAt,
+      identity,
+      name,
+      role,
+    };
+  }
+
   async issueToken(params: {
     roomName: string;
     identity: string;
