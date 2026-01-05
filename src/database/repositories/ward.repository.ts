@@ -477,6 +477,7 @@ export class WardRepository {
       id: orgWard.id,
       organization_id: orgWard.organizationId,
       email: orgWard.email,
+      phone_number: orgWard.phoneNumber,
     };
   }
 
