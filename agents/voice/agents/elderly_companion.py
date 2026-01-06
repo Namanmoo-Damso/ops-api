@@ -1,5 +1,6 @@
 """Elderly Companion Agent - 어르신 돌봄 AI 에이전트."""
 import logging
+from enum import Enum
 from typing import Annotated
 
 from livekit.agents import Agent, RunContext, function_tool
@@ -10,6 +11,17 @@ from userdata import SessionUserdata
 logger = logging.getLogger(__name__)
 
 
+class CallDirection(str, Enum):
+    """Call direction types."""
+    INBOUND = "inbound"   # User calls agent
+    OUTBOUND = "outbound"  # Agent calls user
+
+
+# Greeting message constants
+GREETING_OUTBOUND = "안녕하세요 어르신, 저 소담이에요."
+GREETING_INBOUND = "네, 여보세요. 소담입니다."
+
+
 class ElderlyCompanionAgent(Agent):
     """
     어르신을 위한 따뜻한 AI 동반자.
@@ -18,21 +30,41 @@ class ElderlyCompanionAgent(Agent):
     자연스럽게 대화합니다.
     """
 
-    def __init__(self, ward_context: str = "") -> None:
+    def __init__(self, ward_context: str = "", call_direction: str = "inbound") -> None:
         """
         Initialize the agent.
 
         Args:
             ward_context: Pre-fetched context about the ward (optional)
+            call_direction: "inbound" or "outbound"
         """
+        self.call_direction = call_direction
         super().__init__(
-            instructions=self._build_instructions(ward_context),
+            instructions=self._build_instructions(ward_context, call_direction),
         )
 
-    def _build_instructions(self, ward_context: str = "") -> str:
+    async def on_enter(self) -> None:
+        """Called when agent enters the session - greets based on call direction."""
+        logger.info(f"ElderlyCompanionAgent entering with direction={self.call_direction}")
+
+        # Check if session is initialized
+        if not hasattr(self, 'session') or self.session is None:
+            logger.error("Session not initialized in on_enter")
+            return
+
+        # Use different greetings based on call direction
+        if self.call_direction == CallDirection.OUTBOUND:
+            greeting = GREETING_OUTBOUND
+        else:
+            greeting = GREETING_INBOUND
+
+        self.session.say(greeting, allow_interruptions=False)
+
+    def _build_instructions(self, ward_context: str = "", call_direction: str = "inbound") -> str:
         """Build agent instructions with optional context."""
         base = (
-            "You are a warm, caring AI companion for elderly Korean users.\n\n"
+            "You are a warm, caring AI companion for elderly Korean users.\n"
+            "Your name is '소담' (Sodam).\n\n"
             "# CRITICAL RULE: Language\n"
             "- User speaks: Korean (한국어)\n"
             "- You MUST respond: ONLY in Korean (한국어) using respectful 존댓말\n"

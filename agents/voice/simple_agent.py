@@ -27,7 +27,7 @@ from livekit.agents import (
 from livekit.plugins import aws, silero
 
 from config import validate_env_vars, get_optional_config, ConfigError
-from agents import ElderlyCompanionAgent
+from agents.elderly_companion import ElderlyCompanionAgent, CallDirection
 from userdata import SessionUserdata
 
 # Load environment variables
@@ -195,12 +195,19 @@ async def entrypoint(ctx: JobContext):
     call_id = ctx.room.name
     call_started_at = datetime.utcnow().strftime("%Y%m%dT%H%M%SZ")
 
-    logger.info(f"Session info: ward_id={ward_id}, call_id={call_id}")
+    # Determine call direction based on room name
+    # Rooms starting with "bot-" are outbound calls (agent initiates)
+    # All other rooms are inbound calls (user initiates)
+    is_outbound = ctx.room.name.startswith('bot-')
+    call_direction = CallDirection.OUTBOUND if is_outbound else CallDirection.INBOUND
+
+    logger.info(f"Session info: ward_id={ward_id}, call_id={call_id}, direction={call_direction}")
 
     # Create session userdata
     userdata = SessionUserdata(
         ward_id=ward_id,
         call_id=call_id,
+        call_direction=call_direction,
     )
 
     # Create agent session with userdata
@@ -303,8 +310,8 @@ async def entrypoint(ctx: JobContext):
         post_session_task = asyncio.create_task(_run_post_session_tasks())
         post_session_task.add_done_callback(lambda _t: session_end_event.set())
 
-    # Create agent instance
-    agent = ElderlyCompanionAgent()
+    # Create agent instance with call direction
+    agent = ElderlyCompanionAgent(call_direction=call_direction)
 
     async def wait_for_bot_identity(timeout: float = 10.0) -> Optional[str]:
         """Wait for a bot participant to join, falling back to the first participant."""
@@ -347,10 +354,8 @@ async def entrypoint(ctx: JobContext):
         ),
     )
 
-    # Greeting
-    session.say("안녕하세요, 어르신. 오늘 어떻게 지내셨어요?")
-
-    logger.info(f"Agent ready in room: {ctx.room.name}, listening to bot: {bot_identity}")
+    # Agent will generate natural greeting via on_enter() method
+    logger.info(f"Agent ready in room: {ctx.room.name}, listening to bot: {bot_identity}, direction: {call_direction}")
 
     # Keep the job alive until post-session tasks finish.
     await session_end_event.wait()
