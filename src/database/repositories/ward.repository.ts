@@ -602,6 +602,33 @@ export class WardRepository {
       orderBy: { createdAt: 'desc' },
     });
 
+    // Collect all ward userIds for batch query
+    const wardUserIds = wards
+      .filter(ow => ow.ward?.userId)
+      .map(ow => ow.ward!.userId);
+
+    // Batch query: get last call and count for all wards at once
+    const [lastCalls, callCounts] =
+      wardUserIds.length > 0
+        ? await Promise.all([
+            this.prisma.call.groupBy({
+              by: ['calleeUserId'],
+              where: { calleeUserId: { in: wardUserIds }, state: 'ended' },
+              _max: { createdAt: true },
+            }),
+            this.prisma.call.groupBy({
+              by: ['calleeUserId'],
+              where: { calleeUserId: { in: wardUserIds }, state: 'ended' },
+              _count: true,
+            }),
+          ])
+        : [[], []];
+
+    const lastCallMap = new Map(
+      lastCalls.map(c => [c.calleeUserId, c._max.createdAt]),
+    );
+    const countMap = new Map(callCounts.map(c => [c.calleeUserId, c._count]));
+
     const results: Array<{
       id: string;
       organization_id: string;
@@ -621,24 +648,11 @@ export class WardRepository {
     }> = [];
 
     for (const ow of wards) {
-      // Get call stats for linked ward
-      let lastCallAt: string | null = null;
-      let totalCalls = '0';
-
-      if (ow.ward) {
-        const calls = await this.prisma.call.findMany({
-          where: { calleeUserId: ow.ward.userId, state: 'ended' },
-          orderBy: { createdAt: 'desc' },
-          take: 1,
-          select: { createdAt: true },
-        });
-        lastCallAt = calls[0]?.createdAt.toISOString() ?? null;
-
-        const count = await this.prisma.call.count({
-          where: { calleeUserId: ow.ward.userId, state: 'ended' },
-        });
-        totalCalls = count.toString();
-      }
+      const userId = ow.ward?.userId;
+      const lastCallAt = userId
+        ? (lastCallMap.get(userId)?.toISOString() ?? null)
+        : null;
+      const totalCalls = userId ? (countMap.get(userId) ?? 0).toString() : '0';
 
       results.push({
         id: ow.id,

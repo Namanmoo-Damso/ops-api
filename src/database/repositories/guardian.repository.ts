@@ -107,6 +107,30 @@ export class GuardianRepository {
       },
     });
 
+    // Collect all ward userIds for batch query
+    const wardUserIds: string[] = [];
+    if (guardian?.wards[0]?.userId) {
+      wardUserIds.push(guardian.wards[0].userId);
+    }
+    for (const reg of registrations) {
+      if (reg.linkedWard?.userId) {
+        wardUserIds.push(reg.linkedWard.userId);
+      }
+    }
+
+    // Batch query: get last call for all wards at once
+    const lastCalls =
+      wardUserIds.length > 0
+        ? await this.prisma.call.groupBy({
+            by: ['calleeUserId'],
+            where: { calleeUserId: { in: wardUserIds } },
+            _max: { createdAt: true },
+          })
+        : [];
+    const lastCallMap = new Map(
+      lastCalls.map(c => [c.calleeUserId, c._max.createdAt]),
+    );
+
     const results: Array<{
       id: string;
       ward_email: string;
@@ -122,16 +146,9 @@ export class GuardianRepository {
     // Add primary ward
     if (guardian) {
       const primaryWard = guardian.wards[0];
-      // Get last call for primary ward
-      let lastCallAt: string | null = null;
-      if (primaryWard) {
-        const lastCall = await this.prisma.call.findFirst({
-          where: { calleeUserId: primaryWard.userId },
-          orderBy: { createdAt: 'desc' },
-          select: { createdAt: true },
-        });
-        lastCallAt = lastCall?.createdAt.toISOString() ?? null;
-      }
+      const lastCallAt = primaryWard?.userId
+        ? (lastCallMap.get(primaryWard.userId)?.toISOString() ?? null)
+        : null;
 
       results.push({
         id: guardian.id,
@@ -148,15 +165,9 @@ export class GuardianRepository {
 
     // Add additional registrations
     for (const reg of registrations) {
-      let lastCallAt: string | null = null;
-      if (reg.linkedWard) {
-        const lastCall = await this.prisma.call.findFirst({
-          where: { calleeUserId: reg.linkedWard.userId },
-          orderBy: { createdAt: 'desc' },
-          select: { createdAt: true },
-        });
-        lastCallAt = lastCall?.createdAt.toISOString() ?? null;
-      }
+      const lastCallAt = reg.linkedWard?.userId
+        ? (lastCallMap.get(reg.linkedWard.userId)?.toISOString() ?? null)
+        : null;
 
       results.push({
         id: reg.id,
