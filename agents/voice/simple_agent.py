@@ -14,12 +14,8 @@ from urllib.parse import quote
 import json
 
 import httpx
-<<<<<<< HEAD
 import redis
 import redis.asyncio as redis_async
-=======
-import json
->>>>>>> b56fc81 (feature: AI agent에서 대화 값 조회)
 from dotenv import load_dotenv
 from livekit.agents import (
     AgentServer,
