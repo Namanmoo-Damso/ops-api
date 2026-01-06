@@ -229,24 +229,28 @@ export class GuardianRepository {
     id: string,
     guardianId: string,
   ): Promise<boolean> {
-    // First unlink the ward
-    const registration = await this.prisma.guardianWardRegistration.findFirst({
-      where: { id, guardianId },
-    });
-
-    if (!registration) return false;
-
-    if (registration.linkedWardId) {
-      await this.prisma.ward.update({
-        where: { id: registration.linkedWardId },
-        data: { guardianId: null },
+    return this.prisma.$transaction(async tx => {
+      // First find the registration
+      const registration = await tx.guardianWardRegistration.findFirst({
+        where: { id, guardianId },
       });
-    }
 
-    const result = await this.prisma.guardianWardRegistration.deleteMany({
-      where: { id, guardianId },
+      if (!registration) return false;
+
+      // Unlink the ward if linked
+      if (registration.linkedWardId) {
+        await tx.ward.update({
+          where: { id: registration.linkedWardId },
+          data: { guardianId: null },
+        });
+      }
+
+      // Delete the registration
+      const result = await tx.guardianWardRegistration.deleteMany({
+        where: { id, guardianId },
+      });
+      return result.count > 0;
     });
-    return result.count > 0;
   }
 
   async updatePrimaryWard(params: {
