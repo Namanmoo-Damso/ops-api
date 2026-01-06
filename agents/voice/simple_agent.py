@@ -14,8 +14,12 @@ from urllib.parse import quote
 import json
 
 import httpx
+<<<<<<< HEAD
 import redis
 import redis.asyncio as redis_async
+=======
+import json
+>>>>>>> b56fc81 (feature: AI agent에서 대화 값 조회)
 from dotenv import load_dotenv
 from livekit.agents import (
     AgentServer,
@@ -330,6 +334,7 @@ async def entrypoint(ctx: JobContext):
             # Store in Redis
             asyncio.create_task(add_transcript_to_redis("user", ev.transcript))
 
+<<<<<<< HEAD
     # Event: Agent speech
     @session.on("agent_speech_committed")
     def on_agent_speech(ev):
@@ -343,13 +348,79 @@ async def entrypoint(ctx: JobContext):
 
     session_end_event = asyncio.Event()
     post_session_task = None
+=======
+    # Helper to broadcast transcripts to frontend
+    async def broadcast_transcript(role: str, text: str):
+        """Broadcast transcript to room via data packet."""
+        try:
+            payload = json.dumps({
+                "type": "transcript",
+                "role": role,
+                "text": text,
+                "timestamp": int(asyncio.get_event_loop().time() * 1000)
+            })
+            await ctx.room.local_participant.publish_data(
+                payload,
+                reliable=True,
+            )
+            logger.info(f"📡 Broadcasted {role} transcript: {text[:20]}...")
+        except Exception as e:
+            logger.error(f"Failed to broadcast transcript: {e}")
+
+    # Event: Conversation item added (captures both user and agent messages)
+    @session.on("conversation_item_added")
+    def on_conversation_item_added(ev):
+        """Capture agent responses when they are added to conversation."""
+        try:
+            item = ev.item if hasattr(ev, 'item') else ev
+            # Check if this is an agent message
+            if hasattr(item, 'role') and item.role == 'assistant':
+                # Get the text content - handle various formats
+                content = None
+                if hasattr(item, 'text') and item.text:
+                    content = item.text
+                elif hasattr(item, 'content'):
+                    # content can be a list of content parts or a string
+                    raw_content = item.content
+                    if isinstance(raw_content, str):
+                        content = raw_content
+                    elif isinstance(raw_content, list):
+                        # Extract text from list items
+                        text_parts = []
+                        for part in raw_content:
+                            if isinstance(part, str):
+                                text_parts.append(part)
+                            elif hasattr(part, 'text'):
+                                text_parts.append(part.text)
+                            elif hasattr(part, '__str__'):
+                                text_parts.append(str(part))
+                        content = ' '.join(text_parts)
+                    else:
+                        content = str(raw_content)
+                
+                if content and content.strip():
+                    userdata.add_transcript("agent", content)
+                    logger.info(f"🤖 Agent response: {content}")
+                    # Broadcast to frontend
+                    asyncio.create_task(broadcast_transcript("agent", content))
+            else:
+                logger.debug(f"Conversation item added: role={getattr(item, 'role', 'unknown')}")
+        except Exception as e:
+            logger.error(f"Error in conversation_item_added handler: {e}")
+
+    # Event: Speech created (backup - logs when agent starts speaking)
+    @session.on("speech_created")
+    def on_speech_created(ev):
+        """Log when agent speech is created."""
+        logger.info(f"🎤 Speech created: source={getattr(ev, 'source', 'unknown')}")
+>>>>>>> b56fc81 (feature: AI agent에서 대화 값 조회)
 
     # Event: Session end
     @session.on("session_end")
     def on_session_end(report):
         """
         Handle session end - trigger analysis and indexing.
-
+        
         SessionReport contains:
         - session_id
         - duration
@@ -496,9 +567,10 @@ async def entrypoint(ctx: JobContext):
 
     logger.info("Room event handlers registered for takeover detection")
 
-    # Wait for bot to join
+    # Wait for participant to join
     await asyncio.sleep(3)
 
+<<<<<<< HEAD
     if participants:
         logger.warning("Bot not found in time; using first participant")
         return participants[0].identity
@@ -510,14 +582,33 @@ async def entrypoint(ctx: JobContext):
     await asyncio.sleep(0.2)
 
     bot_identity = await wait_for_bot_identity()
+=======
+    # Find target participant to listen to
+    # Priority: 1) bot-* participant, 2) first non-admin participant, 3) None (listen to all)
+    target_identity = None
+    logger.info(f"Participants in room: {len(ctx.room.remote_participants)}")
+    for p in ctx.room.remote_participants.values():
+        logger.info(f"  - {p.identity}")
+        if p.identity.startswith('bot-'):
+            target_identity = p.identity
+            logger.info(f"Agent will listen to bot: {target_identity}")
+            break
+        elif not p.identity.startswith('admin_') and target_identity is None:
+            # First non-admin participant as fallback
+            target_identity = p.identity
+            logger.info(f"Agent will listen to user: {target_identity}")
 
-    # Start session with bot as target (session was created at line 171)
+    if not target_identity:
+        logger.warning("No suitable participant found - agent will listen to all participants")
+>>>>>>> b56fc81 (feature: AI agent에서 대화 값 조회)
+
+    # Start session with target participant
     await session.start(
         agent=agent,
         room=ctx.room,
         room_input_options=RoomInputOptions(
             close_on_disconnect=False,
-            participant_identity=bot_identity,  # Listen ONLY to bot
+            participant_identity=target_identity,  # Listen to target (or all if None)
         ),
     )
 
@@ -530,7 +621,10 @@ async def entrypoint(ctx: JobContext):
             return
         if ev.is_final:
             userdata.add_transcript("user", ev.transcript)
-            logger.debug(f"User transcript: {ev.transcript}")
+            logger.info(f"👤 User transcript: {ev.transcript}")
+            # Broadcast to frontend
+            asyncio.create_task(broadcast_transcript("user", ev.transcript))
+        # Note: AgentSession automatically handles LLM response generation
 
     # Greeting
     session.say("안녕하세요, 어르신. 오늘 어떻게 지내셨어요?")
