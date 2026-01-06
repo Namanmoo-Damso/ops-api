@@ -92,7 +92,7 @@ export class DbService implements OnModuleDestroy {
   }
 
   async deleteUser(userId: string) {
-    return this.users.delete(userId, uid => this.guardians.findByUserId(uid));
+    return this.users.delete(userId);
   }
 
   async saveRefreshToken(params: {
@@ -812,5 +812,139 @@ export class DbService implements OnModuleDestroy {
 
   async getRecentActivity(limit: number = 10) {
     return this.dashboard.getRecentActivity(limit);
+  }
+
+  // ============================================================
+  // Transactional methods (Issue #60)
+  // ============================================================
+
+  /**
+   * 어르신 등록 트랜잭션
+   * 사용자 생성 → 어르신 정보 생성 → 기관 연동을 원자적으로 처리
+   */
+  async registerWardWithTransaction(params: {
+    kakaoId: string;
+    email: string | null;
+    nickname: string | null;
+    profileImageUrl: string | null;
+    phoneNumber: string;
+    guardianId: string | null;
+    organizationWard?: {
+      organizationWardId: string;
+      organizationId: string;
+    };
+  }): Promise<{
+    user: {
+      id: string;
+      identity: string;
+      email: string | null;
+      nickname: string | null;
+      profile_image_url: string | null;
+      user_type: 'ward';
+    };
+    ward: {
+      id: string;
+      phone_number: string;
+    };
+  }> {
+    return this.prisma.$transaction(async tx => {
+      // 1. 사용자 생성
+      const identity = `kakao_${params.kakaoId}`;
+      const user = await tx.user.create({
+        data: {
+          identity,
+          displayName: params.nickname,
+          userType: 'ward',
+          email: params.email,
+          nickname: params.nickname,
+          profileImageUrl: params.profileImageUrl,
+          kakaoId: params.kakaoId,
+        },
+      });
+
+      // 2. 어르신 정보 생성
+      const ward = await tx.ward.create({
+        data: {
+          userId: user.id,
+          phoneNumber: params.phoneNumber,
+          guardianId: params.guardianId,
+        },
+      });
+
+      // 3. 기관 피보호자 연동 (있는 경우)
+      if (params.organizationWard) {
+        await tx.organizationWard.update({
+          where: { id: params.organizationWard.organizationWardId },
+          data: {
+            wardId: ward.id,
+            isRegistered: true,
+          },
+        });
+
+        await tx.ward.update({
+          where: { id: ward.id },
+          data: { organizationId: params.organizationWard.organizationId },
+        });
+      }
+
+      return {
+        user: {
+          id: user.id,
+          identity: user.identity,
+          email: user.email,
+          nickname: user.nickname,
+          profile_image_url: user.profileImageUrl,
+          user_type: 'ward' as const,
+        },
+        ward: {
+          id: ward.id,
+          phone_number: ward.phoneNumber,
+        },
+      };
+    });
+  }
+
+  /**
+   * 보호자 등록 트랜잭션
+   * 사용자 타입 변경 → 보호자 정보 생성을 원자적으로 처리
+   */
+  async registerGuardianWithTransaction(params: {
+    userId: string;
+    wardEmail: string;
+    wardPhoneNumber: string;
+  }): Promise<{
+    guardian: {
+      id: string;
+      ward_email: string;
+      ward_phone_number: string;
+    };
+  }> {
+    return this.prisma.$transaction(async tx => {
+      // 1. 사용자 타입 업데이트
+      await tx.user.update({
+        where: { id: params.userId },
+        data: {
+          userType: 'guardian',
+          updatedAt: new Date(),
+        },
+      });
+
+      // 2. 보호자 정보 생성
+      const guardian = await tx.guardian.create({
+        data: {
+          userId: params.userId,
+          wardEmail: params.wardEmail,
+          wardPhoneNumber: params.wardPhoneNumber,
+        },
+      });
+
+      return {
+        guardian: {
+          id: guardian.id,
+          ward_email: guardian.wardEmail,
+          ward_phone_number: guardian.wardPhoneNumber,
+        },
+      };
+    });
   }
 }
