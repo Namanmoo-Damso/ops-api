@@ -292,68 +292,47 @@ export class AuthService {
       );
     }
 
-    // 4. 사용자 생성
-    const user = await this.dbService.createUserWithKakao({
-      kakaoId: kakaoProfile.kakaoId,
-      email: kakaoProfile.email,
-      nickname: kakaoProfile.nickname,
-      profileImageUrl: kakaoProfile.profileImageUrl,
-      userType: 'ward',
-    });
-
-    // 5. 어르신 정보 생성 (기관 또는 보호자가 등록한 전화번호 사용)
+    // 4. 트랜잭션으로 사용자 + 어르신 + 기관 연동 처리
     const phoneNumber =
       matchedOrganizationWard?.phone_number ??
       matchedGuardian?.ward_phone_number ??
       '';
-    const ward = await this.dbService.createWard({
-      userId: user.id,
+
+    const { user, ward } = await this.dbService.registerWardWithTransaction({
+      kakaoId: kakaoProfile.kakaoId,
+      email: kakaoProfile.email,
+      nickname: kakaoProfile.nickname,
+      profileImageUrl: kakaoProfile.profileImageUrl,
       phoneNumber,
       guardianId: matchedGuardian?.id ?? null,
+      organizationWard: matchedOrganizationWard
+        ? {
+            organizationWardId: matchedOrganizationWard.id,
+            organizationId: matchedOrganizationWard.organization_id,
+          }
+        : undefined,
     });
 
-    // 6. 기관 피보호자 자동 연동 처리
+    // 5. 기관 정보 조회 (트랜잭션 외부에서 읽기 전용)
     let linkedOrganization: { id: string; name: string } | undefined;
     if (matchedOrganizationWard) {
-      try {
-        // organizationWard 연동 (isRegistered=true, wardId 설정)
-        await this.dbService.linkOrganizationWard({
-          organizationWardId: matchedOrganizationWard.id,
-          wardId: ward.id,
-        });
-        // ward에 organizationId 설정
-        await this.dbService.updateWardOrganization({
-          wardId: ward.id,
-          organizationId: matchedOrganizationWard.organization_id,
-        });
-
-        // 기관 정보 조회
-        const organization = await this.dbService.findOrganizationById(
-          matchedOrganizationWard.organization_id,
-        );
-        if (organization) {
-          linkedOrganization = {
-            id: organization.id,
-            name: organization.name,
-          };
-        }
-
-        this.logger.log(
-          `Auto-linked ward=${ward.id} to organization=${matchedOrganizationWard.organization_id}`,
-        );
-      } catch (error) {
-        this.logger.error(
-          `Failed to auto-link organization ward: ${(error as Error).message}`,
-        );
-        // 연동 실패 시 DB 롤백
-        await this.dbService.deleteUser(user.id);
-        throw new Error('기관 연동에 실패했습니다. 다시 시도해주세요.');
+      const organization = await this.dbService.findOrganizationById(
+        matchedOrganizationWard.organization_id,
+      );
+      if (organization) {
+        linkedOrganization = {
+          id: organization.id,
+          name: organization.name,
+        };
       }
+      this.logger.log(
+        `Auto-linked ward=${ward.id} to organization=${matchedOrganizationWard.organization_id}`,
+      );
     }
 
     const tokens = await this.issueTokens(user.id, 'ward');
 
-    // 7. 개인 보호자 매칭 정보 조회
+    // 6. 개인 보호자 매칭 정보 조회
     let linkedGuardian: { id: string; nickname: string | null } | undefined;
     if (matchedGuardian) {
       const guardianUser = await this.dbService.findUserById(
@@ -493,17 +472,14 @@ export class AuthService {
       throw new UnauthorizedException('User already registered as guardian');
     }
 
-    // 4. user_type을 guardian으로 업데이트
-    await this.dbService.updateUserType(user.id, 'guardian');
-
-    // 5. 보호자 정보 생성
-    const guardian = await this.dbService.createGuardian({
+    // 4. 트랜잭션으로 사용자 타입 변경 + 보호자 정보 생성
+    const { guardian } = await this.dbService.registerGuardianWithTransaction({
       userId: user.id,
       wardEmail: params.wardEmail,
       wardPhoneNumber: params.wardPhoneNumber,
     });
 
-    // 6. 새 JWT 발급 (user_type이 변경되었으므로)
+    // 5. 새 JWT 발급 (user_type이 변경되었으므로)
     const tokens = await this.issueTokens(user.id, 'guardian');
 
     this.logger.log(
