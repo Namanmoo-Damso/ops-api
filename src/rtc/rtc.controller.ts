@@ -271,4 +271,60 @@ export class RtcController {
       );
     }
   }
+
+  /**
+   * Mute or unmute the AI agent in a room
+   * Used for admin takeover functionality
+   */
+  @Post('v1/livekit/rooms/:roomName/mute-agent')
+  async muteAgentInRoom(
+    @Headers('authorization') authorization: string | undefined,
+    @Param('roomName') roomNameParam: string,
+    @Body() body: { mute: boolean },
+  ) {
+    const config = this.configService.getConfig();
+
+    // Verify admin auth
+    const authHeader = authorization ?? '';
+    const bearer = authHeader.startsWith('Bearer ')
+      ? authHeader.slice('Bearer '.length)
+      : undefined;
+
+    if (!bearer) {
+      throw new HttpException('Unauthorized', HttpStatus.UNAUTHORIZED);
+    }
+
+    try {
+      const adminPayload = this.authService.verifyAdminAccessToken(bearer);
+      const admin = await this.dbService.findAdminById(adminPayload.sub);
+      if (!admin || !admin.is_active) {
+        throw new HttpException('Unauthorized', HttpStatus.UNAUTHORIZED);
+      }
+    } catch {
+      throw new HttpException('Unauthorized', HttpStatus.UNAUTHORIZED);
+    }
+
+    const roomName = roomNameParam?.trim();
+    if (!roomName) {
+      throw new HttpException('roomName is required', HttpStatus.BAD_REQUEST);
+    }
+
+    const mute = body.mute ?? true;
+
+    try {
+      await this.liveKitService.muteAgentInRoom(roomName, mute);
+      this.logger.log(
+        `muteAgentInRoom room=${roomName} mute=${mute}`,
+      );
+      return { success: true, roomName, mute };
+    } catch (error) {
+      this.logger.error(
+        `muteAgentInRoom failed room=${roomName}: ${(error as Error).message}`,
+      );
+      throw new HttpException(
+        'Failed to mute agent',
+        HttpStatus.BAD_GATEWAY,
+      );
+    }
+  }
 }
