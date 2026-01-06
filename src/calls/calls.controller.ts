@@ -1,5 +1,6 @@
 import {
   Controller,
+  Get,
   Post,
   Body,
   Param,
@@ -149,5 +150,35 @@ export class CallsController {
         HttpStatus.INTERNAL_SERVER_ERROR,
       );
     }
+  }
+
+  @Get('room/:roomName/context')
+  async roomContext(
+    @Headers('authorization') authorization: string | undefined,
+    @Param('roomName') roomNameParam: string,
+  ) {
+    const config = this.configService.getConfig();
+    const auth = this.authService.getAuthContext(authorization);
+    if (config.authRequired && !auth) {
+      throw new HttpException('Unauthorized', HttpStatus.UNAUTHORIZED);
+    }
+
+    const roomName = roomNameParam?.trim();
+    if (!roomName) {
+      throw new HttpException('roomName is required', HttpStatus.BAD_REQUEST);
+    }
+
+    this.logger.log(`roomContext room=${roomName}`);
+
+    const context = await this.callsService.getCallContextByRoom(roomName);
+    if (!context) {
+      throw new HttpException('Call not found', HttpStatus.NOT_FOUND);
+    }
+
+    return {
+      roomName,
+      callId: context.call_id,
+      wardId: context.ward_id,
+    };
   }
 }

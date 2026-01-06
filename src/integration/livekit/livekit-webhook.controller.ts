@@ -11,6 +11,8 @@ import { WebhookReceiver } from 'livekit-server-sdk';
 import { ConfigService } from '../../core/config';
 import { EventsService } from '../../events/events.service';
 import { LiveKitService } from './livekit.service';
+import { DbService } from '../../database';
+import { AiService } from '../../ai/ai.service';
 
 @Controller('webhook/livekit')
 export class LiveKitWebhookController {
@@ -21,6 +23,8 @@ export class LiveKitWebhookController {
     private readonly configService: ConfigService,
     private readonly eventsService: EventsService,
     private readonly liveKitService: LiveKitService,
+    private readonly dbService: DbService,
+    private readonly aiService: AiService,
   ) {
     const config = this.configService.getConfig();
     this.webhookReceiver = new WebhookReceiver(
@@ -107,6 +111,58 @@ export class LiveKitWebhookController {
           this.eventsService.emitRoomEvent({
             type: 'room-updated',
             roomName: room.name,
+          });
+
+          // Trigger call analysis for the room
+          setImmediate(async () => {
+            try {
+              const callContext =
+                await this.dbService.getCallContextByRoomName(room.name);
+              if (callContext?.call_id) {
+                this.logger.log(
+                  `Triggering call analysis for room=${room.name} callId=${callContext.call_id}`,
+                );
+
+                // Update call state to 'ended'
+                await this.dbService.updateCallState(
+                  callContext.call_id,
+                  'ended',
+                );
+
+                // Check if already analyzed
+                const existingSummary = await this.dbService.getCallSummary(
+                  callContext.call_id,
+                );
+                if (existingSummary) {
+                  this.logger.log(
+                    `Call already analyzed callId=${callContext.call_id} summaryId=${existingSummary.id}`,
+                  );
+                  return;
+                }
+
+                // Trigger AI analysis
+                const result = await this.aiService.analyzeCall(
+                  callContext.call_id,
+                );
+                if (result.success) {
+                  this.logger.log(
+                    `Call analysis completed callId=${callContext.call_id} mood=${result.mood}`,
+                  );
+                } else {
+                  this.logger.warn(
+                    `Call analysis failed callId=${callContext.call_id} error=${result.error}`,
+                  );
+                }
+              } else {
+                this.logger.warn(
+                  `No call context found for room=${room.name}, skipping analysis`,
+                );
+              }
+            } catch (error) {
+              this.logger.error(
+                `Failed to trigger call analysis for room=${room.name}: ${(error as Error).message}`,
+              );
+            }
           });
         }
       }

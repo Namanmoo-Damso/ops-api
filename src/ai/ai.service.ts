@@ -1,6 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { DbService } from '../database';
 import { AiAnalysisProvider } from './ai.interface';
+import { TranscriptStore } from './transcript.store';
 import { AnalyzeCallResult, AiResponse } from './types';
 
 @Injectable()
@@ -10,6 +11,7 @@ export class AiService {
   constructor(
     private readonly dbService: DbService,
     private readonly aiProvider: AiAnalysisProvider,
+    private readonly transcriptStore: TranscriptStore,
   ) {}
 
   async analyzeCall(callId: string): Promise<AnalyzeCallResult> {
@@ -21,7 +23,16 @@ export class AiService {
       throw new Error(`Call not found: ${callId}`);
     }
 
-    if (!callInfo.transcript) {
+    this.logger.log(
+      `Call info ready for analysis callId=${callId} ward=${callInfo.ward_id ?? 'null'} guardian=${callInfo.guardian_id ?? 'null'}`,
+    );
+
+    let transcript = callInfo.transcript;
+    if (!transcript) {
+      transcript = await this.transcriptStore.getTranscript(callId);
+    }
+
+    if (!transcript) {
       this.logger.warn(`No transcript found for callId=${callId}`);
       return {
         success: false,
@@ -31,7 +42,11 @@ export class AiService {
     }
 
     // 2. AI 분석
-    const analysis = await this.aiProvider.analyze(callInfo.transcript);
+    this.logger.log(
+      `Transcript length=${transcript.length} for callId=${callId}, invoking AI analysis`,
+    );
+
+    const analysis = await this.aiProvider.analyze(transcript);
 
     if (!analysis.success) {
       this.logger.warn(
@@ -54,6 +69,12 @@ export class AiService {
       tags: analysis.tags,
       healthKeywords: analysis.healthKeywords,
     });
+
+    this.logger.log(
+      `Call summary stored callId=${callId} summaryId=${summary.id} mood=${analysis.mood} moodScore=${analysis.moodScore.toFixed(
+        2,
+      )}`,
+    );
 
     // 4. 건강 알림 체크 및 생성
     if (callInfo.ward_id && callInfo.guardian_id) {

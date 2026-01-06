@@ -10,6 +10,7 @@ import logging
 from pathlib import Path
 from typing import Optional
 from datetime import datetime
+from urllib.parse import quote
 import json
 
 import httpx
@@ -90,6 +91,8 @@ API_INTERNAL_TOKEN = os.getenv("API_INTERNAL_TOKEN")
 # Timeouts (seconds)
 TIMEOUT_RAG_INDEXING = 5.0
 TIMEOUT_CALL_ANALYSIS = 5.0
+TIMEOUT_CALL_CONTEXT = 5.0
+TIMEOUT_CALL_END = 5.0
 TIMEOUT_POST_SESSION = 10.0
 
 # Create AgentServer instance
@@ -140,6 +143,27 @@ def extract_ward_id(room) -> str:
     return room_name
 
 
+def _parse_metadata(raw) -> dict:
+    """Parse metadata payload into a dict."""
+    if not raw:
+        return {}
+    if isinstance(raw, dict):
+        return raw
+    try:
+        return json.loads(raw)
+    except Exception:
+        return {}
+
+
+def get_session_metadata(ctx: JobContext) -> dict:
+    """Get dispatch or room metadata for the current session."""
+    job = getattr(ctx, "job", None)
+    raw = getattr(job, "metadata", None) if job else None
+    if not raw:
+        raw = getattr(ctx.room, "metadata", None)
+    return _parse_metadata(raw)
+
+
 def _get_auth_headers() -> dict:
     """Get authentication headers for internal API calls."""
     headers = {"Content-Type": "application/json"}
@@ -166,18 +190,50 @@ async def trigger_rag_indexing(call_id: str, ward_id: str):
         logger.error(f"RAG indexing trigger failed: {e}")
 
 
-async def trigger_call_analysis(call_id: str):
-    """Trigger call analysis after session ends."""
+async def trigger_call_end(call_id: str):
+    """Inform API that the call ended so it can finalize state and summaries."""
     try:
         async with httpx.AsyncClient() as client:
             await client.post(
-                f"{API_BASE}/v1/calls/{call_id}/analyze",
+                f"{API_BASE}/v1/calls/end",
+                json={"callId": call_id},
                 headers=_get_auth_headers(),
-                timeout=TIMEOUT_CALL_ANALYSIS,
+                timeout=TIMEOUT_CALL_END,
             )
-            logger.info(f"Call analysis triggered: call={call_id}")
+            logger.info(f"Call end notified: call={call_id}")
     except Exception as e:
-        logger.error(f"Call analysis trigger failed: {e}")
+        logger.error(f"Call end trigger failed: {e}")
+
+
+async def fetch_call_context(room_name: str) -> Optional[dict]:
+    """Resolve call metadata from the backend using the LiveKit room name."""
+    if not room_name:
+        return None
+
+    try:
+        encoded_room = quote(room_name, safe='')
+        async with httpx.AsyncClient() as client:
+            response = await client.get(
+                f"{API_BASE}/v1/calls/room/{encoded_room}/context",
+                headers=_get_auth_headers(),
+                timeout=TIMEOUT_CALL_CONTEXT,
+            )
+            response.raise_for_status()
+            context = response.json()
+            logger.info(f"Resolved call context for room={room_name}: {context}")
+            return context
+    except httpx.HTTPStatusError as exc:
+        status = exc.response.status_code if exc.response else 'unknown'
+        if status == 404:
+            logger.warning(f"No call record found for room={room_name}")
+        else:
+            logger.error(
+                f"Call context request failed room={room_name} status={status} error={exc}"
+            )
+    except Exception as exc:
+        logger.error(f"Call context request error room={room_name}: {exc}")
+
+    return None
 
 
 @server.rtc_session()
@@ -190,10 +246,24 @@ async def entrypoint(ctx: JobContext):
     logger.info(f"Agent starting in room: {ctx.room.name}")
     await asyncio.gather(init_redis_client(), ctx.connect())
 
+    metadata = get_session_metadata(ctx)
+    if metadata:
+        logger.info(f"Session metadata: {metadata}")
+
     # Extract identifiers
-    ward_id = extract_ward_id(ctx.room)
-    call_id = ctx.room.name
-    call_started_at = datetime.utcnow().strftime("%Y%m%dT%H%M%SZ")
+    room_name = ctx.room.name
+    call_id = metadata.get("callId")
+    ward_id = metadata.get("wardId")
+
+    if not call_id and room_name:
+        context = await fetch_call_context(room_name)
+        if context:
+            call_id = context.get("callId") or call_id
+            if context.get("wardId"):
+                ward_id = ward_id or context.get("wardId")
+
+    call_id = call_id or room_name
+    ward_id = ward_id or extract_ward_id(ctx.room)
 
     # Determine call direction based on room name
     # Rooms starting with "bot-" are outbound calls (agent initiates)
@@ -238,7 +308,7 @@ async def entrypoint(ctx: JobContext):
                 "text": text,
                 "timestamp": timestamp,
             }
-            redis_key = f"call:{call_id}:{call_started_at}:transcripts"
+            redis_key = f"call:{call_id}:transcripts"
             pipe = redis_client.pipeline()
             pipe.rpush(redis_key, json.dumps(transcript_entry, ensure_ascii=False))
             pipe.expire(redis_key, 3600 * 24)  # 24 hours
@@ -291,8 +361,8 @@ async def entrypoint(ctx: JobContext):
 
             # Run post-session tasks with timeout
             tasks = [
+                trigger_call_end(call_id),
                 trigger_rag_indexing(call_id, ward_id),
-                trigger_call_analysis(call_id),
             ]
 
             try:

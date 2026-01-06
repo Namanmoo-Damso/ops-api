@@ -201,7 +201,7 @@ model RoomMember {
 model CallSummary {
   id             String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   callId         String   @map("call_id") @db.Uuid
-  wardId         String   @map("ward_id") @db.Uuid
+  wardId         String?  @map("ward_id") @db.Uuid
   summary        String?
   mood           String?  // 'positive' | 'neutral' | 'negative'
   moodScore      Decimal? @map("mood_score") @db.Decimal(3, 2)
@@ -210,8 +210,8 @@ model CallSummary {
   createdAt      DateTime @default(now()) @map("created_at")
 
   // Relations
-  call Call @relation(fields: [callId], references: [callId], onDelete: Cascade)
-  ward Ward @relation(fields: [wardId], references: [id], onDelete: Cascade)
+  call Call  @relation(fields: [callId], references: [callId], onDelete: Cascade)
+  ward Ward? @relation(fields: [wardId], references: [id], onDelete: Cascade)
 
   @@index([callId])
   @@index([wardId])
