@@ -4,7 +4,7 @@
  */
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../../prisma';
-import { UserRow, RefreshTokenRow, GuardianRow } from '../types';
+import { UserRow, RefreshTokenRow } from '../types';
 import { toUserRow, toRefreshTokenRow } from '../prisma-mappers';
 
 @Injectable()
@@ -90,58 +90,59 @@ export class UserRepository {
     return toUserRow(user);
   }
 
-  async delete(
-    userId: string,
-    findGuardianByUserId: (userId: string) => Promise<GuardianRow | undefined>,
-  ): Promise<void> {
-    // 1. Delete refresh tokens
-    await this.prisma.refreshToken.deleteMany({
-      where: { userId },
-    });
-
-    // 2. Delete room members (모니터링 목록에서 제거)
-    await this.prisma.roomMember.deleteMany({
-      where: { userId },
-    });
-
-    // 3. Delete devices (푸시 토큰 제거)
-    await this.prisma.device.deleteMany({
-      where: { userId },
-    });
-
-    // 4. Unlink wards from guardian (if user is a guardian)
-    const guardian = await findGuardianByUserId(userId);
-    if (guardian) {
-      await this.prisma.ward.updateMany({
-        where: { guardianId: guardian.id },
-        data: { guardianId: null },
+  async delete(userId: string): Promise<void> {
+    await this.prisma.$transaction(async tx => {
+      // 1. Delete refresh tokens
+      await tx.refreshToken.deleteMany({
+        where: { userId },
       });
-      await this.prisma.guardian.delete({
-        where: { id: guardian.id },
-      });
-    }
 
-    // 5. Reset organization ward links and delete ward record if user is a ward
-    const ward = await this.prisma.ward.findFirst({
-      where: { userId },
-    });
-    if (ward) {
-      // Reset OrganizationWard to allow re-registration
-      await this.prisma.organizationWard.updateMany({
-        where: { wardId: ward.id },
-        data: {
-          wardId: null,
-          isRegistered: false,
-        },
+      // 2. Delete room members (모니터링 목록에서 제거)
+      await tx.roomMember.deleteMany({
+        where: { userId },
       });
-      await this.prisma.ward.delete({
-        where: { id: ward.id },
-      });
-    }
 
-    // 6. Delete user
-    await this.prisma.user.delete({
-      where: { id: userId },
+      // 3. Delete devices (푸시 토큰 제거)
+      await tx.device.deleteMany({
+        where: { userId },
+      });
+
+      // 4. Unlink wards from guardian (if user is a guardian)
+      const guardian = await tx.guardian.findUnique({
+        where: { userId },
+      });
+      if (guardian) {
+        await tx.ward.updateMany({
+          where: { guardianId: guardian.id },
+          data: { guardianId: null },
+        });
+        await tx.guardian.delete({
+          where: { id: guardian.id },
+        });
+      }
+
+      // 5. Reset organization ward links and delete ward record if user is a ward
+      const ward = await tx.ward.findFirst({
+        where: { userId },
+      });
+      if (ward) {
+        // Reset OrganizationWard to allow re-registration
+        await tx.organizationWard.updateMany({
+          where: { wardId: ward.id },
+          data: {
+            wardId: null,
+            isRegistered: false,
+          },
+        });
+        await tx.ward.delete({
+          where: { id: ward.id },
+        });
+      }
+
+      // 6. Delete user
+      await tx.user.delete({
+        where: { id: userId },
+      });
     });
   }
 

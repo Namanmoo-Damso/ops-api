@@ -141,6 +141,25 @@ export class CallRepository {
       },
     });
 
+    // Collect all ward userIds for batch query
+    const wardUserIds = schedules
+      .filter(s => s.ward.guardian?.user)
+      .map(s => s.ward.userId);
+
+    // Batch query: find all userIds that have recent calls
+    const recentCalls =
+      wardUserIds.length > 0
+        ? await this.prisma.call.groupBy({
+            by: ['calleeUserId'],
+            where: {
+              calleeUserId: { in: wardUserIds },
+              state: 'ended',
+              createdAt: { gt: cutoff },
+            },
+          })
+        : [];
+    const hasRecentCallSet = new Set(recentCalls.map(c => c.calleeUserId));
+
     const results: Array<{
       ward_id: string;
       ward_identity: string;
@@ -151,16 +170,8 @@ export class CallRepository {
     for (const schedule of schedules) {
       if (!schedule.ward.guardian?.user) continue;
 
-      // Check if there's a recent ended call
-      const recentCall = await this.prisma.call.findFirst({
-        where: {
-          calleeUserId: schedule.ward.userId,
-          state: 'ended',
-          createdAt: { gt: cutoff },
-        },
-      });
-
-      if (!recentCall) {
+      // Check if there's a recent ended call (O(1) lookup)
+      if (!hasRecentCallSet.has(schedule.ward.userId)) {
         results.push({
           ward_id: schedule.ward.id,
           ward_identity: schedule.ward.user.identity,
