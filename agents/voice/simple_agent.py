@@ -563,16 +563,6 @@ async def entrypoint(ctx: JobContext):
     # Wait for participant to join
     await asyncio.sleep(3)
 
-    if participants:
-        logger.warning("Bot not found in time; using first participant")
-        return participants[0].identity
-
-    if asyncio.get_running_loop().time() >= deadline:
-        logger.warning("No participants joined before timeout")
-        return None
-
-    await asyncio.sleep(0.2)
-
     bot_identity = await wait_for_bot_identity()
     # Find target participant to listen to
     # Priority: 1) bot-* participant, 2) first non-admin participant, 3) None (listen to all)
