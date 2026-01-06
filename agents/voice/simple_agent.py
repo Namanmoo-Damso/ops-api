@@ -334,7 +334,6 @@ async def entrypoint(ctx: JobContext):
             # Store in Redis
             asyncio.create_task(add_transcript_to_redis("user", ev.transcript))
 
-<<<<<<< HEAD
     # Event: Agent speech
     @session.on("agent_speech_committed")
     def on_agent_speech(ev):
@@ -348,7 +347,6 @@ async def entrypoint(ctx: JobContext):
 
     session_end_event = asyncio.Event()
     post_session_task = None
-=======
     # Helper to broadcast transcripts to frontend
     async def broadcast_transcript(role: str, text: str):
         """Broadcast transcript to room via data packet."""
@@ -413,7 +411,6 @@ async def entrypoint(ctx: JobContext):
     def on_speech_created(ev):
         """Log when agent speech is created."""
         logger.info(f"🎤 Speech created: source={getattr(ev, 'source', 'unknown')}")
->>>>>>> b56fc81 (feature: AI agent에서 대화 값 조회)
 
     # Event: Session end
     @session.on("session_end")
@@ -570,7 +567,6 @@ async def entrypoint(ctx: JobContext):
     # Wait for participant to join
     await asyncio.sleep(3)
 
-<<<<<<< HEAD
     if participants:
         logger.warning("Bot not found in time; using first participant")
         return participants[0].identity
@@ -582,7 +578,6 @@ async def entrypoint(ctx: JobContext):
     await asyncio.sleep(0.2)
 
     bot_identity = await wait_for_bot_identity()
-=======
     # Find target participant to listen to
     # Priority: 1) bot-* participant, 2) first non-admin participant, 3) None (listen to all)
     target_identity = None
@@ -600,7 +595,6 @@ async def entrypoint(ctx: JobContext):
 
     if not target_identity:
         logger.warning("No suitable participant found - agent will listen to all participants")
->>>>>>> b56fc81 (feature: AI agent에서 대화 값 조회)
 
     # Start session with target participant
     await session.start(
