@@ -2,6 +2,10 @@
 import logging
 from dataclasses import dataclass, field
 from datetime import datetime
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from agents.elderly_companion import CallDirection
 
 logger = logging.getLogger(__name__)
 
@@ -27,6 +31,7 @@ class SessionUserdata:
     """
     ward_id: str
     call_id: str
+    call_direction: str = "inbound"  # "inbound" or "outbound"
     transcripts: list[TranscriptEntry] = field(default_factory=list)
     session_start: datetime = field(default_factory=datetime.now)
 
