@@ -10,7 +10,11 @@ export type UserEvent = {
 };
 
 export type RoomEvent = {
-  type: 'room-created' | 'room-updated' | 'participant-joined' | 'participant-left';
+  type:
+    | 'room-created'
+    | 'room-updated'
+    | 'participant-joined'
+    | 'participant-left';
   roomName: string;
   identity?: string;
   name?: string;
@@ -25,13 +29,15 @@ export class EventsService {
   private readonly events$ = new Subject<AppEvent>();
   private subscriberCount = 0;
 
-  emit(event: Omit<UserEvent, 'timestamp'> | Omit<RoomEvent, 'timestamp'>): void {
+  emit(
+    event: Omit<UserEvent, 'timestamp'> | Omit<RoomEvent, 'timestamp'>,
+  ): void {
     const fullEvent = {
       ...event,
       timestamp: new Date().toISOString(),
     } as AppEvent;
     this.logger.log(
-      `Emitting event: type=${fullEvent.type} ${('roomName' in fullEvent) ? `room=${fullEvent.roomName}` : `identity=${fullEvent.identity}`} subscribers=${this.subscriberCount}`,
+      `Emitting event: type=${fullEvent.type} ${'roomName' in fullEvent ? `room=${fullEvent.roomName}` : `identity=${fullEvent.identity}`} subscribers=${this.subscriberCount}`,
     );
     this.events$.next(fullEvent);
   }

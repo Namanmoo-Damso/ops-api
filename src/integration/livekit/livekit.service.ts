@@ -1,5 +1,9 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { RoomServiceClient, AgentDispatchClient } from 'livekit-server-sdk';
+import {
+  RoomServiceClient,
+  AgentDispatchClient,
+  DataPacket_Kind,
+} from 'livekit-server-sdk';
 import { ConfigService } from '../../core/config';
 
 @Injectable()
@@ -77,6 +81,23 @@ export class LiveKitService {
   }
 
   /**
+   * Update room metadata - used for signaling takeover state to agent
+   */
+  async updateRoomMetadata(roomName: string, metadata: string): Promise<void> {
+    try {
+      await this.roomService.updateRoomMetadata(roomName, metadata);
+      this.logger.log(
+        `Updated room metadata: room=${roomName}, metadata=${metadata}`,
+      );
+    } catch (err) {
+      this.logger.error(
+        `Failed to update room metadata: ${(err as Error).message}`,
+      );
+      throw err;
+    }
+  }
+
+  /**
    * Dispatch a voice agent to join the room
    */
   async dispatchVoiceAgent(
@@ -93,6 +114,37 @@ export class LiveKitService {
       this.logger.warn(
         `Failed to dispatch voice agent to room=${roomName}: ${(err as Error).message}`,
       );
+    }
+  }
+
+  /**
+   * Send data message to all participants in a room
+   * Used for signaling takeover start/end to the agent
+   */
+  async sendDataToRoom(
+    roomName: string,
+    data: string,
+    destinationIdentities?: string[],
+  ): Promise<void> {
+    try {
+      const encoder = new TextEncoder();
+      const dataBytes = encoder.encode(data);
+
+      await this.roomService.sendData(
+        roomName,
+        dataBytes,
+        DataPacket_Kind.RELIABLE,
+        { destinationIdentities },
+      );
+
+      this.logger.log(
+        `Data message sent to room=${roomName}: ${data}${destinationIdentities ? ` (to: ${destinationIdentities.join(', ')})` : ''}`,
+      );
+    } catch (err) {
+      this.logger.error(
+        `Failed to send data to room=${roomName}: ${(err as Error).message}`,
+      );
+      throw err;
     }
   }
 
@@ -139,6 +191,248 @@ export class LiveKitService {
    * (i.e., no real users like kakao_ or google_ users remain)
    * Also deletes empty rooms
    */
+  /**
+   * Mute or unmute a participant's audio track
+   * Used for admin takeover to silence the AI agent
+   */
+  async muteParticipantAudio(
+    roomName: string,
+    identity: string,
+    mute: boolean,
+  ): Promise<void> {
+    try {
+      const participants = await this.roomService.listParticipants(roomName);
+      const participant = participants.find(p => p.identity === identity);
+
+      if (!participant) {
+        this.logger.warn(
+          `Participant ${identity} not found in room ${roomName}`,
+        );
+        return;
+      }
+
+      // Find the audio track
+      const audioTrack = participant.tracks.find(
+        t => t.type === 1, // AUDIO type
+      );
+
+      if (!audioTrack) {
+        this.logger.debug(
+          `No audio track found for participant ${identity} (may not be published yet)`,
+        );
+        return; // Don't throw - agent might not have published audio yet
+      }
+
+      await this.roomService.mutePublishedTrack(
+        roomName,
+        identity,
+        audioTrack.sid,
+        mute,
+      );
+
+      this.logger.log(
+        `${mute ? 'Muted' : 'Unmuted'} audio for ${identity} in room ${roomName}`,
+      );
+    } catch (err) {
+      this.logger.error(
+        `Failed to ${mute ? 'mute' : 'unmute'} audio for ${identity}: ${(err as Error).message}`,
+      );
+      // Don't throw - subscription control is more important
+    }
+  }
+
+  /**
+   * Control agent audio subscriptions during takeover
+   * When mute=true: Agent unsubscribes from all non-agent audio (can't hear iOS user)
+   * When mute=false: Agent resubscribes to all audio (can hear iOS user again)
+   */
+  async updateAgentSubscriptions(
+    roomName: string,
+    mute: boolean,
+  ): Promise<void> {
+    try {
+      const participants = await this.roomService.listParticipants(roomName);
+
+      // Find agent participants
+      const agents = participants.filter(p => p.identity.startsWith('agent-'));
+
+      if (agents.length === 0) {
+        this.logger.warn(`No agents found in room ${roomName}`);
+        return;
+      }
+
+      // Find all non-agent audio tracks (these are what the agent should/shouldn't hear)
+      const nonAgentAudioTracks: string[] = [];
+      for (const participant of participants) {
+        // Skip agents and admins
+        if (
+          participant.identity.startsWith('agent-') ||
+          participant.identity.startsWith('admin_')
+        ) {
+          continue;
+        }
+
+        // Find audio tracks
+        for (const track of participant.tracks) {
+          if (track.type === 1) {
+            // AUDIO type = 1
+            nonAgentAudioTracks.push(track.sid);
+          }
+        }
+      }
+
+      if (nonAgentAudioTracks.length === 0) {
+        this.logger.debug(
+          `No non-agent audio tracks found in room ${roomName}`,
+        );
+        return;
+      }
+
+      // Update subscriptions for each agent
+      for (const agent of agents) {
+        try {
+          await this.roomService.updateSubscriptions(
+            roomName,
+            agent.identity,
+            nonAgentAudioTracks,
+            !mute, // subscribe when unmute=true, unsubscribe when mute=true
+          );
+
+          this.logger.log(
+            `${mute ? 'Unsubscribed' : 'Subscribed'} agent ${agent.identity} ${mute ? 'from' : 'to'} ${nonAgentAudioTracks.length} audio track(s)`,
+          );
+        } catch (err) {
+          this.logger.error(
+            `Failed to update subscriptions for agent ${agent.identity}: ${(err as Error).message}`,
+          );
+        }
+      }
+    } catch (err) {
+      this.logger.error(
+        `Failed to update agent subscriptions in room ${roomName}: ${(err as Error).message}`,
+      );
+      throw err;
+    }
+  }
+
+  /**
+   * Control iOS client subscriptions to agent audio during takeover
+   * When mute=true: iOS client unsubscribes from agent audio (can't hear agent)
+   * When mute=false: iOS client resubscribes to agent audio (can hear agent again)
+   */
+  async updateIosSubscriptionsToAgent(
+    roomName: string,
+    mute: boolean,
+  ): Promise<void> {
+    try {
+      const participants = await this.roomService.listParticipants(roomName);
+
+      // Find iOS/real user participants (not agents or admins)
+      const iosUsers = participants.filter(
+        p =>
+          !p.identity.startsWith('agent-') && !p.identity.startsWith('admin_'),
+      );
+
+      if (iosUsers.length === 0) {
+        this.logger.debug(`No iOS users found in room ${roomName}`);
+        return;
+      }
+
+      // Find all agent audio tracks
+      const agentAudioTracks: string[] = [];
+      for (const participant of participants) {
+        if (!participant.identity.startsWith('agent-')) {
+          continue;
+        }
+
+        // Find audio tracks
+        for (const track of participant.tracks) {
+          if (track.type === 1) {
+            // AUDIO type = 1
+            agentAudioTracks.push(track.sid);
+          }
+        }
+      }
+
+      if (agentAudioTracks.length === 0) {
+        this.logger.debug(
+          `No agent audio tracks found in room ${roomName} (agent may not be speaking)`,
+        );
+        return;
+      }
+
+      // Update subscriptions for each iOS user
+      for (const iosUser of iosUsers) {
+        try {
+          await this.roomService.updateSubscriptions(
+            roomName,
+            iosUser.identity,
+            agentAudioTracks,
+            !mute, // subscribe when unmute=true, unsubscribe when mute=true
+          );
+
+          this.logger.log(
+            `${mute ? 'Unsubscribed' : 'Subscribed'} iOS user ${iosUser.identity} ${mute ? 'from' : 'to'} ${agentAudioTracks.length} agent audio track(s)`,
+          );
+        } catch (err) {
+          this.logger.error(
+            `Failed to update agent subscriptions for iOS user ${iosUser.identity}: ${(err as Error).message}`,
+          );
+        }
+      }
+    } catch (err) {
+      this.logger.error(
+        `Failed to update iOS subscriptions to agent in room ${roomName}: ${(err as Error).message}`,
+      );
+      throw err;
+    }
+  }
+
+  /**
+   * Mute or unmute the AI agent in a room
+   * This now controls BOTH what the agent hears (subscriptions) AND what iOS users hear (subscriptions)
+   */
+  async muteAgentInRoom(roomName: string, mute: boolean): Promise<void> {
+    try {
+      const participants = await this.roomService.listParticipants(roomName);
+
+      // Find agent participants
+      const agents = participants.filter(p => p.identity.startsWith('agent-'));
+
+      if (agents.length === 0) {
+        this.logger.warn(`No agents found in room ${roomName}`);
+        return;
+      }
+
+      // Step 1: Control what the agent HEARS (agent unsubscribes from iOS audio)
+      await this.updateAgentSubscriptions(roomName, mute);
+
+      // Step 2: Control what iOS users HEAR from agent (iOS unsubscribes from agent audio)
+      await this.updateIosSubscriptionsToAgent(roomName, mute);
+
+      // Step 3: Send data message to agent for direct control
+      const agentIdentities = agents.map(a => a.identity);
+      const message = mute ? 'takeover:start' : 'takeover:end';
+      await this.sendDataToRoom(roomName, message, agentIdentities);
+
+      // Step 4: Update room metadata (PRIMARY MECHANISM - agent listens for this)
+      const metadata = JSON.stringify({
+        takeover: mute,
+        timestamp: Date.now(),
+      });
+      await this.updateRoomMetadata(roomName, metadata);
+
+      this.logger.log(
+        `${mute ? 'Muted' : 'Unmuted'} ${agents.length} agent(s) in room ${roomName} (subscriptions + data + metadata)`,
+      );
+    } catch (err) {
+      this.logger.error(
+        `Failed to ${mute ? 'mute' : 'unmute'} agents in room ${roomName}: ${(err as Error).message}`,
+      );
+      throw err;
+    }
+  }
+
   async closeAdminOnlyRooms(): Promise<void> {
     try {
       const rooms = await this.roomService.listRooms();
