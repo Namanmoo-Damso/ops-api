@@ -9,8 +9,12 @@ import sys
 import logging
 from pathlib import Path
 from typing import Optional
+from datetime import datetime
+import json
 
 import httpx
+import redis
+import redis.asyncio as redis_async
 from dotenv import load_dotenv
 from livekit.agents import (
     AgentServer,
@@ -44,6 +48,36 @@ logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
 )
 logger = logging.getLogger(__name__)
+
+# Redis client (async) initialization
+redis_client = None
+redis_init_lock = asyncio.Lock()
+
+
+async def init_redis_client():
+    """Initialize Redis client asynchronously to avoid blocking the event loop."""
+    global redis_client
+    if redis_client:
+        return
+
+    async with redis_init_lock:
+        if redis_client:
+            return
+
+        try:
+            redis_client = redis_async.from_url(
+                env_config["REDIS_URL"],
+                decode_responses=True,
+            )
+            await redis_client.ping()
+            logger.info("Successfully connected to Redis")
+        except redis.exceptions.ConnectionError as e:
+            logger.error(f"Failed to connect to Redis: {e}")
+            redis_client = None
+        except Exception as e:
+            logger.error(f"An unexpected error occurred with Redis: {e}")
+            redis_client = None
+
 
 # API configuration
 API_BASE = os.getenv("API_BASE_URL")
@@ -154,10 +188,12 @@ async def entrypoint(ctx: JobContext):
     Uses AgentServer decorator pattern (LiveKit 1.3+).
     """
     logger.info(f"Agent starting in room: {ctx.room.name}")
+    await asyncio.gather(init_redis_client(), ctx.connect())
 
     # Extract identifiers
     ward_id = extract_ward_id(ctx.room)
     call_id = ctx.room.name
+    call_started_at = datetime.utcnow().strftime("%Y%m%dT%H%M%SZ")
 
     logger.info(f"Session info: ward_id={ward_id}, call_id={call_id}")
 
@@ -182,21 +218,54 @@ async def entrypoint(ctx: JobContext):
         max_endpointing_delay=5.0,
     )
 
+    async def add_transcript_to_redis(speaker_type: str, text: str):
+        """Helper to create and push transcript to Redis."""
+        if not redis_client:
+            logger.warning("Redis client not available, skipping transcript storage.")
+            return
+
+        try:
+            timestamp = datetime.utcnow().isoformat()
+            transcript_entry = {
+                "speaker": speaker_type,
+                "text": text,
+                "timestamp": timestamp,
+            }
+            redis_key = f"call:{call_id}:{call_started_at}:transcripts"
+            pipe = redis_client.pipeline()
+            pipe.rpush(redis_key, json.dumps(transcript_entry, ensure_ascii=False))
+            pipe.expire(redis_key, 3600 * 24)  # 24 hours
+            await pipe.execute()
+            logger.debug(f"Saved to Redis: {speaker_type} - {text}")
+        except redis.exceptions.RedisError as e:
+            logger.error(f"Failed to save transcript to Redis: {e}")
+        except Exception as e:
+            logger.error(f"An unexpected error occurred while saving to Redis: {e}")
+
     # Event: User transcript received
     @session.on("user_input_transcribed")
     def on_user_transcript(ev):
         """Capture user transcripts in real-time."""
         if ev.is_final:
+            # Store in-memory
             userdata.add_transcript("user", ev.transcript)
             logger.debug(f"User transcript: {ev.transcript}")
+            # Store in Redis
+            asyncio.create_task(add_transcript_to_redis("user", ev.transcript))
 
     # Event: Agent speech
     @session.on("agent_speech_committed")
     def on_agent_speech(ev):
         """Capture agent responses."""
         if hasattr(ev, 'content') and ev.content:
+            # Store in-memory
             userdata.add_transcript("agent", ev.content)
             logger.debug(f"Agent response: {ev.content}")
+            # Store in Redis
+            asyncio.create_task(add_transcript_to_redis("agent", ev.content))
+
+    session_end_event = asyncio.Event()
+    post_session_task = None
 
     # Event: Session end
     @session.on("session_end")
@@ -230,29 +299,43 @@ async def entrypoint(ctx: JobContext):
             except Exception as e:
                 logger.error(f"Post-session tasks failed: {e}")
 
-        asyncio.create_task(_run_post_session_tasks())
+        nonlocal post_session_task
+        post_session_task = asyncio.create_task(_run_post_session_tasks())
+        post_session_task.add_done_callback(lambda _t: session_end_event.set())
 
     # Create agent instance
     agent = ElderlyCompanionAgent()
 
-    # Connect to room first
-    await ctx.connect()
+    async def wait_for_bot_identity(timeout: float = 10.0) -> Optional[str]:
+        """Wait for a bot participant to join, falling back to the first participant."""
+        participants = list(ctx.room.remote_participants.values())
+        for p in participants:
+            if p.identity.startswith('bot-'):
+                logger.info(f"Agent will listen to bot: {p.identity}")
+                return p.identity
+        if participants:
+            logger.warning("Bot not found; using first participant")
+            return participants[0].identity
 
-    # Wait for bot to join
-    await asyncio.sleep(3)
+        deadline = asyncio.get_running_loop().time() + timeout
+        while True:
+            participants = list(ctx.room.remote_participants.values())
+            for p in participants:
+                if p.identity.startswith('bot-'):
+                    logger.info(f"Agent will listen to bot: {p.identity}")
+                    return p.identity
 
-    # Find bot participant (ignore admin)
-    bot_identity = None
-    logger.info(f"Participants in room: {len(ctx.room.remote_participants)}")
-    for p in ctx.room.remote_participants.values():
-        logger.info(f"  - {p.identity}")
-        if p.identity.startswith('bot-'):
-            bot_identity = p.identity
-            logger.info(f"Agent will listen to bot: {bot_identity}")
-            break
+            if participants:
+                logger.warning("Bot not found in time; using first participant")
+                return participants[0].identity
 
-    if not bot_identity:
-        logger.warning("No bot participant found - will listen to first participant")
+            if asyncio.get_running_loop().time() >= deadline:
+                logger.warning("No participants joined before timeout")
+                return None
+
+            await asyncio.sleep(0.2)
+
+    bot_identity = await wait_for_bot_identity()
 
     # Start session with bot as target
     await session.start(
@@ -268,6 +351,9 @@ async def entrypoint(ctx: JobContext):
     session.say("안녕하세요, 어르신. 오늘 어떻게 지내셨어요?")
 
     logger.info(f"Agent ready in room: {ctx.room.name}, listening to bot: {bot_identity}")
+
+    # Keep the job alive until post-session tasks finish.
+    await session_end_event.wait()
 
 
 if __name__ == "__main__":

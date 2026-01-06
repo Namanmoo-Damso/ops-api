@@ -27,6 +27,7 @@ def validate_env_vars() -> dict[str, str]:
         "AWS_ACCESS_KEY_ID",
         "AWS_SECRET_ACCESS_KEY",
         "AWS_DEFAULT_REGION",
+        "REDIS_URL",
     ]
 
     missing_vars = []
@@ -51,6 +52,13 @@ def validate_env_vars() -> dict[str, str]:
     if not (livekit_url.startswith("ws://") or livekit_url.startswith("wss://")):
         raise ConfigError(
             f"LIVEKIT_URL must start with ws:// or wss://, got: {livekit_url}"
+        )
+
+    # Validate Redis URL format
+    redis_url = config["REDIS_URL"]
+    if not redis_url.startswith("redis://"):
+        raise ConfigError(
+            f"REDIS_URL must start with redis://, got: {redis_url}"
         )
 
     # Validate AWS credentials format (basic check)
