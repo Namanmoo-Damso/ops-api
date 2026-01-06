@@ -1,6 +1,7 @@
 import { Module, Global } from '@nestjs/common';
 import { AiService } from './ai.service';
 import { AiAnalysisProvider } from './ai.interface';
+import { TranscriptStore } from './transcript.store';
 import { OpenAiProvider } from './providers/openai.provider';
 import { BedrockProvider } from './providers/bedrock.provider';
 import { DEFAULT_AI_INSTRUCTION, AI_RESPONSE_SCHEMA } from './ai.constants';
@@ -15,6 +16,7 @@ import { DEFAULT_AI_INSTRUCTION, AI_RESPONSE_SCHEMA } from './ai.constants';
 @Module({
   providers: [
     AiService,
+    TranscriptStore,
     {
       provide: AiAnalysisProvider,
       useFactory: () => {

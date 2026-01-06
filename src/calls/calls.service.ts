@@ -3,6 +3,7 @@ import { randomUUID } from 'node:crypto';
 import { DbService } from '../database';
 import { PushService } from '../push/push.service';
 import { ConfigService } from '../core/config';
+import { AiService } from '../ai/ai.service';
 
 type PushType = 'alert' | 'voip';
 
@@ -28,6 +29,7 @@ export class CallsService {
     private readonly dbService: DbService,
     private readonly pushService: PushService,
     private readonly configService: ConfigService,
+    private readonly aiService: AiService,
   ) {}
 
   async inviteCall(params: {
@@ -170,7 +172,43 @@ export class CallsService {
 
   async endCall(callId: string) {
     this.logger.log(`endCall callId=${callId}`);
-    return this.dbService.updateCallState(callId, 'ended');
+    const result = await this.dbService.updateCallState(callId, 'ended');
+    this.triggerCallAnalysis(callId);
+    return result;
+  }
+
+  private async triggerCallAnalysis(callId: string): Promise<void> {
+    try {
+      const existingSummary = await this.dbService.getCallSummary(callId);
+      if (existingSummary) {
+        this.logger.log(
+          `skip call analysis callId=${callId} already summarized summaryId=${existingSummary.id}`,
+        );
+        return;
+      }
+    } catch (error) {
+      this.logger.warn(
+        `call analysis check failed callId=${callId} error=${(error as Error).message}`,
+      );
+      return;
+    }
+
+    try {
+      const result = await this.aiService.analyzeCall(callId);
+      if (!result.success) {
+        this.logger.warn(
+          `call analysis failed callId=${callId} error=${result.error}`,
+        );
+        return;
+      }
+      this.logger.log(
+        `call analysis triggered callId=${callId} mood=${result.mood}`,
+      );
+    } catch (error) {
+      this.logger.warn(
+        `call analysis thrown error callId=${callId} error=${(error as Error).message}`,
+      );
+    }
   }
 
   async sendBroadcastPush(params: {
@@ -244,6 +282,10 @@ export class CallsService {
       `pushUser identity=${params.identity} type=${params.type} requested=${tokens.length} sent=${result.sent} failed=${result.failed} invalid=${result.invalidTokens.length}`,
     );
     return { ...result, requested: tokens.length };
+  }
+
+  async getCallContextByRoom(roomName: string) {
+    return this.dbService.getCallContextByRoomName(roomName);
   }
 
   async listRoomMembers(roomName: string) {

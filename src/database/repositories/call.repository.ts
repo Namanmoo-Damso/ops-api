@@ -218,10 +218,36 @@ export class CallRepository {
     };
   }
 
+  async getContextByRoomName(roomName: string) {
+    const call = await this.prisma.call.findFirst({
+      where: { roomName },
+      orderBy: { createdAt: 'desc' },
+      include: {
+        callee: {
+          include: {
+            ward: true,
+          },
+        },
+      },
+    });
+
+    if (!call) return undefined;
+
+    return {
+      call_id: call.callId,
+      ward_id: call.callee?.ward?.id ?? null,
+    };
+  }
+
   async getForAnalysis(callId: string) {
     const call = await this.prisma.call.findUnique({
       where: { callId },
       include: {
+        caller: {
+          include: {
+            ward: true,
+          },
+        },
         callee: {
           include: {
             ward: true,
@@ -237,11 +263,17 @@ export class CallRepository {
         ? (call.endedAt.getTime() - call.answeredAt.getTime()) / 60000
         : null;
 
+    // Voice Agent 통화: caller가 ward(어르신), callee가 AI agent
+    // 일반 통화: callee가 ward(어르신)
+    const wardId = call.caller?.ward?.id ?? call.callee?.ward?.id ?? null;
+    const guardianId =
+      call.caller?.ward?.guardianId ?? call.callee?.ward?.guardianId ?? null;
+
     return {
       call_id: call.callId,
       callee_user_id: call.calleeUserId,
-      ward_id: call.callee?.ward?.id ?? null,
-      guardian_id: call.callee?.ward?.guardianId ?? null,
+      ward_id: wardId,
+      guardian_id: guardianId,
       duration,
       transcript: null as string | null,
     };
@@ -256,16 +288,18 @@ export class CallRepository {
     tags: string[];
     healthKeywords: Record<string, unknown>;
   }): Promise<CallSummaryRow> {
+    const dataInput = {
+      callId: params.callId,
+      summary: params.summary,
+      mood: params.mood,
+      moodScore: new Prisma.Decimal(params.moodScore),
+      tags: params.tags,
+      healthKeywords: params.healthKeywords as Prisma.InputJsonValue,
+      ...(params.wardId ? { wardId: params.wardId } : {}),
+    } as Prisma.CallSummaryUncheckedCreateInput;
+
     const summary = await this.prisma.callSummary.create({
-      data: {
-        callId: params.callId,
-        wardId: params.wardId!,
-        summary: params.summary,
-        mood: params.mood,
-        moodScore: new Prisma.Decimal(params.moodScore),
-        tags: params.tags,
-        healthKeywords: params.healthKeywords as Prisma.InputJsonValue,
-      },
+      data: dataInput,
     });
     return toCallSummaryRow(summary);
   }

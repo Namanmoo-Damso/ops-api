@@ -9,8 +9,13 @@ import sys
 import logging
 from pathlib import Path
 from typing import Optional
+from datetime import datetime
+from urllib.parse import quote
+import json
 
 import httpx
+import redis
+import redis.asyncio as redis_async
 from dotenv import load_dotenv
 from livekit.agents import (
     AgentServer,
@@ -45,6 +50,36 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+# Redis client (async) initialization
+redis_client = None
+redis_init_lock = asyncio.Lock()
+
+
+async def init_redis_client():
+    """Initialize Redis client asynchronously to avoid blocking the event loop."""
+    global redis_client
+    if redis_client:
+        return
+
+    async with redis_init_lock:
+        if redis_client:
+            return
+
+        try:
+            redis_client = redis_async.from_url(
+                env_config["REDIS_URL"],
+                decode_responses=True,
+            )
+            await redis_client.ping()
+            logger.info("Successfully connected to Redis")
+        except redis.exceptions.ConnectionError as e:
+            logger.error(f"Failed to connect to Redis: {e}")
+            redis_client = None
+        except Exception as e:
+            logger.error(f"An unexpected error occurred with Redis: {e}")
+            redis_client = None
+
+
 # API configuration
 API_BASE = os.getenv("API_BASE_URL")
 if not API_BASE:
@@ -56,6 +91,8 @@ API_INTERNAL_TOKEN = os.getenv("API_INTERNAL_TOKEN")
 # Timeouts (seconds)
 TIMEOUT_RAG_INDEXING = 5.0
 TIMEOUT_CALL_ANALYSIS = 5.0
+TIMEOUT_CALL_CONTEXT = 5.0
+TIMEOUT_CALL_END = 5.0
 TIMEOUT_POST_SESSION = 10.0
 
 # Create AgentServer instance
@@ -106,6 +143,27 @@ def extract_ward_id(room) -> str:
     return room_name
 
 
+def _parse_metadata(raw) -> dict:
+    """Parse metadata payload into a dict."""
+    if not raw:
+        return {}
+    if isinstance(raw, dict):
+        return raw
+    try:
+        return json.loads(raw)
+    except Exception:
+        return {}
+
+
+def get_session_metadata(ctx: JobContext) -> dict:
+    """Get dispatch or room metadata for the current session."""
+    job = getattr(ctx, "job", None)
+    raw = getattr(job, "metadata", None) if job else None
+    if not raw:
+        raw = getattr(ctx.room, "metadata", None)
+    return _parse_metadata(raw)
+
+
 def _get_auth_headers() -> dict:
     """Get authentication headers for internal API calls."""
     headers = {"Content-Type": "application/json"}
@@ -132,18 +190,50 @@ async def trigger_rag_indexing(call_id: str, ward_id: str):
         logger.error(f"RAG indexing trigger failed: {e}")
 
 
-async def trigger_call_analysis(call_id: str):
-    """Trigger call analysis after session ends."""
+async def trigger_call_end(call_id: str):
+    """Inform API that the call ended so it can finalize state and summaries."""
     try:
         async with httpx.AsyncClient() as client:
             await client.post(
-                f"{API_BASE}/v1/calls/{call_id}/analyze",
+                f"{API_BASE}/v1/calls/end",
+                json={"callId": call_id},
                 headers=_get_auth_headers(),
-                timeout=TIMEOUT_CALL_ANALYSIS,
+                timeout=TIMEOUT_CALL_END,
             )
-            logger.info(f"Call analysis triggered: call={call_id}")
+            logger.info(f"Call end notified: call={call_id}")
     except Exception as e:
-        logger.error(f"Call analysis trigger failed: {e}")
+        logger.error(f"Call end trigger failed: {e}")
+
+
+async def fetch_call_context(room_name: str) -> Optional[dict]:
+    """Resolve call metadata from the backend using the LiveKit room name."""
+    if not room_name:
+        return None
+
+    try:
+        encoded_room = quote(room_name, safe='')
+        async with httpx.AsyncClient() as client:
+            response = await client.get(
+                f"{API_BASE}/v1/calls/room/{encoded_room}/context",
+                headers=_get_auth_headers(),
+                timeout=TIMEOUT_CALL_CONTEXT,
+            )
+            response.raise_for_status()
+            context = response.json()
+            logger.info(f"Resolved call context for room={room_name}: {context}")
+            return context
+    except httpx.HTTPStatusError as exc:
+        status = exc.response.status_code if exc.response else 'unknown'
+        if status == 404:
+            logger.warning(f"No call record found for room={room_name}")
+        else:
+            logger.error(
+                f"Call context request failed room={room_name} status={status} error={exc}"
+            )
+    except Exception as exc:
+        logger.error(f"Call context request error room={room_name}: {exc}")
+
+    return None
 
 
 @server.rtc_session()
@@ -154,10 +244,26 @@ async def entrypoint(ctx: JobContext):
     Uses AgentServer decorator pattern (LiveKit 1.3+).
     """
     logger.info(f"Agent starting in room: {ctx.room.name}")
+    await asyncio.gather(init_redis_client(), ctx.connect())
+
+    metadata = get_session_metadata(ctx)
+    if metadata:
+        logger.info(f"Session metadata: {metadata}")
 
     # Extract identifiers
-    ward_id = extract_ward_id(ctx.room)
-    call_id = ctx.room.name
+    room_name = ctx.room.name
+    call_id = metadata.get("callId")
+    ward_id = metadata.get("wardId")
+
+    if not call_id and room_name:
+        context = await fetch_call_context(room_name)
+        if context:
+            call_id = context.get("callId") or call_id
+            if context.get("wardId"):
+                ward_id = ward_id or context.get("wardId")
+
+    call_id = call_id or room_name
+    ward_id = ward_id or extract_ward_id(ctx.room)
 
     # Determine call direction based on room name
     # Rooms starting with "bot-" are outbound calls (agent initiates)
@@ -189,21 +295,54 @@ async def entrypoint(ctx: JobContext):
         max_endpointing_delay=5.0,
     )
 
+    async def add_transcript_to_redis(speaker_type: str, text: str):
+        """Helper to create and push transcript to Redis."""
+        if not redis_client:
+            logger.warning("Redis client not available, skipping transcript storage.")
+            return
+
+        try:
+            timestamp = datetime.utcnow().isoformat()
+            transcript_entry = {
+                "speaker": speaker_type,
+                "text": text,
+                "timestamp": timestamp,
+            }
+            redis_key = f"call:{call_id}:transcripts"
+            pipe = redis_client.pipeline()
+            pipe.rpush(redis_key, json.dumps(transcript_entry, ensure_ascii=False))
+            pipe.expire(redis_key, 3600 * 24)  # 24 hours
+            await pipe.execute()
+            logger.debug(f"Saved to Redis: {speaker_type} - {text}")
+        except redis.exceptions.RedisError as e:
+            logger.error(f"Failed to save transcript to Redis: {e}")
+        except Exception as e:
+            logger.error(f"An unexpected error occurred while saving to Redis: {e}")
+
     # Event: User transcript received
     @session.on("user_input_transcribed")
     def on_user_transcript(ev):
         """Capture user transcripts in real-time."""
         if ev.is_final:
+            # Store in-memory
             userdata.add_transcript("user", ev.transcript)
             logger.debug(f"User transcript: {ev.transcript}")
+            # Store in Redis
+            asyncio.create_task(add_transcript_to_redis("user", ev.transcript))
 
     # Event: Agent speech
     @session.on("agent_speech_committed")
     def on_agent_speech(ev):
         """Capture agent responses."""
         if hasattr(ev, 'content') and ev.content:
+            # Store in-memory
             userdata.add_transcript("agent", ev.content)
             logger.debug(f"Agent response: {ev.content}")
+            # Store in Redis
+            asyncio.create_task(add_transcript_to_redis("agent", ev.content))
+
+    session_end_event = asyncio.Event()
+    post_session_task = None
 
     # Event: Session end
     @session.on("session_end")
@@ -222,8 +361,8 @@ async def entrypoint(ctx: JobContext):
 
             # Run post-session tasks with timeout
             tasks = [
+                trigger_call_end(call_id),
                 trigger_rag_indexing(call_id, ward_id),
-                trigger_call_analysis(call_id),
             ]
 
             try:
@@ -237,29 +376,43 @@ async def entrypoint(ctx: JobContext):
             except Exception as e:
                 logger.error(f"Post-session tasks failed: {e}")
 
-        asyncio.create_task(_run_post_session_tasks())
+        nonlocal post_session_task
+        post_session_task = asyncio.create_task(_run_post_session_tasks())
+        post_session_task.add_done_callback(lambda _t: session_end_event.set())
 
     # Create agent instance with call direction
     agent = ElderlyCompanionAgent(call_direction=call_direction)
 
-    # Connect to room first
-    await ctx.connect()
+    async def wait_for_bot_identity(timeout: float = 10.0) -> Optional[str]:
+        """Wait for a bot participant to join, falling back to the first participant."""
+        participants = list(ctx.room.remote_participants.values())
+        for p in participants:
+            if p.identity.startswith('bot-'):
+                logger.info(f"Agent will listen to bot: {p.identity}")
+                return p.identity
+        if participants:
+            logger.warning("Bot not found; using first participant")
+            return participants[0].identity
 
-    # Wait for bot to join
-    await asyncio.sleep(3)
+        deadline = asyncio.get_running_loop().time() + timeout
+        while True:
+            participants = list(ctx.room.remote_participants.values())
+            for p in participants:
+                if p.identity.startswith('bot-'):
+                    logger.info(f"Agent will listen to bot: {p.identity}")
+                    return p.identity
 
-    # Find bot participant (ignore admin)
-    bot_identity = None
-    logger.info(f"Participants in room: {len(ctx.room.remote_participants)}")
-    for p in ctx.room.remote_participants.values():
-        logger.info(f"  - {p.identity}")
-        if p.identity.startswith('bot-'):
-            bot_identity = p.identity
-            logger.info(f"Agent will listen to bot: {bot_identity}")
-            break
+            if participants:
+                logger.warning("Bot not found in time; using first participant")
+                return participants[0].identity
 
-    if not bot_identity:
-        logger.warning("No bot participant found - will listen to first participant")
+            if asyncio.get_running_loop().time() >= deadline:
+                logger.warning("No participants joined before timeout")
+                return None
+
+            await asyncio.sleep(0.2)
+
+    bot_identity = await wait_for_bot_identity()
 
     # Start session with bot as target
     await session.start(
@@ -273,6 +426,9 @@ async def entrypoint(ctx: JobContext):
 
     # Agent will generate natural greeting via on_enter() method
     logger.info(f"Agent ready in room: {ctx.room.name}, listening to bot: {bot_identity}, direction: {call_direction}")
+
+    # Keep the job alive until post-session tasks finish.
+    await session_end_event.wait()
 
 
 if __name__ == "__main__":

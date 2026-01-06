@@ -16,6 +16,7 @@ export type RtcTokenResult = {
   identity: string;
   name: string;
   role: Role;
+  callId?: string;
 };
 
 export type DeviceInfo = {
@@ -25,6 +26,8 @@ export type DeviceInfo = {
   env?: string;
   supportsCallKit?: boolean;
 };
+
+const AUTO_CALLER_IDENTITY = 'agent-auto';
 
 @Injectable()
 export class RtcTokenService {
@@ -120,6 +123,7 @@ export class RtcTokenService {
 
     let identity = params.identity;
     let name = params.name;
+    let callId: string | null = null;
 
     // Find existing user by device token
     const candidates: Array<{ tokenType: 'apns' | 'voip'; token: string }> = [];
@@ -188,6 +192,25 @@ export class RtcTokenService {
         identity,
         name,
       });
+
+      try {
+        const call = await this.dbService.createCall({
+          callerIdentity: AUTO_CALLER_IDENTITY,
+          calleeIdentity: identity,
+          calleeUserId: user.id,
+          roomName,
+        });
+        callId = call.id;
+        this.logger.log(
+          `Auto call record created callId=${callId} room=${roomName} identity=${identity}`,
+        );
+      } catch (error) {
+        this.logger.warn(
+          `Auto call record failed room=${roomName} identity=${identity} error=${(
+            error as Error
+          ).message}`,
+        );
+      }
     } else {
       // Web admin - don't create room, just log
       this.logger.log(
@@ -238,6 +261,7 @@ export class RtcTokenService {
       identity,
       name,
       role: params.role,
+      callId: callId ?? undefined,
     };
   }
 

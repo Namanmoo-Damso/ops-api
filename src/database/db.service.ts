@@ -231,6 +231,10 @@ export class DbService implements OnModuleDestroy {
     return this.calls.getWithWardInfo(callId);
   }
 
+  async getCallContextByRoomName(roomName: string) {
+    return this.calls.getContextByRoomName(roomName);
+  }
+
   async getCallForAnalysis(callId: string) {
     return this.calls.getForAnalysis(callId);
   }

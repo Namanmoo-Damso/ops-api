@@ -2,9 +2,11 @@ import { Global, Module, NestModule, MiddlewareConsumer } from '@nestjs/common';
 import { json } from 'body-parser';
 import { LiveKitService } from './livekit.service';
 import { LiveKitWebhookController } from './livekit-webhook.controller';
+import { AiModule } from '../../ai/ai.module';
 
 @Global()
 @Module({
+  imports: [AiModule],
   controllers: [LiveKitWebhookController],
   providers: [LiveKitService],
   exports: [LiveKitService],
