@@ -6,6 +6,7 @@ export type PushEnvMode = 'prod' | 'sandbox' | 'both';
 export type AppConfig = {
   port: number;
   livekitUrl: string;
+  livekitPublicUrl: string;
   livekitApiKey: string;
   livekitApiSecret: string;
   livekitTokenTtlSeconds: number;
@@ -55,9 +56,11 @@ export class ConfigService {
           ? 'sandbox'
           : 'prod';
 
+    const livekitUrl = getEnv('LIVEKIT_URL');
     cachedConfig = {
       port: parseNumber(process.env.PORT, 8080),
-      livekitUrl: getEnv('LIVEKIT_URL'),
+      livekitUrl,
+      livekitPublicUrl: process.env.LIVEKIT_PUBLIC_URL ?? livekitUrl,
       livekitApiKey: getEnv('LIVEKIT_API_KEY'),
       livekitApiSecret: getEnv('LIVEKIT_API_SECRET'),
       livekitTokenTtlSeconds: parseNumber(process.env.LIVEKIT_TOKEN_TTL, 600),

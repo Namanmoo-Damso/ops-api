@@ -88,7 +88,7 @@ export class RtcTokenService {
     });
 
     return {
-      livekitUrl: config.livekitUrl,
+      livekitUrl: config.livekitPublicUrl,
       roomName,
       token: await accessToken.toJwt(),
       expiresAt,
@@ -254,7 +254,7 @@ export class RtcTokenService {
     });
 
     return {
-      livekitUrl: config.livekitUrl,
+      livekitUrl: config.livekitPublicUrl,
       roomName: roomName,
       token: await accessToken.toJwt(),
       expiresAt,

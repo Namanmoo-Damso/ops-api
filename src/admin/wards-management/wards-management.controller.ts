@@ -241,11 +241,16 @@ export class WardsManagementController {
 
   @Get('my-wards')
   async getMyManagedWards(
-    @CurrentAdmin() admin: { sub: string },
+    @CurrentAdmin() admin: { sub: string; organization_id?: string },
   ) {
+    const organizationId = admin.organization_id;
+    if (!organizationId) {
+      return { wards: [], stats: { total: 0, registered: 0 } };
+    }
+
     const [wards, stats] = await Promise.all([
-      this.dbService.getMyManagedWards(admin.sub),
-      this.dbService.getMyManagedWardsStats(admin.sub),
+      this.dbService.getOrganizationWards(organizationId),
+      this.dbService.getOrganizationWardsStats(organizationId),
     ]);
 
     return {

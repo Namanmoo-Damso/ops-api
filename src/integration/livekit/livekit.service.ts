@@ -12,10 +12,12 @@ export class LiveKitService {
   private readonly roomService: RoomServiceClient;
   private readonly agentDispatch: AgentDispatchClient;
   private readonly livekitUrl: string;
+  private readonly livekitPublicUrl: string;
 
   constructor(private readonly configService: ConfigService) {
     const config = this.configService.getConfig();
     this.livekitUrl = config.livekitUrl;
+    this.livekitPublicUrl = config.livekitPublicUrl;
     this.roomService = new RoomServiceClient(
       config.livekitUrl,
       config.livekitApiKey,
@@ -179,7 +181,7 @@ export class LiveKitService {
     );
 
     return {
-      livekitUrl: this.livekitUrl,
+      livekitUrl: this.livekitPublicUrl,
       totalRooms: summaries.length,
       totalParticipants,
       rooms: summaries,
