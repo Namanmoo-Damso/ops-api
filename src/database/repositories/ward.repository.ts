@@ -564,23 +564,85 @@ export class WardRepository {
       where: { organizationId },
       orderBy: { createdAt: 'desc' },
       include: {
+        organization: { select: { name: true } },
+        ward: {
+          include: {
+            callSummaries: {
+              orderBy: { createdAt: 'desc' },
+              take: 1,
+              select: { mood: true },
+            },
+          },
+        },
         detail: { select: { notes: true } },
       },
     });
 
-    return wards.map(w => ({
-      id: w.id,
-      email: w.email,
-      phone_number: w.phoneNumber,
-      name: w.name,
-      birth_date: w.birthDate?.toISOString().split('T')[0] ?? null,
-      address: w.address,
-      notes: w.detail?.notes ?? null,
-      is_registered: w.isRegistered,
-      ward_id: w.wardId,
-      uploaded_by_admin_id: w.uploadedByAdminId,
-      created_at: w.createdAt.toISOString(),
-    }));
+    // Collect all ward userIds for batch query
+    const wardUserIds = wards
+      .filter(ow => ow.ward?.userId)
+      .map(ow => ow.ward!.userId);
+
+    // Batch query: get last call and count for all wards at once
+    const [lastCalls, callCounts] =
+      wardUserIds.length > 0
+        ? await Promise.all([
+            this.prisma.call.groupBy({
+              by: ['calleeUserId'],
+              where: { calleeUserId: { in: wardUserIds }, state: 'ended' },
+              _max: { createdAt: true },
+            }),
+            this.prisma.call.groupBy({
+              by: ['calleeUserId'],
+              where: { calleeUserId: { in: wardUserIds }, state: 'ended' },
+              _count: true,
+            }),
+          ])
+        : [[], []];
+
+    const lastCallMap = new Map(
+      lastCalls.map(c => [c.calleeUserId, c._max.createdAt]),
+    );
+    const countMap = new Map(callCounts.map(c => [c.calleeUserId, c._count]));
+
+    return wards.map(ow => {
+      const userId = ow.ward?.userId;
+      const lastCallAt = userId
+        ? (lastCallMap.get(userId)?.toISOString() ?? null)
+        : null;
+      const totalCalls = userId ? (countMap.get(userId) ?? 0).toString() : '0';
+
+      return {
+        id: ow.id,
+        organization_id: ow.organizationId,
+        organization_name: ow.organization.name,
+        email: ow.email,
+        phone_number: ow.phoneNumber,
+        name: ow.name,
+        birth_date: ow.birthDate?.toISOString().split('T')[0] ?? null,
+        address: ow.address,
+        notes: ow.detail?.notes ?? null,
+        is_registered: ow.isRegistered,
+        ward_id: ow.wardId,
+        created_at: ow.createdAt.toISOString(),
+        last_call_at: lastCallAt,
+        total_calls: totalCalls,
+        last_mood: ow.ward?.callSummaries[0]?.mood ?? null,
+      };
+    });
+  }
+
+  async getOrganizationWardsStats(organizationId: string) {
+    const [total, registered] = await Promise.all([
+      this.prisma.organizationWard.count({
+        where: { organizationId },
+      }),
+      this.prisma.organizationWard.count({
+        where: { organizationId, isRegistered: true },
+      }),
+    ]);
+
+    return { total, registered };
   }
 
   async getMyManagedWards(adminId: string) {

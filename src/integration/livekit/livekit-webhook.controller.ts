@@ -94,9 +94,9 @@ export class LiveKitWebhookController {
             name: participant.name || participant.identity,
           });
 
-          // Clean up admin-only rooms after a participant leaves
+          // Clean up the specific room if only admin/agent remain
           setImmediate(() => {
-            this.liveKitService.closeAdminOnlyRooms();
+            this.liveKitService.closeRoomIfAdminOnly(room.name);
           });
         }
       }

@@ -137,8 +137,14 @@ export class RtcController {
       throw new HttpException('roomName is required', HttpStatus.BAD_REQUEST);
     }
 
+    // Admin인 경우 방마다 고유한 identity 생성 (DUPLICATE_IDENTITY 방지)
+    let finalAuthIdentity = authIdentity;
+    if (authIdentity?.startsWith('admin_')) {
+      finalAuthIdentity = `${authIdentity}_${roomName}`;
+    }
+
     // 인증된 사용자가 있으면 항상 그 identity를 사용 (일관성 유지)
-    const identity = (authIdentity ?? body.identity)?.trim();
+    const identity = (finalAuthIdentity ?? body.identity)?.trim();
     if (!identity) {
       throw new HttpException('identity is required', HttpStatus.BAD_REQUEST);
     }

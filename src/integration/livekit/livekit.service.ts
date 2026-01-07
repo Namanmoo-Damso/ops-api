@@ -12,10 +12,12 @@ export class LiveKitService {
   private readonly roomService: RoomServiceClient;
   private readonly agentDispatch: AgentDispatchClient;
   private readonly livekitUrl: string;
+  private readonly livekitPublicUrl: string;
 
   constructor(private readonly configService: ConfigService) {
     const config = this.configService.getConfig();
     this.livekitUrl = config.livekitUrl;
+    this.livekitPublicUrl = config.livekitPublicUrl;
     this.roomService = new RoomServiceClient(
       config.livekitUrl,
       config.livekitApiKey,
@@ -179,7 +181,7 @@ export class LiveKitService {
     );
 
     return {
-      livekitUrl: this.livekitUrl,
+      livekitUrl: this.livekitPublicUrl,
       totalRooms: summaries.length,
       totalParticipants,
       rooms: summaries,
@@ -433,88 +435,88 @@ export class LiveKitService {
     }
   }
 
-  async closeAdminOnlyRooms(): Promise<void> {
+  /**
+   * Check and close a specific room if it only has admin/agent participants
+   */
+  async closeRoomIfAdminOnly(roomName: string): Promise<void> {
     try {
-      const rooms = await this.roomService.listRooms();
+      const participants = await this.roomService.listParticipants(roomName);
 
-      for (const room of rooms) {
-        const participants = await this.roomService.listParticipants(room.name);
+      // Delete empty rooms
+      if (participants.length === 0) {
+        this.logger.log(`Deleting empty room: ${roomName}`);
+        try {
+          await this.roomService.deleteRoom(roomName);
+        } catch (err) {
+          this.logger.debug(
+            `Failed to delete empty room ${roomName}: ${(err as Error).message}`,
+          );
+        }
+        return;
+      }
 
-        // Delete empty rooms
-        if (participants.length === 0) {
-          this.logger.log(`Deleting empty room: ${room.name}`);
+      // Check if there are any real users (not admin or agent)
+      const hasRealUsers = participants.some(
+        p =>
+          !p.identity.startsWith('admin_') &&
+          !p.identity.startsWith('agent-'),
+      );
+
+      // If no real users remain (only admin and/or agent), close the room
+      if (!hasRealUsers) {
+        this.logger.log(
+          `Closing room with only admin/agent participants: ${roomName}`,
+        );
+
+        let removedCount = 0;
+        for (const participant of participants) {
           try {
-            await this.roomService.deleteRoom(room.name);
+            await this.roomService.removeParticipant(
+              roomName,
+              participant.identity,
+            );
+            removedCount++;
           } catch (err) {
-            this.logger.debug(
-              `Failed to delete empty room ${room.name}: ${(err as Error).message}`,
+            this.logger.error(
+              `Failed to remove participant ${participant.identity}: ${(err as Error).message}`,
             );
           }
-          continue;
         }
 
-        // Check if there are any real users (not admin or agent)
-        const hasRealUsers = participants.some(
+        this.logger.log(
+          `Removed ${removedCount}/${participants.length} participants from room: ${roomName}`,
+        );
+
+        // Re-check if any real users joined during cleanup
+        const updatedParticipants =
+          await this.roomService.listParticipants(roomName);
+        const stillHasNoRealUsers = !updatedParticipants.some(
           p =>
             !p.identity.startsWith('admin_') &&
             !p.identity.startsWith('agent-'),
         );
 
-        // If no real users remain (only admin and/or agent), close the room
-        if (!hasRealUsers) {
+        if (!stillHasNoRealUsers) {
           this.logger.log(
-            `Closing room with only admin/agent participants: ${room.name}`,
+            `Real user joined ${roomName} during cleanup, skipping deletion`,
           );
+          return;
+        }
 
-          let removedCount = 0;
-          for (const participant of participants) {
-            try {
-              await this.roomService.removeParticipant(
-                room.name,
-                participant.identity,
-              );
-              removedCount++;
-            } catch (err) {
-              this.logger.error(
-                `Failed to remove participant ${participant.identity}: ${(err as Error).message}`,
-              );
-            }
-          }
-
-          this.logger.log(
-            `Removed ${removedCount}/${participants.length} participants from room: ${room.name}`,
+        // Delete the room after removing participants
+        try {
+          await this.roomService.deleteRoom(roomName);
+          this.logger.log(`Deleted room: ${roomName}`);
+        } catch (err) {
+          this.logger.warn(
+            `Failed to delete room ${roomName} (removed ${removedCount} participants): ${(err as Error).message}`,
           );
-
-          // Re-check if any real users joined during cleanup
-          const updatedParticipants = await this.roomService.listParticipants(
-            room.name,
-          );
-          const stillHasNoRealUsers = !updatedParticipants.some(
-            p =>
-              !p.identity.startsWith('admin_') &&
-              !p.identity.startsWith('agent-'),
-          );
-
-          if (!stillHasNoRealUsers) {
-            this.logger.log(
-              `Real user joined ${room.name} during cleanup, skipping deletion`,
-            );
-            continue;
-          }
-
-          // Delete the room after removing participants
-          try {
-            await this.roomService.deleteRoom(room.name);
-            this.logger.log(`Deleted room: ${room.name}`);
-          } catch (err) {
-            this.logger.warn(
-              `Failed to delete room ${room.name} (removed ${removedCount} participants): ${(err as Error).message}`,
-            );
-          }
         }
       }
     } catch (err) {
-      this.logger.warn(`closeAdminOnlyRooms failed: ${(err as Error).message}`);
+      this.logger.warn(
+        `closeRoomIfAdminOnly failed for ${roomName}: ${(err as Error).message}`,
+      );
     }
   }
 }
