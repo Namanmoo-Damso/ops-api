@@ -165,15 +165,17 @@ export class AdminAuthService {
         );
       }
 
-      // 기본 organization: 담소 관제센터
-      const DEFAULT_ORGANIZATION_ID = '583c02c7-5188-419f-90b9-edcad0f40ef4';
+      // 기본 organization: 담소 관제센터 (없으면 생성)
+      const DEFAULT_ORGANIZATION_NAME = '담소 관제센터';
+      const { organization: defaultOrg } =
+        await this.dbService.findOrCreateOrganization(DEFAULT_ORGANIZATION_NAME);
 
       const newAdmin = await this.dbService.createAdmin({
         email: oauthUser.email,
         name: oauthUser.name,
         provider,
         providerId: oauthUser.providerId,
-        organizationId: DEFAULT_ORGANIZATION_ID,
+        organizationId: defaultOrg.id,
       });
 
       admin = await this.dbService.findAdminById(newAdmin.id);
