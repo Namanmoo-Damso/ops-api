@@ -1,5 +1,5 @@
 import { Injectable, Logger, OnModuleDestroy } from '@nestjs/common';
-import apn from 'apn';
+import apn from '@parse/node-apn';
 
 type PushType = 'alert' | 'voip';
 type PushEnvMode = 'prod' | 'sandbox' | 'both';
@@ -38,7 +38,8 @@ export class PushService implements OnModuleDestroy {
     this.bundleId = process.env.APNS_BUNDLE_ID;
     this.voipTopic = process.env.APNS_VOIP_TOPIC;
     const mode = process.env.APNS_ENV ?? 'prod';
-    this.envMode = mode === 'both' ? 'both' : mode === 'sandbox' ? 'sandbox' : 'prod';
+    this.envMode =
+      mode === 'both' ? 'both' : mode === 'sandbox' ? 'sandbox' : 'prod';
     this.logger.log(
       `APNs config envMode=${this.envMode} bundleId=${this.bundleId ?? 'unset'} voipTopic=${this.voipTopic ?? 'default'} keyId=${this.keyId ?? 'unset'} teamId=${this.teamId ?? 'unset'} keyPath=${this.keyPath ?? 'unset'}`,
     );
@@ -159,7 +160,9 @@ export class PushService implements OnModuleDestroy {
         );
 
         for (const failure of response.failed) {
-          const responseInfo = failure.response as { reason?: string; status?: number } | undefined;
+          const responseInfo = failure.response as
+            | { reason?: string; status?: number }
+            | undefined;
           const reason = responseInfo?.reason || failure.error?.message;
           const status =
             (failure as { status?: number }).status ??

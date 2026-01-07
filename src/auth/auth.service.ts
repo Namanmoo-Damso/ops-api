@@ -73,12 +73,16 @@ type KakaoLoginResult =
       accessToken: string;
       refreshToken: string;
       user: UserInfo;
-      matchStatus: 'matched' | 'not_matched';
+      matchStatus: 'matched';
       wardInfo?: {
         phoneNumber: string;
         linkedGuardian?: {
           id: string;
           nickname: string | null;
+        };
+        linkedOrganization?: {
+          id: string;
+          name: string;
         };
       };
     };
@@ -105,7 +109,9 @@ export class AuthService {
   constructor(private readonly dbService: DbService) {
     const secret = process.env.API_JWT_SECRET || process.env.JWT_SECRET;
     if (!secret) {
-      throw new Error('API_JWT_SECRET or JWT_SECRET environment variable is required');
+      throw new Error(
+        'API_JWT_SECRET or JWT_SECRET environment variable is required',
+      );
     }
     this.jwtSecret = secret;
     this.accessTokenExpiry = 60 * 60; // 1 hour
@@ -118,15 +124,39 @@ export class AuthService {
   }): Promise<KakaoLoginResult> {
     // 1. 카카오 토큰 검증
     const kakaoProfile = await this.verifyKakaoToken(params.kakaoAccessToken);
-    this.logger.log(`kakaoLogin kakaoId=${kakaoProfile.kakaoId} email=${kakaoProfile.email ?? 'none'}`);
+    this.logger.log(
+      `kakaoLogin kakaoId=${kakaoProfile.kakaoId} email=${kakaoProfile.email ?? 'none'}`,
+    );
 
     // 2. 기존 사용자 확인
-    const existingUser = await this.dbService.findUserByKakaoId(kakaoProfile.kakaoId);
+    const existingUser = await this.dbService.findUserByKakaoId(
+      kakaoProfile.kakaoId,
+    );
 
     if (existingUser) {
+      // 기존 사용자인데 ward 타입이면 ward 정보가 실제로 있는지 확인
+      if (existingUser.user_type === 'ward') {
+        const ward = await this.dbService.findWardByUserId(existingUser.id);
+        if (!ward) {
+          // ward 정보가 없는 불완전한 사용자 - 삭제 후 재생성
+          this.logger.warn(
+            `Incomplete ward user found userId=${existingUser.id}, deleting and recreating`,
+          );
+          await this.dbService.deleteUser(existingUser.id);
+          // 재생성 로직으로 진행
+          if (params.userType === 'ward') {
+            return this.handleWardRegistration(kakaoProfile);
+          }
+          // userType이 없으면 보호자로 처리
+        }
+      }
+
       // 기존 사용자 - JWT 발급
       this.logger.log(`kakaoLogin existing user id=${existingUser.id}`);
-      const tokens = await this.issueTokens(existingUser.id, existingUser.user_type as UserType);
+      const tokens = await this.issueTokens(
+        existingUser.id,
+        existingUser.user_type as UserType,
+      );
       return {
         isNewUser: false,
         ...tokens,
@@ -145,6 +175,48 @@ export class AuthService {
       // 어르신 - 자동 매칭 시도
       return this.handleWardRegistration(kakaoProfile);
     } else {
+      // 보호자 로그인 시도 - 해당 이메일이 이미 ward로 등록/예정인지 체크
+      if (kakaoProfile.email) {
+        // 3-1. users 테이블에서 이미 ward로 등록된 사용자인지 확인
+        const existingWardUser = await this.dbService.findUserByEmail(
+          kakaoProfile.email,
+        );
+        if (existingWardUser?.user_type === 'ward') {
+          this.logger.warn(
+            `Guardian login blocked - email already registered as ward: ${kakaoProfile.email}`,
+          );
+          throw new UnauthorizedException(
+            '이 이메일은 이미 어르신으로 등록되어 있습니다. 어르신 버튼을 눌러 로그인해주세요.',
+          );
+        }
+
+        // 3-2. organization_wards에 ward로 사전 등록된 이메일인지 확인
+        const pendingOrgWard =
+          await this.dbService.findPendingOrganizationWardByEmail(
+            kakaoProfile.email,
+          );
+        if (pendingOrgWard) {
+          this.logger.warn(
+            `Guardian login blocked - email pre-registered as ward in organization: ${kakaoProfile.email}`,
+          );
+          throw new UnauthorizedException(
+            '이 이메일은 기관에서 어르신으로 등록되어 있습니다. 어르신 버튼을 눌러 로그인해주세요.',
+          );
+        }
+
+        // 3-3. guardians 테이블에서 다른 보호자가 등록한 어르신 이메일인지 확인
+        const existingGuardianForEmail =
+          await this.dbService.findGuardianByWardEmail(kakaoProfile.email);
+        if (existingGuardianForEmail) {
+          this.logger.warn(
+            `Guardian login blocked - email registered as ward by another guardian: ${kakaoProfile.email}`,
+          );
+          throw new UnauthorizedException(
+            '이 이메일은 이미 어르신으로 등록되어 있습니다. 어르신 버튼을 눌러 로그인해주세요.',
+          );
+        }
+      }
+
       // 보호자 - 사용자 먼저 생성 (user_type은 null로, 추가 정보 입력 후 guardian으로 변경)
       const user = await this.dbService.createUserWithKakao({
         kakaoId: kakaoProfile.kakaoId,
@@ -185,7 +257,8 @@ export class AuthService {
     const data = await response.json();
     // 카카오 프로필 이미지 URL을 HTTPS로 변환 (Mixed Content 방지)
     const profileImage = data.properties?.profile_image ?? null;
-    const httpsProfileImage = profileImage?.replace(/^http:\/\//i, 'https://') ?? null;
+    const httpsProfileImage =
+      profileImage?.replace(/^http:\/\//i, 'https://') ?? null;
     return {
       kakaoId: String(data.id),
       email: data.kakao_account?.email ?? null,
@@ -197,57 +270,86 @@ export class AuthService {
   private async handleWardRegistration(
     kakaoProfile: KakaoProfile,
   ): Promise<KakaoLoginResult> {
-    // 어르신의 이메일로 보호자 매칭 시도
+    // 1. 어르신의 이메일로 보호자 매칭 시도
     const matchedGuardian = kakaoProfile.email
       ? await this.dbService.findGuardianByWardEmail(kakaoProfile.email)
       : undefined;
 
-    // 사용자 생성
-    const user = await this.dbService.createUserWithKakao({
+    // 2. 어르신의 이메일로 기관 피보호자 매칭 시도
+    const matchedOrganizationWard = kakaoProfile.email
+      ? await this.dbService.findPendingOrganizationWardByEmail(
+          kakaoProfile.email,
+        )
+      : undefined;
+
+    // 3. 보호자도 기관도 없으면 가입 차단
+    if (!matchedGuardian && !matchedOrganizationWard) {
+      this.logger.warn(
+        `Ward registration blocked - no guardian or organization found for email=${kakaoProfile.email}`,
+      );
+      throw new UnauthorizedException(
+        '등록된 보호자 또는 기관이 없습니다. 보호자에게 먼저 등록을 요청해주세요.',
+      );
+    }
+
+    // 4. 트랜잭션으로 사용자 + 어르신 + 기관 연동 처리
+    const phoneNumber =
+      matchedOrganizationWard?.phone_number ??
+      matchedGuardian?.ward_phone_number ??
+      '';
+
+    const { user, ward } = await this.dbService.registerWardWithTransaction({
       kakaoId: kakaoProfile.kakaoId,
       email: kakaoProfile.email,
       nickname: kakaoProfile.nickname,
       profileImageUrl: kakaoProfile.profileImageUrl,
-      userType: 'ward',
+      phoneNumber,
+      guardianId: matchedGuardian?.id ?? null,
+      organizationWard: matchedOrganizationWard
+        ? {
+            organizationWardId: matchedOrganizationWard.id,
+            organizationId: matchedOrganizationWard.organization_id,
+          }
+        : undefined,
     });
 
-    // 어르신 정보 생성
-    const ward = await this.dbService.createWard({
-      userId: user.id,
-      phoneNumber: '', // 이후 설정에서 입력
-      guardianId: matchedGuardian?.id ?? null,
-    });
+    // 5. 기관 정보 조회 (트랜잭션 외부에서 읽기 전용)
+    let linkedOrganization: { id: string; name: string } | undefined;
+    if (matchedOrganizationWard) {
+      const organization = await this.dbService.findOrganizationById(
+        matchedOrganizationWard.organization_id,
+      );
+      if (organization) {
+        linkedOrganization = {
+          id: organization.id,
+          name: organization.name,
+        };
+      }
+      this.logger.log(
+        `Auto-linked ward=${ward.id} to organization=${matchedOrganizationWard.organization_id}`,
+      );
+    }
 
     const tokens = await this.issueTokens(user.id, 'ward');
 
+    // 6. 개인 보호자 매칭 정보 조회
+    let linkedGuardian: { id: string; nickname: string | null } | undefined;
     if (matchedGuardian) {
-      this.logger.log(`handleWardRegistration matched userId=${user.id} guardianId=${matchedGuardian.id}`);
-      const guardianUser = await this.dbService.findUserById(matchedGuardian.user_id);
-      return {
-        isNewUser: true,
-        requiresRegistration: false,
-        ...tokens,
-        user: {
-          id: user.id,
-          email: user.email,
-          nickname: user.nickname,
-          profileImageUrl: user.profile_image_url,
-          userType: 'ward',
-        },
-        matchStatus: 'matched',
-        wardInfo: {
-          phoneNumber: ward.phone_number,
-          linkedGuardian: guardianUser
-            ? {
-                id: guardianUser.id,
-                nickname: guardianUser.nickname,
-              }
-            : undefined,
-        },
-      };
+      const guardianUser = await this.dbService.findUserById(
+        matchedGuardian.user_id,
+      );
+      if (guardianUser) {
+        linkedGuardian = {
+          id: guardianUser.id,
+          nickname: guardianUser.nickname,
+        };
+      }
     }
 
-    this.logger.log(`handleWardRegistration not matched userId=${user.id}`);
+    this.logger.log(
+      `Ward registration success userId=${user.id} guardian=${!!matchedGuardian} organization=${!!matchedOrganizationWard}`,
+    );
+
     return {
       isNewUser: true,
       requiresRegistration: false,
@@ -259,14 +361,19 @@ export class AuthService {
         profileImageUrl: user.profile_image_url,
         userType: 'ward',
       },
-      matchStatus: 'not_matched',
+      matchStatus: 'matched',
       wardInfo: {
         phoneNumber: ward.phone_number,
+        linkedGuardian,
+        linkedOrganization,
       },
     };
   }
 
-  private async issueTokens(userId: string, userType: UserType | null): Promise<AuthTokens> {
+  private async issueTokens(
+    userId: string,
+    userType: UserType | null,
+  ): Promise<AuthTokens> {
     const accessPayload: TokenPayload = {
       sub: userId,
       type: 'access',
@@ -365,20 +472,19 @@ export class AuthService {
       throw new UnauthorizedException('User already registered as guardian');
     }
 
-    // 4. user_type을 guardian으로 업데이트
-    await this.dbService.updateUserType(user.id, 'guardian');
-
-    // 5. 보호자 정보 생성
-    const guardian = await this.dbService.createGuardian({
+    // 4. 트랜잭션으로 사용자 타입 변경 + 보호자 정보 생성
+    const { guardian } = await this.dbService.registerGuardianWithTransaction({
       userId: user.id,
       wardEmail: params.wardEmail,
       wardPhoneNumber: params.wardPhoneNumber,
     });
 
-    // 6. 새 JWT 발급 (user_type이 변경되었으므로)
+    // 5. 새 JWT 발급 (user_type이 변경되었으므로)
     const tokens = await this.issueTokens(user.id, 'guardian');
 
-    this.logger.log(`registerGuardian userId=${user.id} guardianId=${guardian.id}`);
+    this.logger.log(
+      `registerGuardian userId=${user.id} guardianId=${guardian.id}`,
+    );
     return {
       ...tokens,
       user: {
@@ -411,11 +517,9 @@ export class AuthService {
     role: string;
     type: string;
   }): string {
-    return jwt.sign(
-      { ...payload, tokenType: 'admin_access' },
-      this.jwtSecret,
-      { expiresIn: '1h' },
-    );
+    return jwt.sign({ ...payload, tokenType: 'admin_access' }, this.jwtSecret, {
+      expiresIn: '1h',
+    });
   }
 
   signAdminRefreshToken(payload: {

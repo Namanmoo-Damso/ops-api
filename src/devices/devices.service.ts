@@ -24,7 +24,9 @@ export class DevicesService {
       throw new Error('apnsToken or voipToken is required');
     }
 
-    const env = this.configService.normalizeEnv(params.env ?? this.configService.apnsDefaultEnv);
+    const env = this.configService.normalizeEnv(
+      params.env ?? this.configService.apnsDefaultEnv,
+    );
     this.logger.log(
       `registerDevice identity=${params.identity} env=${env} supportsCallKit=${params.supportsCallKit ?? true} apns=${this.summarizeToken(params.apnsToken)} voip=${this.summarizeToken(params.voipToken)}`,
     );

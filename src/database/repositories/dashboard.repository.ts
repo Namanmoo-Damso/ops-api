@@ -4,7 +4,7 @@
  */
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../../prisma';
-import { Prisma } from '../../generated/prisma';
+import { Prisma } from '@prisma/client';
 
 @Injectable()
 export class DashboardRepository {
@@ -116,9 +116,9 @@ export class DashboardRepository {
     };
 
     return {
-      calls: result.map((r) => Number(r.calls)),
-      emergencies: result.map((r) => Number(r.emergencies)),
-      labels: result.map((r) => dayLabels[r.day_label] || r.day_label),
+      calls: result.map(r => Number(r.calls)),
+      emergencies: result.map(r => Number(r.emergencies)),
+      labels: result.map(r => dayLabels[r.day_label] || r.day_label),
     };
   }
 
@@ -216,7 +216,7 @@ export class DashboardRepository {
       ORDER BY wards DESC
     `;
 
-    return result.map((r) => ({
+    return result.map(r => ({
       id: r.id,
       name: r.name,
       wards: Number(r.wards),
@@ -295,7 +295,7 @@ export class DashboardRepository {
       LIMIT ${limit}
     `;
 
-    return result.map((r) => ({
+    return result.map(r => ({
       type: r.type,
       wardName: r.ward_name || '알 수 없음',
       duration: r.duration ? Math.round(r.duration) : undefined,

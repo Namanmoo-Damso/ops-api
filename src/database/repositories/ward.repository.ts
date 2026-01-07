@@ -4,9 +4,108 @@
  */
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../../prisma';
-import { Prisma } from '../../generated/prisma';
+import { Prisma } from '@prisma/client';
 import { WardRow } from '../types';
 import { toWardRow } from '../prisma-mappers';
+
+export enum BeneficiaryStatus {
+  WARNING = 'WARNING',
+  CAUTION = 'CAUTION',
+  NORMAL = 'NORMAL',
+}
+
+export interface BeneficiaryListItem {
+  id: string;
+  name: string;
+  age: number | null;
+  gender: string | null;
+  type: string | null;
+  address: string | null;
+  manager: string | null;
+  status: BeneficiaryStatus;
+  lastCall: string | null;
+}
+
+export interface BeneficiaryListResult {
+  data: BeneficiaryListItem[];
+  total: number;
+}
+
+export interface BeneficiaryDetailLog {
+  id: string;
+  date: string;
+  type: string;
+  content: string;
+  sentiment?: 'positive' | 'neutral' | 'negative';
+}
+
+export interface BeneficiaryDetailItem {
+  id: string;
+  name: string;
+  email: string;
+  phoneNumber: string | null;
+  birthDate: string | null;
+  address: string | null;
+  gender: string | null;
+  type: string | null;
+  guardian: string | null;
+  diseases: string[];
+  medication: string | null;
+  notes: string | null;
+  recentLogs: BeneficiaryDetailLog[];
+}
+
+export interface BeneficiaryDeleteInfo {
+  id: string;
+  ward_user_id: string | null;
+}
+
+export interface BeneficiaryUpdateInput {
+  name?: string;
+  phoneNumber?: string | null;
+  birthDate?: string | null;
+  address?: string | null;
+  gender?: string | null;
+  wardType?: string | null;
+  guardian?: string | null;
+  diseases?: string[];
+  medication?: string | null;
+  notes?: string | null;
+}
+
+const beneficiaryDetailInclude = {
+  detail: true,
+  ward: {
+    include: {
+      guardian: {
+        include: {
+          user: {
+            select: {
+              displayName: true,
+              nickname: true,
+              email: true,
+            },
+          },
+        },
+      },
+      callSummaries: {
+        orderBy: { createdAt: 'desc' },
+        take: 10,
+        select: {
+          id: true,
+          summary: true,
+          mood: true,
+          createdAt: true,
+          call: { select: { createdAt: true } },
+        },
+      },
+    },
+  },
+} satisfies Prisma.OrganizationWardInclude;
+
+type OrganizationWardWithDetail = Prisma.OrganizationWardGetPayload<{
+  include: typeof beneficiaryDetailInclude;
+}>;
 
 @Injectable()
 export class WardRepository {
@@ -41,9 +140,13 @@ export class WardRepository {
     return ward ? toWardRow(ward) : undefined;
   }
 
-  async findByGuardianId(
-    guardianId: string,
-  ): Promise<(WardRow & { user_nickname: string | null; user_profile_image_url: string | null }) | undefined> {
+  async findByGuardianId(guardianId: string): Promise<
+    | (WardRow & {
+        user_nickname: string | null;
+        user_profile_image_url: string | null;
+      })
+    | undefined
+  > {
     const ward = await this.prisma.ward.findFirst({
       where: { guardianId },
       include: {
@@ -86,10 +189,12 @@ export class WardRepository {
     let totalDuration = 0;
     for (const call of calls) {
       if (call.answeredAt && call.endedAt) {
-        totalDuration += (call.endedAt.getTime() - call.answeredAt.getTime()) / 60000;
+        totalDuration +=
+          (call.endedAt.getTime() - call.answeredAt.getTime()) / 60000;
       }
     }
-    const avgDuration = totalCalls > 0 ? Math.round(totalDuration / totalCalls) : 0;
+    const avgDuration =
+      totalCalls > 0 ? Math.round(totalDuration / totalCalls) : 0;
 
     return { totalCalls, avgDuration };
   }
@@ -180,13 +285,18 @@ export class WardRepository {
 
     const results: Array<{ date: string; score: number; mood: string }> = [];
     for (const [date, data] of dateMap) {
-      const avgScore = data.scores.length > 0 ? data.scores.reduce((a, b) => a + b, 0) / data.scores.length : 0;
+      const avgScore =
+        data.scores.length > 0
+          ? data.scores.reduce((a, b) => a + b, 0) / data.scores.length
+          : 0;
       // Mode of moods
       const moodCounts: Record<string, number> = {};
       for (const m of data.moods) {
         moodCounts[m] = (moodCounts[m] || 0) + 1;
       }
-      const topMood = Object.entries(moodCounts).sort((a, b) => b[1] - a[1])[0]?.[0] || 'neutral';
+      const topMood =
+        Object.entries(moodCounts).sort((a, b) => b[1] - a[1])[0]?.[0] ||
+        'neutral';
       results.push({ date, score: avgScore, mood: topMood });
     }
 
@@ -223,7 +333,10 @@ export class WardRepository {
       pain: { count: keywordCounts['pain'] || 0, trend: 'stable' },
       sleep: { status: 'normal', mentions: keywordCounts['sleep'] || 0 },
       meal: { status: 'regular', mentions: keywordCounts['meal'] || 0 },
-      medication: { status: 'compliant', mentions: keywordCounts['medication'] || 0 },
+      medication: {
+        status: 'compliant',
+        mentions: keywordCounts['medication'] || 0,
+      },
     };
   }
 
@@ -267,9 +380,12 @@ export class WardRepository {
         callDurationMinutes?: number;
       } = {};
 
-      if (params.aiPersona !== undefined) updateData.aiPersona = params.aiPersona;
-      if (params.weeklyCallCount !== undefined) updateData.weeklyCallCount = params.weeklyCallCount;
-      if (params.callDurationMinutes !== undefined) updateData.callDurationMinutes = params.callDurationMinutes;
+      if (params.aiPersona !== undefined)
+        updateData.aiPersona = params.aiPersona;
+      if (params.weeklyCallCount !== undefined)
+        updateData.weeklyCallCount = params.weeklyCallCount;
+      if (params.callDurationMinutes !== undefined)
+        updateData.callDurationMinutes = params.callDurationMinutes;
 
       if (Object.keys(updateData).length === 0) return undefined;
 
@@ -341,6 +457,59 @@ export class WardRepository {
     };
   }
 
+  /**
+   * Find pending organization ward by email (across all organizations)
+   * Used for auto-linking when ward signs up
+   * Case-insensitive email matching
+   */
+  async findPendingOrganizationWardByEmail(email: string) {
+    const normalizedEmail = email.toLowerCase().trim();
+    const orgWard = await this.prisma.organizationWard.findFirst({
+      where: {
+        email: { equals: normalizedEmail, mode: 'insensitive' },
+        isRegistered: false,
+        wardId: null,
+      },
+      orderBy: { createdAt: 'asc' }, // Match oldest registration first
+    });
+    if (!orgWard) return undefined;
+    return {
+      id: orgWard.id,
+      organization_id: orgWard.organizationId,
+      email: orgWard.email,
+      phone_number: orgWard.phoneNumber,
+    };
+  }
+
+  /**
+   * Link organization ward to actual ward (auto-approval)
+   */
+  async linkOrganizationWard(params: {
+    organizationWardId: string;
+    wardId: string;
+  }): Promise<void> {
+    await this.prisma.organizationWard.update({
+      where: { id: params.organizationWardId },
+      data: {
+        isRegistered: true,
+        wardId: params.wardId,
+      },
+    });
+  }
+
+  /**
+   * Update ward's organization ID
+   */
+  async updateWardOrganization(params: {
+    wardId: string;
+    organizationId: string;
+  }): Promise<void> {
+    await this.prisma.ward.update({
+      where: { id: params.wardId },
+      data: { organizationId: params.organizationId },
+    });
+  }
+
   async createOrganizationWard(params: {
     organizationId: string;
     email: string;
@@ -360,7 +529,17 @@ export class WardRepository {
         name: params.name,
         birthDate: params.birthDate ? new Date(params.birthDate) : null,
         address: params.address,
-        notes: params.notes ?? null,
+        // 신규 등록은 기본적으로 미연동 상태
+        isRegistered: false,
+        wardId: null,
+        detail: {
+          create: {
+            notes: params.notes ?? null,
+          },
+        },
+      },
+      include: {
+        detail: { select: { notes: true } },
       },
     });
 
@@ -373,8 +552,9 @@ export class WardRepository {
       name: orgWard.name,
       birth_date: orgWard.birthDate?.toISOString().split('T')[0] ?? null,
       address: orgWard.address,
-      notes: orgWard.notes,
+      notes: orgWard.detail?.notes ?? null,
       is_registered: orgWard.isRegistered,
+      ward_id: orgWard.wardId,
       created_at: orgWard.createdAt.toISOString(),
     };
   }
@@ -383,21 +563,86 @@ export class WardRepository {
     const wards = await this.prisma.organizationWard.findMany({
       where: { organizationId },
       orderBy: { createdAt: 'desc' },
+      include: {
+        organization: { select: { name: true } },
+        ward: {
+          include: {
+            callSummaries: {
+              orderBy: { createdAt: 'desc' },
+              take: 1,
+              select: { mood: true },
+            },
+          },
+        },
+        detail: { select: { notes: true } },
+      },
     });
 
-    return wards.map((w) => ({
-      id: w.id,
-      email: w.email,
-      phone_number: w.phoneNumber,
-      name: w.name,
-      birth_date: w.birthDate?.toISOString().split('T')[0] ?? null,
-      address: w.address,
-      notes: w.notes,
-      is_registered: w.isRegistered,
-      ward_id: w.wardId,
-      uploaded_by_admin_id: w.uploadedByAdminId,
-      created_at: w.createdAt.toISOString(),
-    }));
+    // Collect all ward userIds for batch query
+    const wardUserIds = wards
+      .filter(ow => ow.ward?.userId)
+      .map(ow => ow.ward!.userId);
+
+    // Batch query: get last call and count for all wards at once
+    const [lastCalls, callCounts] =
+      wardUserIds.length > 0
+        ? await Promise.all([
+            this.prisma.call.groupBy({
+              by: ['calleeUserId'],
+              where: { calleeUserId: { in: wardUserIds }, state: 'ended' },
+              _max: { createdAt: true },
+            }),
+            this.prisma.call.groupBy({
+              by: ['calleeUserId'],
+              where: { calleeUserId: { in: wardUserIds }, state: 'ended' },
+              _count: true,
+            }),
+          ])
+        : [[], []];
+
+    const lastCallMap = new Map(
+      lastCalls.map(c => [c.calleeUserId, c._max.createdAt]),
+    );
+    const countMap = new Map(callCounts.map(c => [c.calleeUserId, c._count]));
+
+    return wards.map(ow => {
+      const userId = ow.ward?.userId;
+      const lastCallAt = userId
+        ? (lastCallMap.get(userId)?.toISOString() ?? null)
+        : null;
+      const totalCalls = userId ? (countMap.get(userId) ?? 0).toString() : '0';
+
+      return {
+        id: ow.id,
+        organization_id: ow.organizationId,
+        organization_name: ow.organization.name,
+        email: ow.email,
+        phone_number: ow.phoneNumber,
+        name: ow.name,
+        birth_date: ow.birthDate?.toISOString().split('T')[0] ?? null,
+        address: ow.address,
+        notes: ow.detail?.notes ?? null,
+        is_registered: ow.isRegistered,
+        ward_id: ow.wardId,
+        created_at: ow.createdAt.toISOString(),
+        last_call_at: lastCallAt,
+        total_calls: totalCalls,
+        last_mood: ow.ward?.callSummaries[0]?.mood ?? null,
+      };
+    });
+  }
+
+  async getOrganizationWardsStats(organizationId: string) {
+    const [total, registered] = await Promise.all([
+      this.prisma.organizationWard.count({
+        where: { organizationId },
+      }),
+      this.prisma.organizationWard.count({
+        where: { organizationId, isRegistered: true },
+      }),
+    ]);
+
+    return { total, registered };
   }
 
   async getMyManagedWards(adminId: string) {
@@ -414,9 +659,37 @@ export class WardRepository {
             },
           },
         },
+        detail: { select: { notes: true } },
       },
       orderBy: { createdAt: 'desc' },
     });
+
+    // Collect all ward userIds for batch query
+    const wardUserIds = wards
+      .filter(ow => ow.ward?.userId)
+      .map(ow => ow.ward!.userId);
+
+    // Batch query: get last call and count for all wards at once
+    const [lastCalls, callCounts] =
+      wardUserIds.length > 0
+        ? await Promise.all([
+            this.prisma.call.groupBy({
+              by: ['calleeUserId'],
+              where: { calleeUserId: { in: wardUserIds }, state: 'ended' },
+              _max: { createdAt: true },
+            }),
+            this.prisma.call.groupBy({
+              by: ['calleeUserId'],
+              where: { calleeUserId: { in: wardUserIds }, state: 'ended' },
+              _count: true,
+            }),
+          ])
+        : [[], []];
+
+    const lastCallMap = new Map(
+      lastCalls.map(c => [c.calleeUserId, c._max.createdAt]),
+    );
+    const countMap = new Map(callCounts.map(c => [c.calleeUserId, c._count]));
 
     const results: Array<{
       id: string;
@@ -437,24 +710,11 @@ export class WardRepository {
     }> = [];
 
     for (const ow of wards) {
-      // Get call stats for linked ward
-      let lastCallAt: string | null = null;
-      let totalCalls = '0';
-
-      if (ow.ward) {
-        const calls = await this.prisma.call.findMany({
-          where: { calleeUserId: ow.ward.userId, state: 'ended' },
-          orderBy: { createdAt: 'desc' },
-          take: 1,
-          select: { createdAt: true },
-        });
-        lastCallAt = calls[0]?.createdAt.toISOString() ?? null;
-
-        const count = await this.prisma.call.count({
-          where: { calleeUserId: ow.ward.userId, state: 'ended' },
-        });
-        totalCalls = count.toString();
-      }
+      const userId = ow.ward?.userId;
+      const lastCallAt = userId
+        ? (lastCallMap.get(userId)?.toISOString() ?? null)
+        : null;
+      const totalCalls = userId ? (countMap.get(userId) ?? 0).toString() : '0';
 
       results.push({
         id: ow.id,
@@ -465,7 +725,7 @@ export class WardRepository {
         name: ow.name,
         birth_date: ow.birthDate?.toISOString().split('T')[0] ?? null,
         address: ow.address,
-        notes: ow.notes,
+        notes: ow.detail?.notes ?? null,
         is_registered: ow.isRegistered,
         ward_id: ow.wardId,
         created_at: ow.createdAt.toISOString(),
@@ -496,7 +756,9 @@ export class WardRepository {
       where: { uploadedByAdminId: adminId, wardId: { not: null } },
       select: { wardId: true },
     });
-    const wardIds = managedWards.map((w) => w.wardId).filter((id): id is string => id !== null);
+    const wardIds = managedWards
+      .map(w => w.wardId)
+      .filter((id): id is string => id !== null);
 
     let positiveMood = 0;
     let negativeMood = 0;
@@ -518,7 +780,11 @@ export class WardRepository {
   }
 
   // Call Schedule methods
-  async getUpcomingCallSchedules(dayOfWeek: number, startTime: string, endTime: string) {
+  async getUpcomingCallSchedules(
+    dayOfWeek: number,
+    startTime: string,
+    endTime: string,
+  ) {
     // Get all schedules for this day
     const schedules = await this.prisma.callSchedule.findMany({
       where: {
@@ -544,16 +810,17 @@ export class WardRepository {
     const oneHourAgo = new Date(now.getTime() - 60 * 60 * 1000);
 
     return schedules
-      .filter((s) => {
+      .filter(s => {
         const schedTime = s.scheduledTime;
         const hours = schedTime.getUTCHours().toString().padStart(2, '0');
         const mins = schedTime.getUTCMinutes().toString().padStart(2, '0');
         const timeStr = `${hours}:${mins}:00`;
         const inRange = timeStr >= startTime && timeStr < endTime;
-        const notRecentlySent = !s.reminderSentAt || s.reminderSentAt < oneHourAgo;
+        const notRecentlySent =
+          !s.reminderSentAt || s.reminderSentAt < oneHourAgo;
         return inRange && notRecentlySent;
       })
-      .map((s) => ({
+      .map(s => ({
         id: s.id,
         ward_id: s.wardId,
         ward_user_id: s.ward.userId,
@@ -571,4 +838,295 @@ export class WardRepository {
       data: { reminderSentAt: new Date() },
     });
   }
+
+  async listOrganizationBeneficiaries(params: {
+    organizationId: string;
+    search?: string;
+    riskOnly?: boolean;
+    page: number;
+    pageSize: number;
+  }): Promise<BeneficiaryListResult> {
+    const { organizationId, search, riskOnly = false, page, pageSize } = params;
+
+    // 연동 완료된(isRegistered=true) 대상자만 전체 대상자 관리에 노출
+    const where: Prisma.OrganizationWardWhereInput = {
+      organizationId,
+      isRegistered: true,
+    };
+    const q = search?.trim();
+    if (q) {
+      where.OR = [
+        { name: { contains: q, mode: 'insensitive' } },
+        { address: { contains: q, mode: 'insensitive' } },
+        { email: { contains: q, mode: 'insensitive' } },
+        { phoneNumber: { contains: q, mode: 'insensitive' } },
+      ];
+    }
+    if (riskOnly) {
+      // 위험/주의 상태를 가진 최근 통화 요약이 있는 대상자만 조회
+      where.ward = {
+        callSummaries: { some: { mood: { in: ['negative', 'neutral'] } } },
+      };
+    }
+
+    const total = await this.prisma.organizationWard.count({ where });
+    const rows = await this.prisma.organizationWard.findMany({
+      where,
+      orderBy: { createdAt: 'desc' },
+      skip: (page - 1) * pageSize,
+      take: pageSize,
+      include: {
+        uploadedByAdmin: { select: { name: true, email: true } },
+        ward: {
+          include: {
+            callSummaries: {
+              orderBy: { createdAt: 'desc' },
+              take: 1,
+              select: { mood: true, call: { select: { createdAt: true } } },
+            },
+          },
+        },
+      },
+    });
+
+    const data = rows.map(row => {
+      const mood = row.ward?.callSummaries[0]?.mood;
+      let status = BeneficiaryStatus.NORMAL;
+      if (mood === 'negative') status = BeneficiaryStatus.WARNING;
+      else if (mood === 'neutral') status = BeneficiaryStatus.CAUTION;
+
+      const lastCall =
+        row.ward?.callSummaries[0]?.call?.createdAt?.toISOString() ?? null;
+
+      return {
+        id: row.id,
+        name: row.name,
+        age: calculateAge(row.birthDate),
+        gender: row.gender ?? null,
+        type: row.wardType ?? null,
+        address: row.address,
+        manager:
+          row.uploadedByAdmin?.name ?? row.uploadedByAdmin?.email ?? null,
+        status,
+        lastCall,
+      };
+    });
+
+    return { data, total };
+  }
+
+  async findOrganizationBeneficiaryForDeletion(params: {
+    organizationId: string;
+    beneficiaryId: string;
+  }): Promise<BeneficiaryDeleteInfo | null> {
+    const row = await this.prisma.organizationWard.findFirst({
+      where: {
+        id: params.beneficiaryId,
+        organizationId: params.organizationId,
+        isRegistered: true,
+      },
+      select: {
+        id: true,
+        ward: { select: { userId: true } },
+      },
+    });
+
+    if (!row) return null;
+
+    return {
+      id: row.id,
+      ward_user_id: row.ward?.userId ?? null,
+    };
+  }
+
+  async deleteOrganizationBeneficiary(params: {
+    organizationId: string;
+    beneficiaryId: string;
+  }): Promise<boolean> {
+    const result = await this.prisma.organizationWard.deleteMany({
+      where: {
+        id: params.beneficiaryId,
+        organizationId: params.organizationId,
+        isRegistered: true,
+      },
+    });
+    return result.count > 0;
+  }
+
+  async updateOrganizationBeneficiary(params: {
+    organizationId: string;
+    beneficiaryId: string;
+    data: BeneficiaryUpdateInput;
+  }): Promise<BeneficiaryDetailItem | null> {
+    const existing = await this.prisma.organizationWard.findFirst({
+      where: {
+        id: params.beneficiaryId,
+        organizationId: params.organizationId,
+        isRegistered: true,
+      },
+    });
+    if (!existing) return null;
+
+    const updateData: Prisma.OrganizationWardUpdateInput = {};
+    if (params.data.name !== undefined) {
+      updateData.name = params.data.name;
+    }
+    if (
+      params.data.phoneNumber !== undefined &&
+      params.data.phoneNumber !== null
+    ) {
+      updateData.phoneNumber = params.data.phoneNumber;
+    }
+    if (params.data.birthDate !== undefined) {
+      updateData.birthDate = params.data.birthDate
+        ? new Date(params.data.birthDate)
+        : null;
+    }
+    if (params.data.address !== undefined)
+      updateData.address = params.data.address;
+    if (params.data.gender !== undefined)
+      updateData.gender = params.data.gender;
+    if (params.data.wardType !== undefined)
+      updateData.wardType = params.data.wardType;
+
+    const hasDetailUpdate =
+      params.data.guardian !== undefined ||
+      params.data.diseases !== undefined ||
+      params.data.medication !== undefined ||
+      params.data.notes !== undefined;
+    if (hasDetailUpdate) {
+      updateData.detail = {
+        upsert: {
+          create: {
+            guardian: params.data.guardian ?? null,
+            diseases: params.data.diseases ?? [],
+            medication: params.data.medication ?? null,
+            notes: params.data.notes ?? null,
+          },
+          update: {
+            ...(params.data.guardian !== undefined && {
+              guardian: params.data.guardian ?? null,
+            }),
+            ...(params.data.diseases !== undefined && {
+              diseases: params.data.diseases ?? [],
+            }),
+            ...(params.data.medication !== undefined && {
+              medication: params.data.medication ?? null,
+            }),
+            ...(params.data.notes !== undefined && {
+              notes: params.data.notes ?? null,
+            }),
+          },
+        },
+      };
+    }
+
+    if (Object.keys(updateData).length === 0) {
+      const existingDetail = await this.prisma.organizationWard.findFirst({
+        where: {
+          id: existing.id,
+          organizationId: params.organizationId,
+        },
+        include: beneficiaryDetailInclude,
+      });
+
+      return existingDetail ? toBeneficiaryDetailItem(existingDetail) : null;
+    }
+
+    const updated = await this.prisma.organizationWard.update({
+      where: { id: existing.id },
+      data: updateData,
+      include: beneficiaryDetailInclude,
+    });
+
+    return toBeneficiaryDetailItem(updated);
+  }
+
+  async getOrganizationBeneficiaryDetail(params: {
+    organizationId: string;
+    beneficiaryId: string;
+  }): Promise<BeneficiaryDetailItem | null> {
+    const { organizationId, beneficiaryId } = params;
+    const row = await this.prisma.organizationWard.findFirst({
+      where: {
+        id: beneficiaryId,
+        organizationId,
+        isRegistered: true,
+      },
+      include: beneficiaryDetailInclude,
+    });
+
+    if (!row) return null;
+
+    return toBeneficiaryDetailItem(row);
+  }
+}
+
+function toBeneficiaryDetailItem(
+  row: OrganizationWardWithDetail,
+): BeneficiaryDetailItem {
+  const guardianUser = row.ward?.guardian?.user;
+  const guardian = row.detail?.guardian ?? formatGuardian(guardianUser);
+  const recentLogs =
+    row.ward?.callSummaries.map(summary => {
+      const createdAt = summary.call?.createdAt ?? summary.createdAt;
+      return {
+        id: summary.id,
+        date: createdAt.toISOString(),
+        type: 'AI 안부',
+        content: summary.summary ?? '요약 정보 없음',
+        sentiment: mapMoodToSentiment(summary.mood),
+      };
+    }) ?? [];
+
+  return {
+    id: row.id,
+    name: row.name,
+    email: row.email,
+    phoneNumber: row.phoneNumber ?? null,
+    birthDate: row.birthDate?.toISOString().split('T')[0] ?? null,
+    address: row.address ?? null,
+    gender: row.gender ?? null,
+    type: row.wardType ?? null,
+    guardian,
+    diseases: row.detail?.diseases ?? [],
+    medication: row.detail?.medication ?? null,
+    notes: row.detail?.notes ?? null,
+    recentLogs,
+  };
+}
+
+function calculateAge(birthDate: Date | null): number | null {
+  if (!birthDate) return null;
+  const today = new Date();
+  let age = today.getUTCFullYear() - birthDate.getUTCFullYear();
+  const monthDiff = today.getUTCMonth() - birthDate.getUTCMonth();
+  if (
+    monthDiff < 0 ||
+    (monthDiff === 0 && today.getUTCDate() < birthDate.getUTCDate())
+  ) {
+    age -= 1;
+  }
+  return age;
+}
+
+function formatGuardian(user?: {
+  displayName: string | null;
+  nickname: string | null;
+  email: string | null;
+}): string | null {
+  if (!user) return null;
+  const name = user.displayName ?? user.nickname ?? null;
+  const email = user.email ?? null;
+  if (name && email) return `${name} (${email})`;
+  return name ?? email;
+}
+
+function mapMoodToSentiment(
+  mood?: string | null,
+): 'positive' | 'neutral' | 'negative' | undefined {
+  if (mood === 'positive' || mood === 'neutral' || mood === 'negative') {
+    return mood;
+  }
+  return undefined;
 }

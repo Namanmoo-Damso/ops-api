@@ -31,3 +31,9 @@ build/
 # Prisma
 prisma/*.db
 prisma/*.db-journal
+# 동적 생성
+src/generated/
+
+# python venv
+agents/venv
+agents/voice/__pycache__/

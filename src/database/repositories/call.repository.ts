@@ -4,7 +4,7 @@
  */
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../../prisma';
-import { Prisma } from '../../generated/prisma';
+import { Prisma } from '@prisma/client';
 import { CallRow, CallSummaryRow } from '../types';
 import { toCallRow, toCallSummaryRow } from '../prisma-mappers';
 
@@ -50,7 +50,10 @@ export class CallRepository {
     return toCallRow(call);
   }
 
-  async updateState(callId: string, state: 'answered' | 'ended'): Promise<CallRow | null> {
+  async updateState(
+    callId: string,
+    state: 'answered' | 'ended',
+  ): Promise<CallRow | null> {
     const data: Prisma.CallUpdateInput =
       state === 'answered'
         ? { state, answeredAt: new Date() }
@@ -78,10 +81,12 @@ export class CallRepository {
       take: limit,
     });
 
-    return summaries.map((s) => {
+    return summaries.map(s => {
       const duration =
         s.call.answeredAt && s.call.endedAt
-          ? Math.round((s.call.endedAt.getTime() - s.call.answeredAt.getTime()) / 60000)
+          ? Math.round(
+              (s.call.endedAt.getTime() - s.call.answeredAt.getTime()) / 60000,
+            )
           : 0;
       return {
         id: s.id,
@@ -136,6 +141,25 @@ export class CallRepository {
       },
     });
 
+    // Collect all ward userIds for batch query
+    const wardUserIds = schedules
+      .filter(s => s.ward.guardian?.user)
+      .map(s => s.ward.userId);
+
+    // Batch query: find all userIds that have recent calls
+    const recentCalls =
+      wardUserIds.length > 0
+        ? await this.prisma.call.groupBy({
+            by: ['calleeUserId'],
+            where: {
+              calleeUserId: { in: wardUserIds },
+              state: 'ended',
+              createdAt: { gt: cutoff },
+            },
+          })
+        : [];
+    const hasRecentCallSet = new Set(recentCalls.map(c => c.calleeUserId));
+
     const results: Array<{
       ward_id: string;
       ward_identity: string;
@@ -146,16 +170,8 @@ export class CallRepository {
     for (const schedule of schedules) {
       if (!schedule.ward.guardian?.user) continue;
 
-      // Check if there's a recent ended call
-      const recentCall = await this.prisma.call.findFirst({
-        where: {
-          calleeUserId: schedule.ward.userId,
-          state: 'ended',
-          createdAt: { gt: cutoff },
-        },
-      });
-
-      if (!recentCall) {
+      // Check if there's a recent ended call (O(1) lookup)
+      if (!hasRecentCallSet.has(schedule.ward.userId)) {
         results.push({
           ward_id: schedule.ward.id,
           ward_identity: schedule.ward.user.identity,
@@ -202,10 +218,36 @@ export class CallRepository {
     };
   }
 
+  async getContextByRoomName(roomName: string) {
+    const call = await this.prisma.call.findFirst({
+      where: { roomName },
+      orderBy: { createdAt: 'desc' },
+      include: {
+        callee: {
+          include: {
+            ward: true,
+          },
+        },
+      },
+    });
+
+    if (!call) return undefined;
+
+    return {
+      call_id: call.callId,
+      ward_id: call.callee?.ward?.id ?? null,
+    };
+  }
+
   async getForAnalysis(callId: string) {
     const call = await this.prisma.call.findUnique({
       where: { callId },
       include: {
+        caller: {
+          include: {
+            ward: true,
+          },
+        },
         callee: {
           include: {
             ward: true,
@@ -221,11 +263,17 @@ export class CallRepository {
         ? (call.endedAt.getTime() - call.answeredAt.getTime()) / 60000
         : null;
 
+    // Voice Agent 통화: caller가 ward(어르신), callee가 AI agent
+    // 일반 통화: callee가 ward(어르신)
+    const wardId = call.caller?.ward?.id ?? call.callee?.ward?.id ?? null;
+    const guardianId =
+      call.caller?.ward?.guardianId ?? call.callee?.ward?.guardianId ?? null;
+
     return {
       call_id: call.callId,
       callee_user_id: call.calleeUserId,
-      ward_id: call.callee?.ward?.id ?? null,
-      guardian_id: call.callee?.ward?.guardianId ?? null,
+      ward_id: wardId,
+      guardian_id: guardianId,
       duration,
       transcript: null as string | null,
     };
@@ -240,16 +288,18 @@ export class CallRepository {
     tags: string[];
     healthKeywords: Record<string, unknown>;
   }): Promise<CallSummaryRow> {
+    const dataInput = {
+      callId: params.callId,
+      summary: params.summary,
+      mood: params.mood,
+      moodScore: new Prisma.Decimal(params.moodScore),
+      tags: params.tags,
+      healthKeywords: params.healthKeywords as Prisma.InputJsonValue,
+      ...(params.wardId ? { wardId: params.wardId } : {}),
+    } as Prisma.CallSummaryUncheckedCreateInput;
+
     const summary = await this.prisma.callSummary.create({
-      data: {
-        callId: params.callId,
-        wardId: params.wardId!,
-        summary: params.summary,
-        mood: params.mood,
-        moodScore: new Prisma.Decimal(params.moodScore),
-        tags: params.tags,
-        healthKeywords: params.healthKeywords as Prisma.InputJsonValue,
-      },
+      data: dataInput,
     });
     return toCallSummaryRow(summary);
   }
@@ -264,7 +314,7 @@ export class CallRepository {
       select: { healthKeywords: true },
     });
 
-    return summaries.filter((s) => {
+    return summaries.filter(s => {
       const keywords = s.healthKeywords as Record<string, unknown> | null;
       return keywords && typeof keywords.pain === 'number' && keywords.pain > 0;
     }).length;

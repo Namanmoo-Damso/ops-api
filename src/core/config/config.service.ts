@@ -6,6 +6,7 @@ export type PushEnvMode = 'prod' | 'sandbox' | 'both';
 export type AppConfig = {
   port: number;
   livekitUrl: string;
+  livekitPublicUrl: string;
   livekitApiKey: string;
   livekitApiSecret: string;
   livekitTokenTtlSeconds: number;
@@ -25,7 +26,10 @@ const getEnv = (key: string, fallback?: string): string => {
   return value;
 };
 
-const parseBoolean = (value: string | undefined, fallback: boolean): boolean => {
+const parseBoolean = (
+  value: string | undefined,
+  fallback: boolean,
+): boolean => {
   if (value === undefined) return fallback;
   return value === 'true' || value === '1';
 };
@@ -46,11 +50,17 @@ export class ConfigService {
 
     const apnsModeRaw = process.env.APNS_ENV ?? 'prod';
     const apnsMode: PushEnvMode =
-      apnsModeRaw === 'both' ? 'both' : apnsModeRaw === 'sandbox' ? 'sandbox' : 'prod';
+      apnsModeRaw === 'both'
+        ? 'both'
+        : apnsModeRaw === 'sandbox'
+          ? 'sandbox'
+          : 'prod';
 
+    const livekitUrl = getEnv('LIVEKIT_URL');
     cachedConfig = {
       port: parseNumber(process.env.PORT, 8080),
-      livekitUrl: getEnv('LIVEKIT_URL'),
+      livekitUrl,
+      livekitPublicUrl: process.env.LIVEKIT_PUBLIC_URL ?? livekitUrl,
       livekitApiKey: getEnv('LIVEKIT_API_KEY'),
       livekitApiSecret: getEnv('LIVEKIT_API_SECRET'),
       livekitTokenTtlSeconds: parseNumber(process.env.LIVEKIT_TOKEN_TTL, 600),

@@ -6,6 +6,7 @@
  */
 import { Injectable, Inject, OnModuleDestroy } from '@nestjs/common';
 import { Pool } from 'pg';
+import { PrismaService } from '../prisma';
 import {
   UserRepository,
   DeviceRepository,
@@ -18,14 +19,25 @@ import {
   LocationRepository,
   DashboardRepository,
 } from './repositories';
+import type {
+  BeneficiaryDetailItem,
+  BeneficiaryListResult,
+} from './repositories/ward.repository';
 
 // Re-export types for backward compatibility
-export type { UserRow, GuardianRow, WardRow, DeviceRow, RoomMemberRow } from './types';
+export type {
+  UserRow,
+  GuardianRow,
+  WardRow,
+  DeviceRow,
+  RoomMemberRow,
+} from './types';
 
 @Injectable()
 export class DbService implements OnModuleDestroy {
   constructor(
     @Inject('DATABASE_POOL') private readonly pool: Pool,
+    private readonly prisma: PrismaService,
     private readonly users: UserRepository,
     private readonly devices: DeviceRepository,
     private readonly rooms: RoomRepository,
@@ -57,6 +69,14 @@ export class DbService implements OnModuleDestroy {
     return this.users.findByKakaoId(kakaoId);
   }
 
+  async findUserByIdentity(identity: string) {
+    return this.users.findByIdentity(identity);
+  }
+
+  async findUserByEmail(email: string) {
+    return this.users.findByEmail(email);
+  }
+
   async updateUserType(userId: string, userType: 'guardian' | 'ward') {
     return this.users.updateType(userId, userType);
   }
@@ -72,10 +92,14 @@ export class DbService implements OnModuleDestroy {
   }
 
   async deleteUser(userId: string) {
-    return this.users.delete(userId, (uid) => this.guardians.findByUserId(uid));
+    return this.users.delete(userId);
   }
 
-  async saveRefreshToken(params: { userId: string; tokenHash: string; expiresAt: Date }) {
+  async saveRefreshToken(params: {
+    userId: string;
+    tokenHash: string;
+    expiresAt: Date;
+  }) {
     return this.users.saveRefreshToken(params);
   }
 
@@ -103,11 +127,19 @@ export class DbService implements OnModuleDestroy {
     voipToken?: string;
     supportsCallKit?: boolean;
   }) {
-    const user = await this.upsertUser(params.identity, params.displayName);
+    // 익명 사용자 생성 차단 - 기존 사용자만 허용
+    const user = await this.findUserByIdentity(params.identity);
+    if (!user) {
+      throw new Error('로그인이 필요합니다');
+    }
     return this.devices.upsert(user, params);
   }
 
-  async listDevicesByIdentity(params: { identity: string; env?: string; tokenType?: 'apns' | 'voip' }) {
+  async listDevicesByIdentity(params: {
+    identity: string;
+    env?: string;
+    tokenType?: 'apns' | 'voip';
+  }) {
     return this.devices.listByIdentity(params);
   }
 
@@ -115,7 +147,11 @@ export class DbService implements OnModuleDestroy {
     return this.devices.listAllByIdentity(params);
   }
 
-  async findUserByDeviceToken(params: { tokenType: 'apns' | 'voip'; token: string; env?: string }) {
+  async findUserByDeviceToken(params: {
+    tokenType: 'apns' | 'voip';
+    token: string;
+    env?: string;
+  }) {
     return this.devices.findUserByToken(params);
   }
 
@@ -142,7 +178,11 @@ export class DbService implements OnModuleDestroy {
     return this.rooms.createIfMissing(roomName);
   }
 
-  async upsertRoomMember(params: { roomName: string; userId: string; role: string }) {
+  async upsertRoomMember(params: {
+    roomName: string;
+    userId: string;
+    role: string;
+  }) {
     return this.rooms.upsertMember(params);
   }
 
@@ -153,7 +193,11 @@ export class DbService implements OnModuleDestroy {
   // ============================================================
   // Call methods
   // ============================================================
-  async findRingingCall(calleeIdentity: string, roomName: string, seconds: number) {
+  async findRingingCall(
+    calleeIdentity: string,
+    roomName: string,
+    seconds: number,
+  ) {
     return this.calls.findRinging(calleeIdentity, roomName, seconds);
   }
 
@@ -187,6 +231,10 @@ export class DbService implements OnModuleDestroy {
     return this.calls.getWithWardInfo(callId);
   }
 
+  async getCallContextByRoomName(roomName: string) {
+    return this.calls.getContextByRoomName(roomName);
+  }
+
   async getCallForAnalysis(callId: string) {
     return this.calls.getForAnalysis(callId);
   }
@@ -214,7 +262,11 @@ export class DbService implements OnModuleDestroy {
   // ============================================================
   // Guardian methods
   // ============================================================
-  async createGuardian(params: { userId: string; wardEmail: string; wardPhoneNumber: string }) {
+  async createGuardian(params: {
+    userId: string;
+    wardEmail: string;
+    wardPhoneNumber: string;
+  }) {
     return this.guardians.create(params);
   }
 
@@ -234,7 +286,11 @@ export class DbService implements OnModuleDestroy {
     return this.guardians.getWards(guardianId);
   }
 
-  async createGuardianWardRegistration(params: { guardianId: string; wardEmail: string; wardPhoneNumber: string }) {
+  async createGuardianWardRegistration(params: {
+    guardianId: string;
+    wardEmail: string;
+    wardPhoneNumber: string;
+  }) {
     return this.guardians.createWardRegistration(params);
   }
 
@@ -242,7 +298,12 @@ export class DbService implements OnModuleDestroy {
     return this.guardians.findWardRegistration(id, guardianId);
   }
 
-  async updateGuardianWardRegistration(params: { id: string; guardianId: string; wardEmail: string; wardPhoneNumber: string }) {
+  async updateGuardianWardRegistration(params: {
+    id: string;
+    guardianId: string;
+    wardEmail: string;
+    wardPhoneNumber: string;
+  }) {
     return this.guardians.updateWardRegistration(params);
   }
 
@@ -250,7 +311,11 @@ export class DbService implements OnModuleDestroy {
     return this.guardians.deleteWardRegistration(id, guardianId);
   }
 
-  async updateGuardianPrimaryWard(params: { guardianId: string; wardEmail: string; wardPhoneNumber: string }) {
+  async updateGuardianPrimaryWard(params: {
+    guardianId: string;
+    wardEmail: string;
+    wardPhoneNumber: string;
+  }) {
     return this.guardians.updatePrimaryWard(params);
   }
 
@@ -262,7 +327,12 @@ export class DbService implements OnModuleDestroy {
     return this.guardians.getHealthAlerts(guardianId, limit);
   }
 
-  async createHealthAlert(params: { wardId: string; guardianId: string; alertType: 'warning' | 'info'; message: string }) {
+  async createHealthAlert(params: {
+    wardId: string;
+    guardianId: string;
+    alertType: 'warning' | 'info';
+    message: string;
+  }) {
     return this.guardians.createHealthAlert(params);
   }
 
@@ -286,7 +356,11 @@ export class DbService implements OnModuleDestroy {
   // ============================================================
   // Ward methods
   // ============================================================
-  async createWard(params: { userId: string; phoneNumber: string; guardianId: string | null }) {
+  async createWard(params: {
+    userId: string;
+    phoneNumber: string;
+    guardianId: string | null;
+  }) {
     return this.wards.create(params);
   }
 
@@ -326,7 +400,12 @@ export class DbService implements OnModuleDestroy {
     return this.wards.getTopTopics(wardId, days, limit);
   }
 
-  async updateWardSettings(params: { wardId: string; aiPersona?: string; weeklyCallCount?: number; callDurationMinutes?: number }) {
+  async updateWardSettings(params: {
+    wardId: string;
+    aiPersona?: string;
+    weeklyCallCount?: number;
+    callDurationMinutes?: number;
+  }) {
     return this.wards.updateSettings(params);
   }
 
@@ -336,6 +415,24 @@ export class DbService implements OnModuleDestroy {
 
   async findOrganizationWard(organizationId: string, email: string) {
     return this.wards.findOrganizationWard(organizationId, email);
+  }
+
+  async findPendingOrganizationWardByEmail(email: string) {
+    return this.wards.findPendingOrganizationWardByEmail(email);
+  }
+
+  async linkOrganizationWard(params: {
+    organizationWardId: string;
+    wardId: string;
+  }) {
+    return this.wards.linkOrganizationWard(params);
+  }
+
+  async updateWardOrganization(params: {
+    wardId: string;
+    organizationId: string;
+  }) {
+    return this.wards.updateWardOrganization(params);
   }
 
   async createOrganizationWard(params: {
@@ -363,12 +460,125 @@ export class DbService implements OnModuleDestroy {
     return this.wards.getMyManagedWardsStats(adminId);
   }
 
-  async getUpcomingCallSchedules(dayOfWeek: number, startTime: string, endTime: string) {
+  async getOrganizationWardsStats(organizationId: string) {
+    return this.wards.getOrganizationWardsStats(organizationId);
+  }
+
+  async getUpcomingCallSchedules(
+    dayOfWeek: number,
+    startTime: string,
+    endTime: string,
+  ) {
     return this.wards.getUpcomingCallSchedules(dayOfWeek, startTime, endTime);
   }
 
   async markReminderSent(scheduleId: string) {
     return this.wards.markReminderSent(scheduleId);
+  }
+
+  async listOrganizationBeneficiaries(params: {
+    organizationId: string;
+    search?: string;
+    riskOnly?: boolean;
+    page: number;
+    pageSize: number;
+  }): Promise<BeneficiaryListResult> {
+    return this.wards.listOrganizationBeneficiaries(params);
+  }
+
+  async deleteOrganizationBeneficiary(params: {
+    organizationId: string;
+    beneficiaryId: string;
+  }): Promise<boolean> {
+    const { organizationId, beneficiaryId } = params;
+
+    return this.prisma.$transaction(async tx => {
+      const info = await tx.organizationWard.findFirst({
+        where: {
+          id: beneficiaryId,
+          organizationId,
+          isRegistered: true,
+        },
+        select: {
+          id: true,
+          ward: { select: { userId: true } },
+        },
+      });
+
+      if (!info) return false;
+
+      const deletion = await tx.organizationWard.deleteMany({
+        where: {
+          id: beneficiaryId,
+          organizationId,
+          isRegistered: true,
+        },
+      });
+
+      const wardUserId = info.ward?.userId ?? null;
+      if (!wardUserId) {
+        return deletion.count > 0;
+      }
+
+      await tx.refreshToken.deleteMany({ where: { userId: wardUserId } });
+      await tx.roomMember.deleteMany({ where: { userId: wardUserId } });
+      await tx.device.deleteMany({ where: { userId: wardUserId } });
+
+      const guardian = await tx.guardian.findUnique({
+        where: { userId: wardUserId },
+      });
+      if (guardian) {
+        await tx.ward.updateMany({
+          where: { guardianId: guardian.id },
+          data: { guardianId: null },
+        });
+        await tx.guardian.delete({ where: { id: guardian.id } });
+      }
+
+      const ward = await tx.ward.findFirst({
+        where: { userId: wardUserId },
+      });
+      if (ward) {
+        await tx.organizationWard.updateMany({
+          where: { wardId: ward.id },
+          data: {
+            wardId: null,
+            isRegistered: false,
+          },
+        });
+        await tx.ward.delete({ where: { id: ward.id } });
+      }
+
+      await tx.user.delete({ where: { id: wardUserId } });
+
+      return deletion.count > 0;
+    });
+  }
+
+  async updateOrganizationBeneficiary(params: {
+    organizationId: string;
+    beneficiaryId: string;
+    data: {
+      name?: string;
+      phoneNumber?: string | null;
+      birthDate?: string | null;
+      address?: string | null;
+      gender?: string | null;
+      wardType?: string | null;
+      guardian?: string | null;
+      diseases?: string[];
+      medication?: string | null;
+      notes?: string | null;
+    };
+  }): Promise<BeneficiaryDetailItem | null> {
+    return this.wards.updateOrganizationBeneficiary(params);
+  }
+
+  async getOrganizationBeneficiaryDetail(params: {
+    organizationId: string;
+    beneficiaryId: string;
+  }): Promise<BeneficiaryDetailItem | null> {
+    return this.wards.getOrganizationBeneficiaryDetail(params);
   }
 
   // ============================================================
@@ -405,7 +615,11 @@ export class DbService implements OnModuleDestroy {
     return this.admins.getPermissions(adminId);
   }
 
-  async createAdminRefreshToken(adminId: string, tokenHash: string, expiresAt: Date) {
+  async createAdminRefreshToken(
+    adminId: string,
+    tokenHash: string,
+    expiresAt: Date,
+  ) {
     return this.admins.createRefreshToken(adminId, tokenHash, expiresAt);
   }
 
@@ -425,7 +639,11 @@ export class DbService implements OnModuleDestroy {
     return this.admins.getAll();
   }
 
-  async updateAdminRole(adminId: string, role: string, organizationId?: string) {
+  async updateAdminRole(
+    adminId: string,
+    role: string,
+    organizationId?: string,
+  ) {
     return this.admins.updateRole(adminId, role, organizationId);
   }
 
@@ -438,6 +656,10 @@ export class DbService implements OnModuleDestroy {
   }
 
   async findOrganization(organizationId: string) {
+    return this.admins.findOrganization(organizationId);
+  }
+
+  async findOrganizationById(organizationId: string) {
     return this.admins.findOrganization(organizationId);
   }
 
@@ -466,8 +688,18 @@ export class DbService implements OnModuleDestroy {
     return this.emergencies.updateGuardianNotified(emergencyId);
   }
 
-  async findNearbyAgencies(latitude: number, longitude: number, radiusKm: number = 5, limit: number = 5) {
-    return this.emergencies.findNearbyAgencies(latitude, longitude, radiusKm, limit);
+  async findNearbyAgencies(
+    latitude: number,
+    longitude: number,
+    radiusKm: number = 5,
+    limit: number = 5,
+  ) {
+    return this.emergencies.findNearbyAgencies(
+      latitude,
+      longitude,
+      radiusKm,
+      limit,
+    );
   }
 
   async createEmergencyContact(params: {
@@ -483,7 +715,11 @@ export class DbService implements OnModuleDestroy {
     return this.emergencies.getById(emergencyId);
   }
 
-  async getEmergencies(params: { status?: 'active' | 'resolved' | 'false_alarm'; wardId?: string; limit?: number }) {
+  async getEmergencies(params: {
+    status?: 'active' | 'resolved' | 'false_alarm';
+    wardId?: string;
+    limit?: number;
+  }) {
     return this.emergencies.getList(params);
   }
 
@@ -527,7 +763,12 @@ export class DbService implements OnModuleDestroy {
     return this.locations.getAllCurrentLocations(organizationId);
   }
 
-  async getWardLocationHistory(params: { wardId: string; from?: Date; to?: Date; limit?: number }) {
+  async getWardLocationHistory(params: {
+    wardId: string;
+    from?: Date;
+    to?: Date;
+    limit?: number;
+  }) {
     return this.locations.getHistory(params);
   }
 
@@ -535,7 +776,10 @@ export class DbService implements OnModuleDestroy {
     return this.locations.getCurrentLocation(wardId);
   }
 
-  async updateWardLocationStatus(wardId: string, status: 'normal' | 'warning' | 'emergency') {
+  async updateWardLocationStatus(
+    wardId: string,
+    status: 'normal' | 'warning' | 'emergency',
+  ) {
     return this.locations.updateStatus(wardId, status);
   }
 
@@ -576,5 +820,139 @@ export class DbService implements OnModuleDestroy {
 
   async getRecentActivity(limit: number = 10) {
     return this.dashboard.getRecentActivity(limit);
+  }
+
+  // ============================================================
+  // Transactional methods (Issue #60)
+  // ============================================================
+
+  /**
+   * 어르신 등록 트랜잭션
+   * 사용자 생성 → 어르신 정보 생성 → 기관 연동을 원자적으로 처리
+   */
+  async registerWardWithTransaction(params: {
+    kakaoId: string;
+    email: string | null;
+    nickname: string | null;
+    profileImageUrl: string | null;
+    phoneNumber: string;
+    guardianId: string | null;
+    organizationWard?: {
+      organizationWardId: string;
+      organizationId: string;
+    };
+  }): Promise<{
+    user: {
+      id: string;
+      identity: string;
+      email: string | null;
+      nickname: string | null;
+      profile_image_url: string | null;
+      user_type: 'ward';
+    };
+    ward: {
+      id: string;
+      phone_number: string;
+    };
+  }> {
+    return this.prisma.$transaction(async tx => {
+      // 1. 사용자 생성
+      const identity = `kakao_${params.kakaoId}`;
+      const user = await tx.user.create({
+        data: {
+          identity,
+          displayName: params.nickname,
+          userType: 'ward',
+          email: params.email,
+          nickname: params.nickname,
+          profileImageUrl: params.profileImageUrl,
+          kakaoId: params.kakaoId,
+        },
+      });
+
+      // 2. 어르신 정보 생성
+      const ward = await tx.ward.create({
+        data: {
+          userId: user.id,
+          phoneNumber: params.phoneNumber,
+          guardianId: params.guardianId,
+        },
+      });
+
+      // 3. 기관 피보호자 연동 (있는 경우)
+      if (params.organizationWard) {
+        await tx.organizationWard.update({
+          where: { id: params.organizationWard.organizationWardId },
+          data: {
+            wardId: ward.id,
+            isRegistered: true,
+          },
+        });
+
+        await tx.ward.update({
+          where: { id: ward.id },
+          data: { organizationId: params.organizationWard.organizationId },
+        });
+      }
+
+      return {
+        user: {
+          id: user.id,
+          identity: user.identity,
+          email: user.email,
+          nickname: user.nickname,
+          profile_image_url: user.profileImageUrl,
+          user_type: 'ward' as const,
+        },
+        ward: {
+          id: ward.id,
+          phone_number: ward.phoneNumber,
+        },
+      };
+    });
+  }
+
+  /**
+   * 보호자 등록 트랜잭션
+   * 사용자 타입 변경 → 보호자 정보 생성을 원자적으로 처리
+   */
+  async registerGuardianWithTransaction(params: {
+    userId: string;
+    wardEmail: string;
+    wardPhoneNumber: string;
+  }): Promise<{
+    guardian: {
+      id: string;
+      ward_email: string;
+      ward_phone_number: string;
+    };
+  }> {
+    return this.prisma.$transaction(async tx => {
+      // 1. 사용자 타입 업데이트
+      await tx.user.update({
+        where: { id: params.userId },
+        data: {
+          userType: 'guardian',
+          updatedAt: new Date(),
+        },
+      });
+
+      // 2. 보호자 정보 생성
+      const guardian = await tx.guardian.create({
+        data: {
+          userId: params.userId,
+          wardEmail: params.wardEmail,
+          wardPhoneNumber: params.wardPhoneNumber,
+        },
+      });
+
+      return {
+        guardian: {
+          id: guardian.id,
+          ward_email: guardian.wardEmail,
+          ward_phone_number: guardian.wardPhoneNumber,
+        },
+      };
+    });
   }
 }

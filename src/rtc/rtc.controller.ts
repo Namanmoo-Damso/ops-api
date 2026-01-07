@@ -14,6 +14,7 @@ import { AuthService } from '../auth';
 import { DbService } from '../database';
 import { ConfigService } from '../core/config';
 import { CallsService } from '../calls';
+import { LiveKitService } from '../integration/livekit';
 
 @Controller()
 export class RtcController {
@@ -25,6 +26,7 @@ export class RtcController {
     private readonly dbService: DbService,
     private readonly configService: ConfigService,
     private readonly callsService: CallsService,
+    private readonly liveKitService: LiveKitService,
   ) {}
 
   private normalizeLivekitUrl(url: string | undefined): string | undefined {
@@ -67,7 +69,8 @@ export class RtcController {
   @Post('v1/rtc/token')
   async issueToken(
     @Headers('authorization') authorization: string | undefined,
-    @Body() body: {
+    @Body()
+    body: {
       roomName?: string;
       identity?: string;
       name?: string;
@@ -90,6 +93,7 @@ export class RtcController {
     let authName: string | undefined;
 
     if (bearer) {
+      // Try Kakao auth first (mobile users - guardians/wards)
       const kakaoPayload = this.authService.verifyAccessToken(bearer);
       if (kakaoPayload) {
         const user = await this.dbService.findUserById(kakaoPayload.sub);
@@ -98,13 +102,29 @@ export class RtcController {
           authName = user.nickname ?? user.display_name ?? undefined;
         }
       } else {
+        // Try admin auth (web users - ops dashboard)
         try {
-          const payload = this.authService.verifyApiToken(bearer);
-          authIdentity = payload.identity;
-          authName = payload.displayName;
-        } catch {
-          if (config.authRequired) {
-            throw new HttpException('Unauthorized', HttpStatus.UNAUTHORIZED);
+          const adminPayload = this.authService.verifyAdminAccessToken(bearer);
+          const admin = await this.dbService.findAdminById(adminPayload.sub);
+          if (admin && admin.is_active) {
+            authIdentity = `admin_${admin.id}`;
+            authName = admin.name ?? admin.email;
+            this.logger.log(
+              `issueToken admin authenticated id=${admin.id} email=${admin.email}`,
+            );
+          } else {
+            throw new Error('Admin not found or inactive');
+          }
+        } catch (adminError) {
+          // Fall back to API token (anonymous auth)
+          try {
+            const payload = this.authService.verifyApiToken(bearer);
+            authIdentity = payload.identity;
+            authName = payload.displayName;
+          } catch {
+            if (config.authRequired) {
+              throw new HttpException('Unauthorized', HttpStatus.UNAUTHORIZED);
+            }
           }
         }
       }
@@ -117,8 +137,14 @@ export class RtcController {
       throw new HttpException('roomName is required', HttpStatus.BAD_REQUEST);
     }
 
+    // Admin인 경우 방마다 고유한 identity 생성 (DUPLICATE_IDENTITY 방지)
+    let finalAuthIdentity = authIdentity;
+    if (authIdentity?.startsWith('admin_')) {
+      finalAuthIdentity = `${authIdentity}_${roomName}`;
+    }
+
     // 인증된 사용자가 있으면 항상 그 identity를 사용 (일관성 유지)
-    const identity = (authIdentity ?? body.identity)?.trim();
+    const identity = (finalAuthIdentity ?? body.identity)?.trim();
     if (!identity) {
       throw new HttpException('identity is required', HttpStatus.BAD_REQUEST);
     }
@@ -145,7 +171,11 @@ export class RtcController {
       name,
       role,
       device:
-        body.apnsToken || body.voipToken || body.platform || body.env || body.supportsCallKit !== undefined
+        body.apnsToken ||
+        body.voipToken ||
+        body.platform ||
+        body.env ||
+        body.supportsCallKit !== undefined
           ? {
               apnsToken: body.apnsToken?.trim(),
               voipToken: body.voipToken?.trim(),
@@ -154,11 +184,153 @@ export class RtcController {
               supportsCallKit: body.supportsCallKit,
             }
           : undefined,
+      isAuthenticated: !!authIdentity,
     });
 
     return {
       ...rtcData,
       livekitUrl: livekitUrlOverride ?? rtcData.livekitUrl,
     };
+  }
+
+  @Get('v1/livekit/rooms')
+  async listLivekitRooms(
+    @Headers('authorization') authorization: string | undefined,
+  ) {
+    const config = this.configService.getConfig();
+    const auth = this.authService.getAuthContext(authorization);
+    if (config.authRequired && !auth) {
+      throw new HttpException('Unauthorized', HttpStatus.UNAUTHORIZED);
+    }
+
+    try {
+      const summary = await this.liveKitService.getRoomsSummary();
+      this.logger.log(
+        `listLivekitRooms rooms=${summary.totalRooms} participants=${summary.totalParticipants}`,
+      );
+      return summary;
+    } catch (error) {
+      this.logger.warn(
+        `listLivekitRooms failed error=${(error as Error).message}`,
+      );
+      throw new HttpException(
+        'Failed to query LiveKit rooms',
+        HttpStatus.BAD_GATEWAY,
+      );
+    }
+  }
+
+  @Post('v1/livekit/bot')
+  async createBotWithAgent(
+    @Headers('authorization') authorization: string | undefined,
+  ) {
+    const config = this.configService.getConfig();
+    const auth = this.authService.getAuthContext(authorization);
+    if (config.authRequired && !auth) {
+      throw new HttpException('Unauthorized', HttpStatus.UNAUTHORIZED);
+    }
+
+    try {
+      const rtcData = await this.rtcTokenService.createBotWithAgent();
+      this.logger.log(
+        `createBotWithAgent room=${rtcData.roomName} identity=${rtcData.identity}`,
+      );
+      return rtcData;
+    } catch (error) {
+      this.logger.error(
+        `createBotWithAgent failed: ${(error as Error).message}`,
+      );
+      throw new HttpException(
+        'Failed to create bot session',
+        HttpStatus.BAD_GATEWAY,
+      );
+    }
+  }
+
+  @Post('v1/livekit/rooms/:roomName/delete')
+  async deleteLivekitRoom(
+    @Headers('authorization') authorization: string | undefined,
+    @Param('roomName') roomNameParam: string,
+  ) {
+    const config = this.configService.getConfig();
+    const auth = this.authService.getAuthContext(authorization);
+    if (config.authRequired && !auth) {
+      throw new HttpException('Unauthorized', HttpStatus.UNAUTHORIZED);
+    }
+
+    const roomName = roomNameParam?.trim();
+    if (!roomName) {
+      throw new HttpException('roomName is required', HttpStatus.BAD_REQUEST);
+    }
+
+    try {
+      await this.liveKitService.deleteRoom(roomName);
+      this.logger.log(`deleteLivekitRoom room=${roomName}`);
+      return { success: true, roomName };
+    } catch (error) {
+      this.logger.error(
+        `deleteLivekitRoom failed room=${roomName}: ${(error as Error).message}`,
+      );
+      throw new HttpException(
+        'Failed to delete LiveKit room',
+        HttpStatus.BAD_GATEWAY,
+      );
+    }
+  }
+
+  /**
+   * Mute or unmute the AI agent in a room
+   * Used for admin takeover functionality
+   */
+  @Post('v1/livekit/rooms/:roomName/mute-agent')
+  async muteAgentInRoom(
+    @Headers('authorization') authorization: string | undefined,
+    @Param('roomName') roomNameParam: string,
+    @Body() body: { mute: boolean },
+  ) {
+    const config = this.configService.getConfig();
+
+    // Verify admin auth
+    const authHeader = authorization ?? '';
+    const bearer = authHeader.startsWith('Bearer ')
+      ? authHeader.slice('Bearer '.length)
+      : undefined;
+
+    if (!bearer) {
+      throw new HttpException('Unauthorized', HttpStatus.UNAUTHORIZED);
+    }
+
+    try {
+      const adminPayload = this.authService.verifyAdminAccessToken(bearer);
+      const admin = await this.dbService.findAdminById(adminPayload.sub);
+      if (!admin || !admin.is_active) {
+        throw new HttpException('Unauthorized', HttpStatus.UNAUTHORIZED);
+      }
+    } catch {
+      throw new HttpException('Unauthorized', HttpStatus.UNAUTHORIZED);
+    }
+
+    const roomName = roomNameParam?.trim();
+    if (!roomName) {
+      throw new HttpException('roomName is required', HttpStatus.BAD_REQUEST);
+    }
+
+    const mute = body.mute ?? true;
+
+    try {
+      await this.liveKitService.muteAgentInRoom(roomName, mute);
+      this.logger.log(
+        `muteAgentInRoom room=${roomName} mute=${mute}`,
+      );
+      return { success: true, roomName, mute };
+    } catch (error) {
+      this.logger.error(
+        `muteAgentInRoom failed room=${roomName}: ${(error as Error).message}`,
+      );
+      throw new HttpException(
+        'Failed to mute agent',
+        HttpStatus.BAD_GATEWAY,
+      );
+    }
   }
 }

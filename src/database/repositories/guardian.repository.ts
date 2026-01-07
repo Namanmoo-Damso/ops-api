@@ -5,7 +5,10 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../../prisma';
 import { GuardianRow, GuardianWardRegistrationRow } from '../types';
-import { toGuardianRow, toGuardianWardRegistrationRow } from '../prisma-mappers';
+import {
+  toGuardianRow,
+  toGuardianWardRegistrationRow,
+} from '../prisma-mappers';
 
 @Injectable()
 export class GuardianRepository {
@@ -33,9 +36,13 @@ export class GuardianRepository {
     return guardian ? toGuardianRow(guardian) : undefined;
   }
 
-  async findById(
-    guardianId: string,
-  ): Promise<(GuardianRow & { user_nickname: string | null; user_profile_image_url: string | null }) | undefined> {
+  async findById(guardianId: string): Promise<
+    | (GuardianRow & {
+        user_nickname: string | null;
+        user_profile_image_url: string | null;
+      })
+    | undefined
+  > {
     const guardian = await this.prisma.guardian.findUnique({
       where: { id: guardianId },
       include: {
@@ -56,8 +63,9 @@ export class GuardianRepository {
   }
 
   async findByWardEmail(wardEmail: string): Promise<GuardianRow | undefined> {
+    const normalizedEmail = wardEmail.toLowerCase().trim();
     const guardian = await this.prisma.guardian.findFirst({
-      where: { wardEmail },
+      where: { wardEmail: { equals: normalizedEmail, mode: 'insensitive' } },
     });
     return guardian ? toGuardianRow(guardian) : undefined;
   }
@@ -99,6 +107,30 @@ export class GuardianRepository {
       },
     });
 
+    // Collect all ward userIds for batch query
+    const wardUserIds: string[] = [];
+    if (guardian?.wards[0]?.userId) {
+      wardUserIds.push(guardian.wards[0].userId);
+    }
+    for (const reg of registrations) {
+      if (reg.linkedWard?.userId) {
+        wardUserIds.push(reg.linkedWard.userId);
+      }
+    }
+
+    // Batch query: get last call for all wards at once
+    const lastCalls =
+      wardUserIds.length > 0
+        ? await this.prisma.call.groupBy({
+            by: ['calleeUserId'],
+            where: { calleeUserId: { in: wardUserIds } },
+            _max: { createdAt: true },
+          })
+        : [];
+    const lastCallMap = new Map(
+      lastCalls.map(c => [c.calleeUserId, c._max.createdAt]),
+    );
+
     const results: Array<{
       id: string;
       ward_email: string;
@@ -114,16 +146,9 @@ export class GuardianRepository {
     // Add primary ward
     if (guardian) {
       const primaryWard = guardian.wards[0];
-      // Get last call for primary ward
-      let lastCallAt: string | null = null;
-      if (primaryWard) {
-        const lastCall = await this.prisma.call.findFirst({
-          where: { calleeUserId: primaryWard.userId },
-          orderBy: { createdAt: 'desc' },
-          select: { createdAt: true },
-        });
-        lastCallAt = lastCall?.createdAt.toISOString() ?? null;
-      }
+      const lastCallAt = primaryWard?.userId
+        ? (lastCallMap.get(primaryWard.userId)?.toISOString() ?? null)
+        : null;
 
       results.push({
         id: guardian.id,
@@ -140,15 +165,9 @@ export class GuardianRepository {
 
     // Add additional registrations
     for (const reg of registrations) {
-      let lastCallAt: string | null = null;
-      if (reg.linkedWard) {
-        const lastCall = await this.prisma.call.findFirst({
-          where: { calleeUserId: reg.linkedWard.userId },
-          orderBy: { createdAt: 'desc' },
-          select: { createdAt: true },
-        });
-        lastCallAt = lastCall?.createdAt.toISOString() ?? null;
-      }
+      const lastCallAt = reg.linkedWard?.userId
+        ? (lastCallMap.get(reg.linkedWard.userId)?.toISOString() ?? null)
+        : null;
 
       results.push({
         id: reg.id,
@@ -181,11 +200,16 @@ export class GuardianRepository {
     return toGuardianWardRegistrationRow(registration);
   }
 
-  async findWardRegistration(id: string, guardianId: string): Promise<GuardianWardRegistrationRow | undefined> {
+  async findWardRegistration(
+    id: string,
+    guardianId: string,
+  ): Promise<GuardianWardRegistrationRow | undefined> {
     const registration = await this.prisma.guardianWardRegistration.findFirst({
       where: { id, guardianId },
     });
-    return registration ? toGuardianWardRegistrationRow(registration) : undefined;
+    return registration
+      ? toGuardianWardRegistrationRow(registration)
+      : undefined;
   }
 
   async updateWardRegistration(params: {
@@ -212,25 +236,32 @@ export class GuardianRepository {
     }
   }
 
-  async deleteWardRegistration(id: string, guardianId: string): Promise<boolean> {
-    // First unlink the ward
-    const registration = await this.prisma.guardianWardRegistration.findFirst({
-      where: { id, guardianId },
-    });
-
-    if (!registration) return false;
-
-    if (registration.linkedWardId) {
-      await this.prisma.ward.update({
-        where: { id: registration.linkedWardId },
-        data: { guardianId: null },
+  async deleteWardRegistration(
+    id: string,
+    guardianId: string,
+  ): Promise<boolean> {
+    return this.prisma.$transaction(async tx => {
+      // First find the registration
+      const registration = await tx.guardianWardRegistration.findFirst({
+        where: { id, guardianId },
       });
-    }
 
-    const result = await this.prisma.guardianWardRegistration.deleteMany({
-      where: { id, guardianId },
+      if (!registration) return false;
+
+      // Unlink the ward if linked
+      if (registration.linkedWardId) {
+        await tx.ward.update({
+          where: { id: registration.linkedWardId },
+          data: { guardianId: null },
+        });
+      }
+
+      // Delete the registration
+      const result = await tx.guardianWardRegistration.deleteMany({
+        where: { id, guardianId },
+      });
+      return result.count > 0;
     });
-    return result.count > 0;
   }
 
   async updatePrimaryWard(params: {
@@ -265,7 +296,7 @@ export class GuardianRepository {
       orderBy: { createdAt: 'desc' },
       take: limit,
     });
-    return alerts.map((alert) => ({
+    return alerts.map(alert => ({
       id: alert.id,
       type: alert.alertType,
       message: alert.message,

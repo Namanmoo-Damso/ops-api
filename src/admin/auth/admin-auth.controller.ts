@@ -48,14 +48,23 @@ export class AdminAuthController {
     this.logger.log(`oauthCodeExchange provider=${provider}`);
 
     try {
-      const accessToken = await this.adminAuthService.exchangeCodeForToken(provider, code, redirectUri);
-      const oauthUser = await this.adminAuthService.verifyOAuthToken(provider, accessToken);
+      const accessToken = await this.adminAuthService.exchangeCodeForToken(
+        provider,
+        code,
+        redirectUri,
+      );
+      const oauthUser = await this.adminAuthService.verifyOAuthToken(
+        provider,
+        accessToken,
+      );
       return await this.adminAuthService.processOAuthLogin(oauthUser, provider);
     } catch (error) {
       if ((error as HttpException).getStatus?.()) {
         throw error;
       }
-      this.logger.warn(`oauthCodeExchange failed error=${(error as Error).message}`);
+      this.logger.warn(
+        `oauthCodeExchange failed error=${(error as Error).message}`,
+      );
       throw new HttpException(
         'OAuth 인증에 실패했습니다.',
         HttpStatus.UNAUTHORIZED,
@@ -64,9 +73,7 @@ export class AdminAuthController {
   }
 
   @Post('auth/oauth')
-  async oauthLogin(
-    @Body() body: { provider?: string; accessToken?: string },
-  ) {
+  async oauthLogin(@Body() body: { provider?: string; accessToken?: string }) {
     const provider = body.provider?.trim().toLowerCase();
     const accessToken = body.accessToken?.trim();
 
@@ -87,7 +94,10 @@ export class AdminAuthController {
     this.logger.log(`oauthLogin provider=${provider}`);
 
     try {
-      const oauthUser = await this.adminAuthService.verifyOAuthToken(provider, accessToken);
+      const oauthUser = await this.adminAuthService.verifyOAuthToken(
+        provider,
+        accessToken,
+      );
       return await this.adminAuthService.processOAuthLogin(oauthUser, provider);
     } catch (error) {
       if ((error as HttpException).getStatus?.()) {
@@ -102,9 +112,7 @@ export class AdminAuthController {
   }
 
   @Post('auth/refresh')
-  async refreshToken(
-    @Body() body: { refreshToken?: string },
-  ) {
+  async refreshToken(@Body() body: { refreshToken?: string }) {
     const refreshToken = body.refreshToken?.trim();
 
     if (!refreshToken) {
@@ -144,11 +152,16 @@ export class AdminAuthController {
       };
 
       const newAccessToken = this.authService.signAdminAccessToken(jwtPayload);
-      const newRefreshToken = this.authService.signAdminRefreshToken(jwtPayload);
+      const newRefreshToken =
+        this.authService.signAdminRefreshToken(jwtPayload);
 
       const newTokenHash = this.authService.hashToken(newRefreshToken);
       const expiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
-      await this.dbService.createAdminRefreshToken(admin.id, newTokenHash, expiresAt);
+      await this.dbService.createAdminRefreshToken(
+        admin.id,
+        newTokenHash,
+        expiresAt,
+      );
 
       this.logger.log(`refreshToken success adminId=${admin.id}`);
 
@@ -169,9 +182,7 @@ export class AdminAuthController {
   }
 
   @Post('auth/logout')
-  async logout(
-    @Body() body: { refreshToken?: string },
-  ) {
+  async logout(@Body() body: { refreshToken?: string }) {
     const refreshToken = body.refreshToken?.trim();
 
     if (refreshToken) {
@@ -186,7 +197,7 @@ export class AdminAuthController {
   async listOrganizations() {
     const organizations = await this.dbService.listAllOrganizations();
     return {
-      organizations: organizations.map((org) => ({
+      organizations: organizations.map(org => ({
         id: org.id,
         name: org.name,
       })),
@@ -209,10 +220,7 @@ export class AdminAuthController {
     }
 
     if (!name) {
-      throw new HttpException(
-        'name is required',
-        HttpStatus.BAD_REQUEST,
-      );
+      throw new HttpException('name is required', HttpStatus.BAD_REQUEST);
     }
 
     try {
@@ -222,7 +230,9 @@ export class AdminAuthController {
     }
 
     const result = await this.dbService.findOrCreateOrganization(name);
-    this.logger.log(`findOrCreateOrganization name=${name} created=${result.created}`);
+    this.logger.log(
+      `findOrCreateOrganization name=${name} created=${result.created}`,
+    );
 
     return {
       organization: {
@@ -266,7 +276,8 @@ export class AdminAuthController {
         );
       }
 
-      const organization = await this.dbService.findOrganization(organizationId);
+      const organization =
+        await this.dbService.findOrganization(organizationId);
       if (!organization) {
         throw new HttpException(
           '조직을 찾을 수 없습니다.',
@@ -275,7 +286,9 @@ export class AdminAuthController {
       }
 
       await this.dbService.updateAdminOrganization(admin.id, organizationId);
-      this.logger.log(`updateOrganization adminId=${admin.id} organizationId=${organizationId}`);
+      this.logger.log(
+        `updateOrganization adminId=${admin.id} organizationId=${organizationId}`,
+      );
 
       return {
         success: true,
@@ -296,9 +309,7 @@ export class AdminAuthController {
   }
 
   @Get('me')
-  async getMe(
-    @Headers('authorization') authorization: string | undefined,
-  ) {
+  async getMe(@Headers('authorization') authorization: string | undefined) {
     const accessToken = authorization?.replace('Bearer ', '').trim();
 
     if (!accessToken) {
@@ -335,10 +346,7 @@ export class AdminAuthController {
       if ((error as HttpException).getStatus?.()) {
         throw error;
       }
-      throw new HttpException(
-        '인증에 실패했습니다.',
-        HttpStatus.UNAUTHORIZED,
-      );
+      throw new HttpException('인증에 실패했습니다.', HttpStatus.UNAUTHORIZED);
     }
   }
 }
