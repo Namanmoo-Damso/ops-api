@@ -1,0 +1,15 @@
+port: 7880
+log_level: info
+rtc:
+  use_external_ip: true
+  tcp_port: 7883
+  port_range_start: 50000
+  port_range_end: 60000
+  allow_tcp_fallback: true
+keys:
+  LK_154f88960804a7ec: 1d4b32dac495e14fced680129935a9eb8300e9a73841b08b0edae746a0c123b2
+
+webhook:
+  urls:
+    - http://localhost:8080/webhook/livekit
+  api_key: LK_154f88960804a7ec
