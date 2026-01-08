@@ -66,6 +66,13 @@ export class RtcTokenService {
       type: 'bot',
     });
 
+    // Dispatch video agent for camera monitoring
+    await this.liveKitService.dispatchVideoAgent(roomName, {
+      identity,
+      name,
+      type: 'bot',
+    });
+
     const options: AccessTokenOptions = {
       identity,
       name,
@@ -188,6 +195,13 @@ export class RtcTokenService {
 
       // Dispatch voice agent to the room
       await this.liveKitService.dispatchVoiceAgent(roomName, {
+        userId: user.id,
+        identity,
+        name,
+      });
+
+      // Dispatch video agent for camera monitoring
+      await this.liveKitService.dispatchVideoAgent(roomName, {
         userId: user.id,
         identity,
         name,
