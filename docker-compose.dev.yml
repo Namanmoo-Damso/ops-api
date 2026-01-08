@@ -21,6 +21,7 @@ services:
     env_file: ./db.env
     volumes:
       - db_data:/var/lib/postgresql/data
+      - ./init-db.sql:/docker-entrypoint-initdb.d/init-db.sql:ro
     healthcheck:
       test: ['CMD-SHELL', 'pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB']
       interval: 5s
@@ -44,6 +45,8 @@ services:
     image: node:20-alpine
     working_dir: /app
     env_file: ./api.env
+    extra_hosts:
+      - 'host.docker.internal:host-gateway'
     volumes:
       - ./secrets:/secrets:ro
       - .:/app # 소스 코드 마운트
@@ -59,7 +62,6 @@ services:
       sh -c "
       npm install &&
       npx prisma generate &&
-      npx prisma db push --accept-data-loss &&
       npm run start:dev
       "
     restart: unless-stopped
