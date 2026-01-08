@@ -288,7 +288,7 @@ export class RtcTokenService {
       hidden: params.role === 'host', // Admin은 다른 참가자에게 안 보임
     });
 
-    return {
+    const result = {
       livekitUrl: config.livekitPublicUrl,
       roomName: roomName,
       token: await accessToken.toJwt(),
@@ -298,6 +298,12 @@ export class RtcTokenService {
       role: params.role,
       callId: callId ?? undefined,
     };
+
+    this.logger.log(
+      `issueToken result: livekitUrl=${result.livekitUrl} roomName=${result.roomName} identity=${result.identity}`,
+    );
+
+    return result;
   }
 
   private async registerDevice(params: {
