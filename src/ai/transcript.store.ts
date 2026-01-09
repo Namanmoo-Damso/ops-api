@@ -14,7 +14,6 @@ export class TranscriptStore {
   private client: RedisClientType | null = null;
   private connecting: Promise<RedisClientType | null> | null = null;
   private warnedMissingUrl = false;
-
   private async getClient(): Promise<RedisClientType | null> {
     if (!this.redisUrl) {
       if (!this.warnedMissingUrl) {
@@ -33,13 +32,19 @@ export class TranscriptStore {
     }
 
     this.client = createClient({ url: this.redisUrl });
+
     this.connecting = this.client
       .connect()
-      .then(() => this.client)
-      .catch(error => {
-        this.logger.warn(`Redis connect failed: ${(error as Error).message}`);
-        this.client = null;
-        return null;
+      .then(() => {
+        // Handle runtime errors after successful connection
+        this.client?.on('error', (error) => {
+          this.logger.error(`Redis runtime error: ${error.message}`, error.stack);
+        });
+        return this.client;
+      })
+      .catch((error) => {
+        this.logger.error(`Redis connection failed: ${(error as Error).message}`, (error as Error).stack);
+        throw error;
       })
       .finally(() => {
         this.connecting = null;
