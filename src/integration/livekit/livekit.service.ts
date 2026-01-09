@@ -107,8 +107,9 @@ export class LiveKitService {
     metadata?: Record<string, unknown>,
   ): Promise<void> {
     try {
+      const agentName = process.env.AGENT_NAME || 'voice-agent';
       const metadataStr = metadata ? JSON.stringify(metadata) : undefined;
-      await this.agentDispatch.createDispatch(roomName, 'voice-agent', {
+      await this.agentDispatch.createDispatch(roomName, agentName, {
         metadata: metadataStr,
       });
       this.logger.log(`Voice agent dispatched to room=${roomName}`);
