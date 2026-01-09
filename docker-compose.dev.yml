@@ -74,16 +74,6 @@ services:
     command: sh -c "npm install && npm run dev"
     restart: unless-stopped
 
-  agent:
-    build:
-      context: ../ops-agent
-    env_file: ../ops-agent/.env
-    network_mode: host
-    depends_on:
-      redis:
-        condition: service_healthy
-    restart: unless-stopped
-
 volumes:
   caddy_data:
   caddy_config:
