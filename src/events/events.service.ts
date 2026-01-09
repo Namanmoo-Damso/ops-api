@@ -14,10 +14,12 @@ export type RoomEvent = {
     | 'room-created'
     | 'room-updated'
     | 'participant-joined'
-    | 'participant-left';
+    | 'participant-left'
+    | 'room-danger';
   roomName: string;
   identity?: string;
   name?: string;
+  isDanger?: boolean;
   timestamp: string;
 };
 

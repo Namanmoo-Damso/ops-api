@@ -15,6 +15,7 @@ import { DbService } from '../database';
 import { ConfigService } from '../core/config';
 import { CallsService } from '../calls';
 import { LiveKitService } from '../integration/livekit';
+import { EventsService } from '../events/events.service';
 
 @Controller()
 export class RtcController {
@@ -27,6 +28,7 @@ export class RtcController {
     private readonly configService: ConfigService,
     private readonly callsService: CallsService,
     private readonly liveKitService: LiveKitService,
+    private readonly eventsService: EventsService,
   ) {}
 
   private normalizeLivekitUrl(url: string | undefined): string | undefined {
@@ -332,5 +334,53 @@ export class RtcController {
         HttpStatus.BAD_GATEWAY,
       );
     }
+  }
+
+  /**
+   * Set danger state for a room
+   * Broadcasts to all connected clients via SSE
+   */
+  @Post('v1/livekit/rooms/:roomName/danger')
+  async setRoomDanger(
+    @Headers('authorization') authorization: string | undefined,
+    @Param('roomName') roomNameParam: string,
+    @Body() body: { isDanger: boolean },
+  ) {
+    // Verify admin auth
+    const authHeader = authorization ?? '';
+    const bearer = authHeader.startsWith('Bearer ')
+      ? authHeader.slice('Bearer '.length)
+      : undefined;
+
+    if (!bearer) {
+      throw new HttpException('Unauthorized', HttpStatus.UNAUTHORIZED);
+    }
+
+    try {
+      const adminPayload = this.authService.verifyAdminAccessToken(bearer);
+      const admin = await this.dbService.findAdminById(adminPayload.sub);
+      if (!admin || !admin.is_active) {
+        throw new HttpException('Unauthorized', HttpStatus.UNAUTHORIZED);
+      }
+    } catch {
+      throw new HttpException('Unauthorized', HttpStatus.UNAUTHORIZED);
+    }
+
+    const roomName = roomNameParam?.trim();
+    if (!roomName) {
+      throw new HttpException('roomName is required', HttpStatus.BAD_REQUEST);
+    }
+
+    const isDanger = body.isDanger ?? false;
+
+    // Emit room-danger event for SSE subscribers
+    this.eventsService.emitRoomEvent({
+      type: 'room-danger',
+      roomName,
+      isDanger,
+    });
+
+    this.logger.log(`setRoomDanger room=${roomName} isDanger=${isDanger}`);
+    return { success: true, roomName, isDanger };
   }
 }
