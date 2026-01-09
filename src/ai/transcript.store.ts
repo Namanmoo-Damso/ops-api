@@ -33,6 +33,12 @@ export class TranscriptStore {
     }
 
     this.client = createClient({ url: this.redisUrl });
+
+    // Handle connection errors to prevent unhandled 'error' events
+    this.client.on('error', (error) => {
+      this.logger.warn(`Redis client error: ${error.message}`);
+    });
+
     this.connecting = this.client
       .connect()
       .then(() => this.client)
