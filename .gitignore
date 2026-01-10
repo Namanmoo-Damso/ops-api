@@ -38,3 +38,5 @@ src/generated/
 # python venv
 agents/venv
 agents/voice/__pycache__/
+
+secrets/
