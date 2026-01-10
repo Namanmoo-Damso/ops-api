@@ -59,25 +59,15 @@ export class RtcTokenService {
       `createBotWithAgent room=${roomName} identity=${identity} role=${role}`,
     );
 
-    // Dispatch both agents in parallel
-    const [audioResult, videoResult] = await Promise.allSettled([
-      this.liveKitService.dispatchVoiceAgent(roomName, {
+    // Dispatch voice agent
+    try {
+      await this.liveKitService.dispatchVoiceAgent(roomName, {
         identity,
         name,
         type: 'bot',
-      }),
-      this.liveKitService.dispatchVideoAgent(roomName, {
-        identity,
-        name,
-        type: 'bot',
-      }),
-    ]);
-
-    if (audioResult.status === 'rejected') {
-      this.logger.error(`Failed to dispatch audio agent: ${audioResult.reason}`);
-    }
-    if (videoResult.status === 'rejected') {
-      this.logger.warn(`Video agent dispatch failed: ${videoResult.reason}`);
+      });
+    } catch (err) {
+      this.logger.error(`Failed to dispatch voice agent: ${(err as Error).message}`);
     }
 
     const options: AccessTokenOptions = {
@@ -200,32 +190,16 @@ export class RtcTokenService {
         name,
       });
 
-      // Dispatch both agents in parallel for better performance
-      const [audioResult, videoResult] = await Promise.allSettled([
-        this.liveKitService.dispatchVoiceAgent(roomName, {
+      // Dispatch voice agent
+      try {
+        await this.liveKitService.dispatchVoiceAgent(roomName, {
           userId: user.id,
           identity,
           name,
-        }),
-        this.liveKitService.dispatchVideoAgent(roomName, {
-          userId: user.id,
-          identity,
-          name,
-        }),
-      ]);
-
-      if (audioResult.status === 'rejected') {
-        this.logger.error(
-          `Failed to dispatch audio agent: ${audioResult.reason}`,
-        );
-        throw new Error('Audio agent dispatch failed'); // 필수인 경우
-      }
-
-      if (videoResult.status === 'rejected') {
-        this.logger.warn(
-          `Video agent dispatch failed, continuing without video monitoring: ${videoResult.reason}`,
-        );
-        // throw new Error('videoagent dispatch failed'); // 선택적 실패 (monitoring only)
+        });
+      } catch (err) {
+        this.logger.error(`Failed to dispatch voice agent: ${(err as Error).message}`);
+        throw new Error('Voice agent dispatch failed');
       }
 
       try {

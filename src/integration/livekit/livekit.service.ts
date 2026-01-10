@@ -121,26 +121,6 @@ export class LiveKitService {
   }
 
   /**
-   * Dispatch a video agent to monitor user's camera in the room
-   */
-  async dispatchVideoAgent(
-    roomName: string,
-    metadata?: Record<string, unknown>,
-  ): Promise<void> {
-    try {
-      const metadataStr = metadata ? JSON.stringify(metadata) : undefined;
-      await this.agentDispatch.createDispatch(roomName, 'video-agent', {
-        metadata: metadataStr,
-      });
-      this.logger.log(`Video agent dispatched to room=${roomName}`);
-    } catch (err) {
-      this.logger.warn(
-        `Failed to dispatch video agent to room=${roomName}: ${(err as Error).message}`,
-      );
-    }
-  }
-
-  /**
    * Send data message to all participants in a room
    * Used for signaling takeover start/end to the agent
    */
