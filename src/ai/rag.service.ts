@@ -1,5 +1,6 @@
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
+import { Prisma } from '@prisma/client';
 import {
   BedrockRuntimeClient,
   InvokeModelCommand,
@@ -38,6 +39,11 @@ export class RagService implements OnModuleInit {
     10,
   );
 
+  // Retry configuration for AWS Bedrock
+  private readonly BEDROCK_MAX_RETRIES = 3;
+  private readonly BEDROCK_RETRY_DELAY = 1000; // ms
+  private readonly BEDROCK_RETRY_BACKOFF = 2; // exponential backoff multiplier
+
   constructor(private readonly prisma: PrismaService) {}
 
   async onModuleInit() {
@@ -70,6 +76,7 @@ export class RagService implements OnModuleInit {
    * - Chunks text into smaller pieces
    * - Generates embeddings
    * - Stores in PGVector
+   * - Supports partial failure (continues even if some chunks fail)
    */
   async indexConversation(
     callId: string,
@@ -96,14 +103,32 @@ export class RagService implements OnModuleInit {
         `Created ${enrichedChunks.length} contextual chunk(s) for call: ${callId}`,
       );
 
-      // Generate embeddings and store
+      // Generate embeddings and store with partial failure support
+      let successCount = 0;
+      let failureCount = 0;
+
       for (const chunk of enrichedChunks) {
-        await this.indexChunk(wardId, callId, chunk.content, transcripts, chunk.metadata);
+        try {
+          await this.indexChunk(wardId, callId, chunk.content, transcripts, chunk.metadata);
+          successCount++;
+        } catch (error) {
+          failureCount++;
+          this.logger.error(
+            `Failed to index chunk ${successCount + failureCount}/${enrichedChunks.length}: ${error.message}`,
+          );
+          // Continue processing remaining chunks instead of failing entirely
+        }
       }
 
-      this.logger.log(
-        `Successfully indexed ${enrichedChunks.length} chunk(s) for call: ${callId}`,
-      );
+      if (failureCount > 0) {
+        this.logger.warn(
+          `Partial indexing for call ${callId}: ${successCount} succeeded, ${failureCount} failed`,
+        );
+      } else {
+        this.logger.log(
+          `Successfully indexed ${successCount} chunk(s) for call: ${callId}`,
+        );
+      }
     } catch (error) {
       this.logger.error(`Failed to index conversation: ${error.message}`, error.stack);
       throw error;
@@ -144,21 +169,25 @@ export class RagService implements OnModuleInit {
 
   /**
    * Get conversation history for a ward (useful for context building)
+   * Uses Prisma.sql for type-safe, SQL injection-proof queries
    */
   async getRecentContext(
     wardId: string,
     limit: number = 10,
   ): Promise<Array<{ text: string; createdAt: Date }>> {
     try {
+      // Use Prisma.sql template to safely interpolate parameters
       const results = await this.prisma.$queryRaw<
         Array<{ chunk_text: string; created_at: Date }>
-      >`
-        SELECT chunk_text, created_at
-        FROM conversation_vectors
-        WHERE ward_id = ${wardId}::uuid
-        ORDER BY created_at DESC
-        LIMIT ${limit}
-      `;
+      >(
+        Prisma.sql`
+          SELECT chunk_text, created_at
+          FROM conversation_vectors
+          WHERE ward_id = ${wardId}::uuid
+          ORDER BY created_at DESC
+          LIMIT ${limit}
+        `,
+      );
 
       return results.map((r) => ({
         text: r.chunk_text,
@@ -247,33 +276,91 @@ export class RagService implements OnModuleInit {
     return snippet.substring(0, 30) || '대화 요약';
   }
 
+  /**
+   * Generate embedding with exponential backoff retry logic
+   * Handles transient network errors and rate limiting
+   */
   private async generateEmbedding(text: string): Promise<number[]> {
-    try {
-      // Prepare Bedrock Titan Embeddings V2 request
-      const requestBody = {
-        inputText: text,
-        dimensions: this.VECTOR_DIMENSIONS,
-        normalize: true, // Normalize vectors for cosine similarity
-      };
+    let lastError: Error | null = null;
 
-      const command = new InvokeModelCommand({
-        modelId: this.EMBEDDING_MODEL,
-        body: JSON.stringify(requestBody),
-        contentType: 'application/json',
-        accept: 'application/json',
-      });
+    for (let attempt = 0; attempt < this.BEDROCK_MAX_RETRIES; attempt++) {
+      try {
+        // Prepare Bedrock Titan Embeddings V2 request
+        const requestBody = {
+          inputText: text,
+          dimensions: this.VECTOR_DIMENSIONS,
+          normalize: true, // Normalize vectors for cosine similarity
+        };
 
-      const response = await this.bedrockClient.send(command);
-      const responseBody = JSON.parse(new TextDecoder().decode(response.body));
+        const command = new InvokeModelCommand({
+          modelId: this.EMBEDDING_MODEL,
+          body: JSON.stringify(requestBody),
+          contentType: 'application/json',
+          accept: 'application/json',
+        });
 
-      // Titan V2 returns: { embedding: number[], inputTextTokenCount: number }
-      return responseBody.embedding;
-    } catch (error) {
-      this.logger.error(`Failed to generate embedding: ${error.message}`);
-      throw error;
+        const response = await this.bedrockClient.send(command);
+        const responseBody = JSON.parse(new TextDecoder().decode(response.body));
+
+        // Titan V2 returns: { embedding: number[], inputTextTokenCount: number }
+        return responseBody.embedding;
+      } catch (error) {
+        lastError = error;
+        const isRetryableError = this.isRetryableError(error);
+
+        if (attempt < this.BEDROCK_MAX_RETRIES - 1 && isRetryableError) {
+          const delayMs = this.BEDROCK_RETRY_DELAY * Math.pow(this.BEDROCK_RETRY_BACKOFF, attempt);
+          this.logger.warn(
+            `Bedrock embedding failed (attempt ${attempt + 1}/${this.BEDROCK_MAX_RETRIES}): ${error.message}. Retrying in ${delayMs}ms...`,
+          );
+          await this.sleep(delayMs);
+        } else {
+          // Non-retryable error or final attempt
+          this.logger.error(
+            `Failed to generate embedding after ${attempt + 1} attempt(s): ${error.message}`,
+          );
+          break;
+        }
+      }
     }
+
+    throw lastError || new Error('Failed to generate embedding');
   }
 
+  /**
+   * Check if error is retryable (network issues, throttling, etc.)
+   */
+  private isRetryableError(error: any): boolean {
+    // Retry on network errors
+    if (error.code === 'ECONNRESET' || error.code === 'ETIMEDOUT' || error.code === 'ENOTFOUND') {
+      return true;
+    }
+
+    // Retry on AWS throttling errors
+    if (error.name === 'ThrottlingException' || error.name === 'TooManyRequestsException') {
+      return true;
+    }
+
+    // Retry on service unavailable
+    if (error.name === 'ServiceUnavailableException' || error.$metadata?.httpStatusCode === 503) {
+      return true;
+    }
+
+    // Don't retry on validation errors or auth errors
+    return false;
+  }
+
+  /**
+   * Sleep utility for retry delays
+   */
+  private sleep(ms: number): Promise<void> {
+    return new Promise((resolve) => setTimeout(resolve, ms));
+  }
+
+  /**
+   * Index a single chunk with safe parameterized queries
+   * Prevents SQL injection through Prisma's tagged templates
+   */
   private async indexChunk(
     wardId: string,
     callId: string,
@@ -282,7 +369,7 @@ export class RagService implements OnModuleInit {
     extraMetadata: Record<string, any> = {},
   ): Promise<void> {
     try {
-      // Generate embedding
+      // Generate embedding with retry logic
       const embedding = await this.generateEmbedding(chunkText);
 
       // Extract metadata
@@ -293,17 +380,24 @@ export class RagService implements OnModuleInit {
         ...extraMetadata,
       };
 
+      // Safely convert to PostgreSQL types
+      const embeddingStr = JSON.stringify(embedding);
+      const metadataStr = JSON.stringify(metadata);
+
       // Store in PGVector only (permanent storage)
-      const result = await this.prisma.$executeRaw`
-        INSERT INTO conversation_vectors (ward_id, call_id, chunk_text, embedding, metadata)
-        VALUES (
-          ${wardId}::uuid,
-          ${callId}::uuid,
-          ${chunkText},
-          ${JSON.stringify(embedding)}::vector,
-          ${JSON.stringify(metadata)}::jsonb
-        )
-      `;
+      // Use Prisma.sql for type-safe, SQL injection-proof queries
+      await this.prisma.$executeRaw(
+        Prisma.sql`
+          INSERT INTO conversation_vectors (ward_id, call_id, chunk_text, embedding, metadata)
+          VALUES (
+            ${wardId}::uuid,
+            ${callId}::uuid,
+            ${chunkText},
+            ${embeddingStr}::vector,
+            ${metadataStr}::jsonb
+          )
+        `,
+      );
 
       this.logger.debug(`Indexed chunk: ${chunkText.substring(0, 50)}...`);
     } catch (error) {
@@ -313,28 +407,38 @@ export class RagService implements OnModuleInit {
   }
 
 
+  /**
+   * Search PGVector for similar conversations
+   * Uses Prisma.sql for type-safe, SQL injection-proof queries
+   */
   private async searchPGVector(
     wardId: string,
     queryEmbedding: number[],
     limit: number,
   ): Promise<Array<{ text: string; metadata: any; similarity: number }>> {
     try {
+      // Safely convert embedding array to PostgreSQL vector format
+      // Use Prisma.sql for parameterized queries
+      const embeddingStr = JSON.stringify(queryEmbedding);
+
       const results = await this.prisma.$queryRaw<
         Array<{
           chunk_text: string;
           metadata: any;
           similarity: number;
         }>
-      >`
-        SELECT
-          chunk_text,
-          metadata,
-          1 - (embedding <=> ${JSON.stringify(queryEmbedding)}::vector) AS similarity
-        FROM conversation_vectors
-        WHERE ward_id = ${wardId}::uuid
-        ORDER BY embedding <=> ${JSON.stringify(queryEmbedding)}::vector
-        LIMIT ${limit}
-      `;
+      >(
+        Prisma.sql`
+          SELECT
+            chunk_text,
+            metadata,
+            1 - (embedding <=> ${embeddingStr}::vector) AS similarity
+          FROM conversation_vectors
+          WHERE ward_id = ${wardId}::uuid
+          ORDER BY embedding <=> ${embeddingStr}::vector
+          LIMIT ${limit}
+        `,
+      );
 
       return results.map((r) => ({
         text: r.chunk_text,
