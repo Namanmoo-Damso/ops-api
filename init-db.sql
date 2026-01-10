@@ -11,6 +11,7 @@
 -- Enable required PostgreSQL extensions
 -- 현재 사용중인 확장 프로그램 설치
 CREATE EXTENSION IF NOT EXISTS pg_trgm;
+CREATE EXTENSION IF NOT EXISTS vector;
 
 -- CreateSchema
 CREATE SCHEMA IF NOT EXISTS "public";
@@ -360,6 +361,19 @@ CREATE TABLE "transcripts" (
     CONSTRAINT "transcripts_text_not_empty_check" CHECK (LENGTH(TRIM("text")) > 0)
 );
 
+-- CreateTable: conversation_vectors (RAG vector storage)
+CREATE TABLE "conversation_vectors" (
+    "id" UUID NOT NULL DEFAULT gen_random_uuid(),
+    "ward_id" UUID NOT NULL,
+    "call_id" UUID NOT NULL,
+    "chunk_text" TEXT NOT NULL,
+    "embedding" vector(1024),
+    "metadata" JSONB,
+    "created_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    CONSTRAINT "conversation_vectors_pkey" PRIMARY KEY ("id")
+);
+
 -- ============================================================================
 -- INDEXES
 -- ============================================================================
@@ -488,6 +502,14 @@ CREATE INDEX "transcripts_room_name_idx" ON "transcripts"("room_name");
 CREATE INDEX "transcripts_timestamp_idx" ON "transcripts"("timestamp");
 CREATE INDEX "transcripts_speaker_id_speaker_type_idx" ON "transcripts"("speaker_id", "speaker_type");
 
+-- Conversation vectors indexes (RAG)
+CREATE INDEX "conversation_vectors_ward_id_idx" ON "conversation_vectors"("ward_id");
+CREATE INDEX "conversation_vectors_call_id_idx" ON "conversation_vectors"("call_id");
+CREATE INDEX "conversation_vectors_created_at_idx" ON "conversation_vectors"("created_at");
+CREATE INDEX "conversation_vectors_ward_id_created_at_idx" ON "conversation_vectors"("ward_id", "created_at" DESC);
+-- HNSW index for fast vector similarity search (m=16, ef_construction=64)
+CREATE INDEX "conversation_vectors_embedding_idx" ON "conversation_vectors" USING hnsw (embedding vector_cosine_ops) WITH (m = 16, ef_construction = 64);
+
 -- ============================================================================
 -- FOREIGN KEYS
 -- ============================================================================
@@ -524,3 +546,5 @@ ALTER TABLE "admins" ADD CONSTRAINT "admins_organization_id_fkey" FOREIGN KEY ("
 ALTER TABLE "admin_permissions" ADD CONSTRAINT "admin_permissions_admin_id_fkey" FOREIGN KEY ("admin_id") REFERENCES "admins"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 ALTER TABLE "admin_refresh_tokens" ADD CONSTRAINT "admin_refresh_tokens_admin_id_fkey" FOREIGN KEY ("admin_id") REFERENCES "admins"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 ALTER TABLE "transcripts" ADD CONSTRAINT "transcripts_call_id_fkey" FOREIGN KEY ("call_id") REFERENCES "calls"("call_id") ON DELETE CASCADE ON UPDATE CASCADE;
+ALTER TABLE "conversation_vectors" ADD CONSTRAINT "conversation_vectors_ward_id_fkey" FOREIGN KEY ("ward_id") REFERENCES "wards"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+ALTER TABLE "conversation_vectors" ADD CONSTRAINT "conversation_vectors_call_id_fkey" FOREIGN KEY ("call_id") REFERENCES "calls"("call_id") ON DELETE CASCADE ON UPDATE CASCADE;

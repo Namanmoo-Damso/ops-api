@@ -93,4 +93,39 @@ export class TranscriptStore {
       return null;
     }
   }
+
+  async getTranscriptEntries(callId: string): Promise<Array<{ speaker: string; text: string; timestamp?: string }> | null> {
+    if (!callId) return null;
+    const client = await this.getClient();
+    if (!client) return null;
+
+    const key = `call:${callId}:transcripts`;
+    try {
+      const entries = await client.lRange(key, 0, -1);
+      if (!entries.length) return null;
+
+      const results: Array<{ speaker: string; text: string; timestamp?: string }> = [];
+      for (const raw of entries) {
+        try {
+          const parsed = JSON.parse(raw) as TranscriptEntry;
+          if (parsed.speaker && parsed.text) {
+            results.push({
+              speaker: parsed.speaker,
+              text: parsed.text,
+              timestamp: parsed.timestamp,
+            });
+          }
+        } catch {
+          // Ignore malformed transcript entries.
+        }
+      }
+
+      return results.length ? results : null;
+    } catch (error) {
+      this.logger.warn(
+        `Redis transcript entries fetch failed callId=${callId} error=${(error as Error).message}`,
+      );
+      return null;
+    }
+  }
 }

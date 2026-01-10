@@ -2,6 +2,8 @@ import { Module, Global } from '@nestjs/common';
 import { AiService } from './ai.service';
 import { AiAnalysisProvider } from './ai.interface';
 import { TranscriptStore } from './transcript.store';
+import { RagService } from './rag.service';
+import { RagController } from './rag.controller';
 import { OpenAiProvider } from './providers/openai.provider';
 import { BedrockProvider } from './providers/bedrock.provider';
 import { DEFAULT_AI_INSTRUCTION, AI_RESPONSE_SCHEMA } from './ai.constants';
@@ -10,13 +12,16 @@ import { DEFAULT_AI_INSTRUCTION, AI_RESPONSE_SCHEMA } from './ai.constants';
  * AI 모듈
  *
  * OpenAI 기반 통화 분석, 건강 키워드 추출 등 AI 기능을 제공합니다.
+ * RAG (Retrieval-Augmented Generation) 기능 포함
  * @Global() 데코레이터로 전역 모듈로 등록
  */
 @Global()
 @Module({
+  controllers: [RagController],
   providers: [
     AiService,
     TranscriptStore,
+    RagService,
     {
       provide: AiAnalysisProvider,
       useFactory: () => {
@@ -69,6 +74,6 @@ import { DEFAULT_AI_INSTRUCTION, AI_RESPONSE_SCHEMA } from './ai.constants';
       },
     },
   ],
-  exports: [AiService],
+  exports: [AiService, RagService],
 })
 export class AiModule {}
