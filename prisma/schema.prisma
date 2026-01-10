@@ -571,3 +571,22 @@ model Transcript {
   @@index([speakerId, speakerType])
   @@map("transcripts")
 }
+
+// =============================================================================
+// 25. CONVERSATION_VECTORS - RAG vector embeddings for conversation search
+// =============================================================================
+model ConversationVector {
+  id          String                     @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  wardId      String                     @map("ward_id") @db.Uuid
+  callId      String                     @map("call_id") @db.Uuid
+  chunkText   String                     @map("chunk_text")   // Original text chunk
+  embedding   Unsupported("vector(1024)")?                     // Bedrock Titan V2 embedding (1024 dimensions)
+  metadata    Json?                                            // { speaker, topics, sentiment, etc. }
+  createdAt   DateTime                   @default(now()) @map("created_at")
+
+  @@index([wardId])
+  @@index([callId])
+  @@index([createdAt])
+  // HNSW index for vector similarity search (created via migration SQL)
+  @@map("conversation_vectors")
+}
