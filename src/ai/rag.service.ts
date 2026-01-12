@@ -1,4 +1,9 @@
-import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
+import {
+  Injectable,
+  Logger,
+  OnModuleInit,
+  BadRequestException,
+} from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { Prisma } from '@prisma/client';
 import {
@@ -6,10 +11,7 @@ import {
   InvokeModelCommand,
 } from '@aws-sdk/client-bedrock-runtime';
 import { createClient, type RedisClientType } from 'redis';
-import {
-  buildContextualChunks,
-  type TranscriptLine,
-} from './rag.chunks';
+import { buildContextualChunks, type TranscriptLine } from './rag.chunks';
 import { GreetingGenerator } from './rag.greeting';
 
 /**
@@ -35,9 +37,7 @@ export class RagService implements OnModuleInit {
   private readonly EMBEDDING_MODEL =
     process.env.EMBEDDING_MODEL || 'amazon.titan-embed-text-v2:0';
   private readonly LLM_MODEL =
-
-    process.env.BEDROCK_MODEL ||
-    'anthropic.claude-3-5-sonnet-20241022-v2:0';
+    process.env.BEDROCK_MODEL || 'anthropic.claude-3-5-sonnet-20241022-v2:0';
   private readonly SEARCH_LIMIT = parseInt(
     process.env.RAG_SEARCH_LIMIT || '5',
     10,
@@ -52,18 +52,47 @@ export class RagService implements OnModuleInit {
   );
 
   // Retry configuration for AWS Bedrock
-  private readonly BEDROCK_MAX_RETRIES = 3;
-  private readonly BEDROCK_RETRY_DELAY = 1000; // ms
-  private readonly BEDROCK_RETRY_BACKOFF = 2; // exponential backoff multiplier
+  private readonly BEDROCK_MAX_RETRIES = parseInt(
+    process.env.BEDROCK_MAX_RETRIES || '3',
+    10,
+  );
+  private readonly BEDROCK_RETRY_DELAY = parseInt(
+    process.env.BEDROCK_RETRY_DELAY_MS || '1000',
+    10,
+  );
+  private readonly BEDROCK_RETRY_BACKOFF = parseInt(
+    process.env.BEDROCK_RETRY_BACKOFF_FACTOR || '2',
+    10,
+  );
 
   // Redis cache configuration
-  private readonly REDIS_CACHE_TTL = 3600; // 1 hour
-  private readonly REDIS_GREETING_TTL = 600; // 1 hour for greeting cache
-  private readonly WEEKLY_CONTEXT_DAYS = 7;
+  private readonly REDIS_CACHE_TTL = parseInt(
+    process.env.REDIS_CACHE_TTL || '3600',
+    10,
+  );
+  private readonly REDIS_GREETING_TTL = parseInt(
+    process.env.REDIS_GREETING_TTL || '600',
+    10,
+  );
+  private readonly WEEKLY_CONTEXT_DAYS = parseInt(
+    process.env.WEEKLY_CONTEXT_DAYS || '7',
+    10,
+  );
 
   // LLM input limits for greeting generation
-  private readonly MAX_CONTEXT_CHARS = 3000; // Max characters for context (≈750 tokens)
-  private readonly MAX_GREETING_TOKENS = 200; // Max tokens for greeting output
+  private readonly MAX_CONTEXT_CHARS = parseInt(
+    process.env.MAX_CONTEXT_CHARS || '3000',
+    10,
+  );
+  private readonly MAX_GREETING_TOKENS = parseInt(
+    process.env.MAX_GREETING_TOKENS || '200',
+    10,
+  );
+
+  // Similarity threshold for search results
+  private readonly SIMILARITY_THRESHOLD = parseFloat(
+    process.env.SIMILARITY_THRESHOLD || '0.0',
+  );
 
   constructor(private readonly prisma: PrismaService) {}
 
@@ -93,8 +122,8 @@ export class RagService implements OnModuleInit {
         await this.redisClient.connect();
         this.logger.log('Redis connected for RAG vector cache');
       } catch (error) {
-        this.logger.warn(
-          `Redis connection failed: ${error.message}. Vector cache disabled.`,
+        this.logger.error(
+          `Redis connection failed: ${error.message}. Vector cache disabled - performance will be degraded.`,
         );
         this.redisClient = null;
       }
@@ -139,6 +168,11 @@ export class RagService implements OnModuleInit {
     wardId: string,
     transcripts: TranscriptLine[],
   ): Promise<void> {
+    // Input validation
+    if (!callId || !wardId) {
+      throw new BadRequestException('callId and wardId are required');
+    }
+
     try {
       this.logger.log(
         `Indexing conversation: callId=${callId}, wardId=${wardId}`,
@@ -149,16 +183,28 @@ export class RagService implements OnModuleInit {
         return;
       }
 
-      // 최근 7일 맥락을 참고하여 청크 구성
+      // 최근 7일 맥락을 참고하여 청크 구성 (메모리 제한 적용)
       const pastContext = await this.getRecentContext(wardId, 20);
-      const pastContextText = pastContext
+      let pastContextText = pastContext
         .map(c => c.text)
         .filter(Boolean)
         .join('\n');
 
-      const enrichedChunks = buildContextualChunks(transcripts, pastContextText, {
-        chunkSize: this.CHUNK_SIZE,
-      });
+      // Limit context size to prevent memory issues
+      if (pastContextText.length > this.MAX_CONTEXT_CHARS) {
+        pastContextText = pastContextText.substring(0, this.MAX_CONTEXT_CHARS);
+        this.logger.warn(
+          `Past context truncated to ${this.MAX_CONTEXT_CHARS} chars for call: ${callId}`,
+        );
+      }
+
+      const enrichedChunks = buildContextualChunks(
+        transcripts,
+        pastContextText,
+        {
+          chunkSize: this.CHUNK_SIZE,
+        },
+      );
       this.logger.log(
         `Created ${enrichedChunks.length} contextual chunk(s) for call: ${callId}`,
       );
@@ -187,7 +233,7 @@ export class RagService implements OnModuleInit {
       }
 
       if (failureCount > 0) {
-        this.logger.warn(
+        this.logger.error(
           `Partial indexing for call ${callId}: ${successCount} succeeded, ${failureCount} failed`,
         );
       } else {
@@ -211,6 +257,10 @@ export class RagService implements OnModuleInit {
    * - Automatically expires after 1 hour
    */
   async preloadWeeklyContext(wardId: string): Promise<void> {
+    if (!wardId) {
+      throw new BadRequestException('wardId is required');
+    }
+
     if (!this.redisClient) {
       this.logger.warn('Redis not available - skipping context preload');
       return;
@@ -277,10 +327,15 @@ export class RagService implements OnModuleInit {
     query: string,
     limit?: number,
   ): Promise<Array<{ text: string; metadata: any; similarity: number }>> {
+    // Input validation
+    if (!wardId || !query) {
+      throw new BadRequestException('wardId and query are required');
+    }
+
     try {
       const searchLimit = limit || this.SEARCH_LIMIT;
       this.logger.log(
-        `Searching for: "${query}" (ward=${wardId}, limit=${searchLimit})`,
+        `Searching for: "${query}" (ward=${wardId}, limit=${searchLimit}, threshold=${this.SIMILARITY_THRESHOLD})`,
       );
 
       // Generate query embedding
@@ -298,9 +353,9 @@ export class RagService implements OnModuleInit {
             this.logger.log(`✅ Redis cache HIT: ${cached.length} results`);
             return cached;
           }
-          this.logger.log(`⚠️  Redis cache MISS - falling back to PGVector`);
+          this.logger.warn(`⚠️  Redis cache MISS - falling back to PGVector`);
         } catch (error) {
-          this.logger.warn(
+          this.logger.error(
             `Redis search failed: ${error.message} - falling back to PGVector`,
           );
         }
@@ -372,9 +427,19 @@ export class RagService implements OnModuleInit {
       }
     }
 
-    // Sort by similarity (highest first) and return top N
-    results.sort((a, b) => b.similarity - a.similarity);
-    return results.slice(0, limit);
+    // Filter by similarity threshold and sort by similarity (highest first)
+    const filtered = results.filter(
+      r => r.similarity >= this.SIMILARITY_THRESHOLD,
+    );
+    filtered.sort((a, b) => b.similarity - a.similarity);
+
+    if (filtered.length < results.length) {
+      this.logger.debug(
+        `Filtered ${results.length - filtered.length} results below threshold ${this.SIMILARITY_THRESHOLD}`,
+      );
+    }
+
+    return filtered.slice(0, limit);
   }
 
   /**
@@ -390,6 +455,9 @@ export class RagService implements OnModuleInit {
     wardId: string,
     limit: number = 10,
   ): Promise<Array<{ text: string; createdAt: Date }>> {
+    if (!wardId) {
+      throw new BadRequestException('wardId is required');
+    }
     try {
       // 🚀 Try Redis cache first (FAST PATH)
       if (this.redisClient) {
@@ -455,10 +523,8 @@ export class RagService implements OnModuleInit {
    * Handles transient network errors and rate limiting
    */
   private async generateEmbedding(text: string): Promise<number[]> {
-    let lastError: Error | null = null;
-
-    for (let attempt = 0; attempt < this.BEDROCK_MAX_RETRIES; attempt++) {
-      try {
+    return this.retryAsync(
+      async () => {
         // Prepare Bedrock Titan Embeddings V2 request
         const requestBody = {
           inputText: text,
@@ -480,29 +546,49 @@ export class RagService implements OnModuleInit {
 
         // Titan V2 returns: { embedding: number[], inputTextTokenCount: number }
         return responseBody.embedding;
+      },
+      this.BEDROCK_MAX_RETRIES,
+      this.BEDROCK_RETRY_DELAY,
+      this.BEDROCK_RETRY_BACKOFF,
+      'generate embedding',
+    );
+  }
+
+  /**
+   * Generic retry helper with exponential backoff
+   */
+  private async retryAsync<T>(
+    fn: () => Promise<T>,
+    maxRetries: number,
+    delayMs: number,
+    backoffFactor: number,
+    operationName: string,
+  ): Promise<T> {
+    let lastError: Error | null = null;
+
+    for (let attempt = 0; attempt < maxRetries; attempt++) {
+      try {
+        return await fn();
       } catch (error) {
         lastError = error;
-        const isRetryableError = this.isRetryableError(error);
+        const isRetryable = this.isRetryableError(error);
 
-        if (attempt < this.BEDROCK_MAX_RETRIES - 1 && isRetryableError) {
-          const delayMs =
-            this.BEDROCK_RETRY_DELAY *
-            Math.pow(this.BEDROCK_RETRY_BACKOFF, attempt);
+        if (attempt < maxRetries - 1 && isRetryable) {
+          const currentDelay = delayMs * Math.pow(backoffFactor, attempt);
           this.logger.warn(
-            `Bedrock embedding failed (attempt ${attempt + 1}/${this.BEDROCK_MAX_RETRIES}): ${error.message}. Retrying in ${delayMs}ms...`,
+            `${operationName} failed (attempt ${attempt + 1}/${maxRetries}): ${error.message}. Retrying in ${currentDelay}ms...`,
           );
-          await this.sleep(delayMs);
+          await this.sleep(currentDelay);
         } else {
-          // Non-retryable error or final attempt
           this.logger.error(
-            `Failed to generate embedding after ${attempt + 1} attempt(s): ${error.message}`,
+            `Failed to ${operationName} after ${attempt + 1} attempt(s): ${error.message}`,
           );
           break;
         }
       }
     }
 
-    throw lastError || new Error('Failed to generate embedding');
+    throw lastError || new Error(`Failed to ${operationName}`);
   }
 
   /**
@@ -627,7 +713,18 @@ export class RagService implements OnModuleInit {
         `,
       );
 
-      return results.map(r => ({
+      // Filter by similarity threshold
+      const filtered = results.filter(
+        r => r.similarity >= this.SIMILARITY_THRESHOLD,
+      );
+
+      if (filtered.length < results.length) {
+        this.logger.debug(
+          `Filtered ${results.length - filtered.length} PGVector results below threshold ${this.SIMILARITY_THRESHOLD}`,
+        );
+      }
+
+      return filtered.map(r => ({
         text: r.chunk_text,
         metadata: r.metadata,
         similarity: r.similarity,
@@ -670,6 +767,9 @@ export class RagService implements OnModuleInit {
     wardId: string,
     callDirection: 'inbound' | 'outbound' = 'inbound',
   ): Promise<string> {
+    if (!wardId) {
+      throw new BadRequestException('wardId is required');
+    }
     return this.getGreetingGenerator().generatePersonalizedGreeting(
       wardId,
       callDirection,

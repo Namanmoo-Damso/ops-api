@@ -37,13 +37,19 @@ export class TranscriptStore {
       .connect()
       .then(() => {
         // Handle runtime errors after successful connection
-        this.client?.on('error', (error) => {
-          this.logger.error(`Redis runtime error: ${error.message}`, error.stack);
+        this.client?.on('error', error => {
+          this.logger.error(
+            `Redis runtime error: ${error.message}`,
+            error.stack,
+          );
         });
         return this.client;
       })
-      .catch((error) => {
-        this.logger.error(`Redis connection failed: ${(error as Error).message}`, (error as Error).stack);
+      .catch(error => {
+        this.logger.error(
+          `Redis connection failed: ${(error as Error).message}`,
+          (error as Error).stack,
+        );
         throw error;
       })
       .finally(() => {
@@ -94,7 +100,13 @@ export class TranscriptStore {
     }
   }
 
-  async getTranscriptEntries(callId: string): Promise<Array<{ speaker: string; text: string; timestamp?: string }> | null> {
+  async getTranscriptEntries(
+    callId: string,
+  ): Promise<Array<{
+    speaker: string;
+    text: string;
+    timestamp?: string;
+  }> | null> {
     if (!callId) return null;
     const client = await this.getClient();
     if (!client) return null;
@@ -104,7 +116,11 @@ export class TranscriptStore {
       const entries = await client.lRange(key, 0, -1);
       if (!entries.length) return null;
 
-      const results: Array<{ speaker: string; text: string; timestamp?: string }> = [];
+      const results: Array<{
+        speaker: string;
+        text: string;
+        timestamp?: string;
+      }> = [];
       for (const raw of entries) {
         try {
           const parsed = JSON.parse(raw) as TranscriptEntry;
