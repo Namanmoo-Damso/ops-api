@@ -55,6 +55,24 @@ export class UserRepository {
     return user ? toUserRow(user) : undefined;
   }
 
+  /**
+   * Find all participants (users whose identity doesn't start with admin_, agent-, or 담소)
+   * These are the actual callers/ward users for the monitoring dashboard
+   */
+  async findParticipants(): Promise<UserRow[]> {
+    const users = await this.prisma.user.findMany({
+      where: {
+        AND: [
+          { identity: { not: { startsWith: 'admin_' } } },
+          { identity: { not: { startsWith: 'agent-' } } },
+          { identity: { not: { startsWith: '담소' } } },
+        ],
+      },
+      orderBy: { updatedAt: 'desc' },
+    });
+    return users.map(toUserRow);
+  }
+
   async updateType(
     userId: string,
     userType: 'guardian' | 'ward',

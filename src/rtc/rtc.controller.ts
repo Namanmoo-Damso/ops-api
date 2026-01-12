@@ -222,6 +222,46 @@ export class RtcController {
     }
   }
 
+  /**
+   * Get all participants (users) from the database
+   * Returns users whose identity doesn't start with 'admin_' or 'agent-'
+   * This is used to populate the participant sidebar with persistent data
+   */
+  @Get('v1/livekit/participants')
+  async listParticipants(
+    @Headers('authorization') authorization: string | undefined,
+  ) {
+    const config = this.configService.getConfig();
+    const auth = this.authService.getAuthContext(authorization);
+    if (config.authRequired && !auth) {
+      throw new HttpException('Unauthorized', HttpStatus.UNAUTHORIZED);
+    }
+
+    try {
+      const participants = await this.dbService.findParticipants();
+      this.logger.log(`listParticipants count=${participants.length}`);
+      return {
+        participants: participants.map(p => ({
+          id: p.identity,
+          name: p.display_name || p.nickname || p.identity,
+          identity: p.identity,
+          email: p.email,
+          userType: p.user_type,
+          lastSeen: p.updated_at,
+          online: false, // Will be updated by live room data
+        })),
+      };
+    } catch (error) {
+      this.logger.warn(
+        `listParticipants failed error=${(error as Error).message}`,
+      );
+      throw new HttpException(
+        'Failed to query participants',
+        HttpStatus.INTERNAL_SERVER_ERROR,
+      );
+    }
+  }
+
   @Post('v1/livekit/bot')
   async createBotWithAgent(
     @Headers('authorization') authorization: string | undefined,
@@ -321,18 +361,13 @@ export class RtcController {
 
     try {
       await this.liveKitService.muteAgentInRoom(roomName, mute);
-      this.logger.log(
-        `muteAgentInRoom room=${roomName} mute=${mute}`,
-      );
+      this.logger.log(`muteAgentInRoom room=${roomName} mute=${mute}`);
       return { success: true, roomName, mute };
     } catch (error) {
       this.logger.error(
         `muteAgentInRoom failed room=${roomName}: ${(error as Error).message}`,
       );
-      throw new HttpException(
-        'Failed to mute agent',
-        HttpStatus.BAD_GATEWAY,
-      );
+      throw new HttpException('Failed to mute agent', HttpStatus.BAD_GATEWAY);
     }
   }
 

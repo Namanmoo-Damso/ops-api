@@ -115,6 +115,10 @@ export class DbService implements OnModuleDestroy {
     return this.users.deleteUserRefreshTokens(userId);
   }
 
+  async findParticipants() {
+    return this.users.findParticipants();
+  }
+
   // ============================================================
   // Device methods
   // ============================================================
