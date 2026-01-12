@@ -74,6 +74,6 @@ import { DEFAULT_AI_INSTRUCTION, AI_RESPONSE_SCHEMA } from './ai.constants';
       },
     },
   ],
-  exports: [AiService, RagService],
+  exports: [AiService, RagService, TranscriptStore],
 })
 export class AiModule {}
