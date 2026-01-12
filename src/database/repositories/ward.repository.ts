@@ -147,8 +147,38 @@ export class WardRepository {
       })
     | undefined
   > {
-    const ward = await this.prisma.ward.findFirst({
-      where: { guardianId },
+    // guardian_ward_registrations를 통해 연결된 ward 조회
+    const registration = await this.prisma.guardianWardRegistration.findFirst({
+      where: {
+        guardianId,
+        linkedWardId: { not: null },
+      },
+      select: { linkedWardId: true },
+    });
+
+    if (!registration?.linkedWardId) {
+      // fallback: 기존 방식 (wards.guardian_id로 직접 연결)
+      const ward = await this.prisma.ward.findFirst({
+        where: { guardianId },
+        include: {
+          user: {
+            select: {
+              nickname: true,
+              profileImageUrl: true,
+            },
+          },
+        },
+      });
+      if (!ward) return undefined;
+      return {
+        ...toWardRow(ward),
+        user_nickname: ward.user.nickname,
+        user_profile_image_url: ward.user.profileImageUrl,
+      };
+    }
+
+    const ward = await this.prisma.ward.findUnique({
+      where: { id: registration.linkedWardId },
       include: {
         user: {
           select: {

@@ -642,15 +642,14 @@ export class AuthService {
       };
     }
 
-    // 2. 새 guardian 생성 - wardPhoneNumber 필수
-    if (!params.wardPhoneNumber) {
-      throw new Error('wardPhoneNumber is required for new guardian');
-    }
-
+    // 2. 새 guardian 생성
     const dummyKakaoId = `dev_${Date.now()}_${Math.random().toString(36).substring(7)}`;
     const nickname =
       params.nickname || `테스트보호자_${Date.now().toString().slice(-4)}`;
     const email = params.email || `dev_${Date.now()}@test.local`;
+    // wardPhoneNumber가 없으면 더미 번호 생성
+    const wardPhoneNumber =
+      params.wardPhoneNumber || `010-0000-${Date.now().toString().slice(-4)}`;
 
     const user = await this.dbService.createUserWithKakao({
       kakaoId: dummyKakaoId,
@@ -667,7 +666,7 @@ export class AuthService {
       await this.dbService.registerGuardianWithTransaction({
         userId: user.id,
         wardEmail: params.wardEmail,
-        wardPhoneNumber: params.wardPhoneNumber,
+        wardPhoneNumber,
         wardBasicInfo: params.wardBasicInfo,
         aiCareInfo: params.aiCareInfo,
         callSchedule: params.callSchedule,
