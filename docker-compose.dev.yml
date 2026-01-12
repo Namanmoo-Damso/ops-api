@@ -1,6 +1,8 @@
 services:
   caddy:
     image: caddy:2
+    environment:
+      - TZ=Asia/Seoul
     network_mode: host
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
@@ -11,6 +13,8 @@ services:
   db:
     image: pgvector/pgvector:pg16
     env_file: ./db.env
+    environment:
+      - TZ=Asia/Seoul
     ports:
       - '5432:5432'
     volumes:
@@ -25,7 +29,11 @@ services:
 
   redis:
     image: redis:7-alpine
+    environment:
+      - TZ=Asia/Seoul
     command: ['redis-server', '--save', '60', '1', '--loglevel', 'warning']
+    ports:
+      - '6379:6379' # agent 서비스에서 localhost로 접근할 수 있도록
     volumes:
       - redis_data:/data
     healthcheck:
@@ -36,9 +44,11 @@ services:
     restart: unless-stopped
 
   api:
-    image: node:20-alpine
+    image: node:20-slim
     working_dir: /app
     env_file: ./api.env
+    environment:
+      - TZ=Asia/Seoul
     extra_hosts:
       - 'host.docker.internal:host-gateway'
     volumes:
@@ -61,9 +71,11 @@ services:
     restart: unless-stopped
 
   web:
-    image: node:20-alpine
+    image: node:20-slim
     working_dir: /app
     env_file: ../ops-web/web.env
+    environment:
+      - TZ=Asia/Seoul
     volumes:
       - ../ops-web:/app # 소스 코드 마운트
       - /app/node_modules # 컨테이너 내부 의존성 보호

@@ -130,8 +130,8 @@ export class DbService implements OnModuleDestroy {
     // 익명 사용자 생성 차단 - 기존 사용자만 허용
     // 카카오 JWT는 userId를, API 토큰은 identity를 전달하므로 둘 다 검색
     const user =
-      (await this.findUserById(params.identity)) ??
-      (await this.findUserByIdentity(params.identity));
+      (await this.findUserByIdentity(params.identity)) ??
+      (await this.findUserById(params.identity));
     if (!user) {
       throw new Error('로그인이 필요합니다');
     }
@@ -403,7 +403,11 @@ export class DbService implements OnModuleDestroy {
       isEnabled: boolean;
     }>,
   ) {
-    return this.guardians.createCallScheduleGroups(registrationId, wardId, items);
+    return this.guardians.createCallScheduleGroups(
+      registrationId,
+      wardId,
+      items,
+    );
   }
 
   async deleteCallScheduleGroupsByGuardian(guardianId: string) {
@@ -1050,7 +1054,10 @@ export class DbService implements OnModuleDestroy {
       });
 
       // 4. 스케줄 생성 (callSchedule이 있고 enabled인 경우)
-      if (params.callSchedule?.isEnabled && params.callSchedule.items.length > 0) {
+      if (
+        params.callSchedule?.isEnabled &&
+        params.callSchedule.items.length > 0
+      ) {
         await tx.callScheduleGroup.createMany({
           data: params.callSchedule.items.map(item => ({
             registrationId: registration.id,
