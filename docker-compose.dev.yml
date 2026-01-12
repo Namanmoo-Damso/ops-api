@@ -26,6 +26,8 @@ services:
   redis:
     image: redis:7-alpine
     command: ['redis-server', '--save', '60', '1', '--loglevel', 'warning']
+    ports:
+      - '6379:6379' # agent 서비스에서 localhost로 접근할 수 있도록
     volumes:
       - redis_data:/data
     healthcheck:
