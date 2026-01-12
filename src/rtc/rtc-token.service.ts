@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, HttpException, HttpStatus } from '@nestjs/common';
 import { randomUUID } from 'node:crypto';
 import { AccessToken, type AccessTokenOptions } from 'livekit-server-sdk';
 import { ConfigService } from '../core/config';
@@ -38,7 +38,7 @@ export class RtcTokenService {
     private readonly dbService: DbService,
     private readonly eventsService: EventsService,
     private readonly liveKitService: LiveKitService,
-  ) {}
+  ) { }
 
   /**
    * Create an isolated LiveKit room for a bot participant (identity starting with "bot-")
@@ -166,13 +166,52 @@ export class RtcTokenService {
         this.logger.warn(
           `issueToken rejected - user not found identity=${identity} (login required)`,
         );
-        throw new Error('로그인이 필요합니다');
+        throw new HttpException('로그인이 필요합니다', HttpStatus.UNAUTHORIZED);
       }
     }
 
     // Create room and add member for iOS users
     // Web admins don't create rooms, they only join existing rooms created by iOS users
     if (isIosUser) {
+      // 용량 체크: 동시 통화 제한 및 중복 통화 방지
+      const [activeCallCount, hasActiveCall, slotConfig] = await Promise.all([
+        this.dbService.getActiveCallCount(),
+        this.dbService.hasActiveCall(user.id),
+        this.dbService.getSlotConfig(),
+      ]);
+
+      if (hasActiveCall) {
+        this.logger.warn(
+          `issueToken rejected - user already in call userId=${user.id}`,
+        );
+        throw new HttpException(
+          {
+            success: false,
+            error: {
+              code: 'CALL_ALREADY_ACTIVE',
+              message: '이미 진행 중인 통화가 있습니다.',
+            },
+          },
+          HttpStatus.CONFLICT,
+        );
+      }
+
+      if (activeCallCount >= slotConfig.maxConcurrentCalls) {
+        this.logger.warn(
+          `issueToken rejected - server at capacity current=${activeCallCount} max=${slotConfig.maxConcurrentCalls}`,
+        );
+        throw new HttpException(
+          {
+            success: false,
+            error: {
+              code: 'SERVER_AT_CAPACITY',
+              message: '현재 서버가 혼잡합니다. 잠시 후 다시 시도해주세요.',
+            },
+          },
+          HttpStatus.SERVICE_UNAVAILABLE,
+        );
+      }
+
       await this.dbService.upsertRoomMember({
         roomName: roomName,
         userId: user.id,
@@ -205,7 +244,10 @@ export class RtcTokenService {
         }, 15000);
       } catch (err) {
         this.logger.error(`Failed to dispatch voice agent: ${(err as Error).message}`);
-        throw new Error('Voice agent dispatch failed');
+        throw new HttpException(
+          'Voice agent dispatch failed',
+          HttpStatus.SERVICE_UNAVAILABLE,
+        );
       }
 
       try {

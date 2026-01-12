@@ -14,7 +14,8 @@ export class AiCareInfoDto {
 
 export class CallScheduleItemDto {
   id?: string;
-  time: string; // "HH:mm"
+  slotStartHour: number; // 0-23
+  slotStartMinute: number; // 0, 10, 20, 30, 40, 50 (10분 단위)
   weekdays: number[]; // [0-6], 0=일요일
   isEnabled: boolean;
 }

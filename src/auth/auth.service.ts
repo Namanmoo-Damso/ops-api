@@ -492,7 +492,8 @@ export class AuthService {
       isEnabled: boolean;
       items: Array<{
         id?: string;
-        time: string;
+        slotStartHour: number;
+        slotStartMinute: number;
         weekdays: number[];
         isEnabled: boolean;
       }>;
@@ -579,7 +580,8 @@ export class AuthService {
       isEnabled: boolean;
       items: Array<{
         id?: string;
-        time: string;
+        slotStartHour: number;
+        slotStartMinute: number;
         weekdays: number[];
         isEnabled: boolean;
       }>;

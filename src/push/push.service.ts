@@ -1,5 +1,5 @@
 import { Injectable, Logger, OnModuleDestroy } from '@nestjs/common';
-import apn from '@parse/node-apn';
+import { Provider, Notification } from '@parse/node-apn';
 
 type PushType = 'alert' | 'voip';
 type PushEnvMode = 'prod' | 'sandbox' | 'both';
@@ -28,8 +28,8 @@ export class PushService implements OnModuleDestroy {
   private readonly bundleId?: string;
   private readonly voipTopic?: string;
   private readonly envMode: PushEnvMode;
-  private prodProvider?: any;
-  private sandboxProvider?: any;
+  private prodProvider?: Provider;
+  private sandboxProvider?: Provider;
 
   constructor() {
     this.keyPath = process.env.APNS_KEY_PATH;
@@ -56,12 +56,12 @@ export class PushService implements OnModuleDestroy {
     }
   }
 
-  private getProvider(env: PushEnv) {
+  private getProvider(env: PushEnv): Provider {
     this.ensureReady();
     if (env === 'prod') {
       if (!this.prodProvider) {
-        this.prodProvider = new (apn as any).Provider({
-          token: { key: this.keyPath, keyId: this.keyId, teamId: this.teamId },
+        this.prodProvider = new Provider({
+          token: { key: this.keyPath!, keyId: this.keyId!, teamId: this.teamId! },
           production: true,
         });
       }
@@ -69,8 +69,8 @@ export class PushService implements OnModuleDestroy {
     }
 
     if (!this.sandboxProvider) {
-      this.sandboxProvider = new (apn as any).Provider({
-        token: { key: this.keyPath, keyId: this.keyId, teamId: this.teamId },
+      this.sandboxProvider = new Provider({
+        token: { key: this.keyPath!, keyId: this.keyId!, teamId: this.teamId! },
         production: false,
       });
     }
@@ -124,7 +124,7 @@ export class PushService implements OnModuleDestroy {
         if (grouped[env].length === 0) continue;
         this.logger.log(`sendPush env=${env} batch=${grouped[env].length}`);
         const provider = this.getProvider(env);
-        const notification = new (apn as any).Notification();
+        const notification = new Notification();
         notification.topic = topic;
         notification.pushType = params.type;
         notification.priority = 10;

@@ -211,12 +211,27 @@ CREATE TABLE "call_schedules" (
     CONSTRAINT "call_schedules_pkey" PRIMARY KEY ("id")
 );
 
--- CreateTable: call_schedule_groups
+-- CreateTable: call_slot_configs (전역 슬롯 설정)
+CREATE TABLE "call_slot_configs" (
+    "id" INTEGER NOT NULL DEFAULT 1,
+    "slot_duration_minutes" INTEGER NOT NULL DEFAULT 10,
+    "max_call_duration_minutes" INTEGER NOT NULL DEFAULT 8,
+    "max_capacity_per_slot" INTEGER NOT NULL DEFAULT 40,
+    "max_concurrent_calls" INTEGER NOT NULL DEFAULT 50,
+    "valid_minutes" INTEGER[] NOT NULL DEFAULT ARRAY[0, 10, 20, 30, 40, 50],
+    "created_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updated_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    CONSTRAINT "call_slot_configs_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable: call_schedule_groups (슬롯 기반 스케줄)
 CREATE TABLE "call_schedule_groups" (
     "id" UUID NOT NULL DEFAULT gen_random_uuid(),
     "registration_id" UUID,
     "ward_id" UUID,
-    "time" TEXT NOT NULL,
+    "slot_start_hour" INTEGER NOT NULL,
+    "slot_start_minute" INTEGER NOT NULL,
     "weekdays" INTEGER[],
     "is_enabled" BOOLEAN NOT NULL DEFAULT true,
     "created_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -399,14 +414,19 @@ CREATE TABLE "conversation_vectors" (
 CREATE TABLE "care_alert_events" (
     "id" UUID NOT NULL DEFAULT gen_random_uuid(),
     "ward_id" UUID NOT NULL,
-    "alert_type" VARCHAR(20) NOT NULL,
-    "severity" VARCHAR(10) NOT NULL,
-    "timestamp" TIMESTAMPTZ NOT NULL,
+    "alert_type" TEXT NOT NULL,
+    "severity" TEXT NOT NULL,
+    "timestamp" TIMESTAMP(3) NOT NULL,
     "raw_payload" JSONB NOT NULL,
-    "acknowledged" BOOLEAN DEFAULT FALSE,
-    "acknowledged_at" TIMESTAMPTZ,
+    "acknowledged" BOOLEAN NOT NULL DEFAULT false,
+    "acknowledged_at" TIMESTAMP(3),
     "acknowledged_by" UUID,
-    "created_at" TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+    "created_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    -- Agent 연동 필드
+    "call_id" UUID,
+    "room_name" TEXT,
+    "agent_response" TEXT,
+    "source" TEXT NOT NULL DEFAULT 'ios',
 
     CONSTRAINT "care_alert_events_pkey" PRIMARY KEY ("id")
 );
@@ -501,6 +521,8 @@ CREATE INDEX "call_schedules_is_active_idx" ON "call_schedules"("is_active");
 CREATE INDEX "call_schedule_groups_registration_id_idx" ON "call_schedule_groups"("registration_id");
 CREATE INDEX "call_schedule_groups_ward_id_idx" ON "call_schedule_groups"("ward_id");
 CREATE INDEX "call_schedule_groups_is_enabled_idx" ON "call_schedule_groups"("is_enabled");
+CREATE INDEX "call_schedule_groups_slot_start_hour_slot_start_minute_idx" ON "call_schedule_groups"("slot_start_hour", "slot_start_minute");
+CREATE UNIQUE INDEX "call_schedule_groups_ward_id_slot_start_hour_slot_start_minut_key" ON "call_schedule_groups"("ward_id", "slot_start_hour", "slot_start_minute");
 
 -- Organization wards indexes
 CREATE INDEX "organization_wards_organization_id_idx" ON "organization_wards"("organization_id");
@@ -573,6 +595,8 @@ CREATE INDEX "care_alert_events_ward_id_timestamp_idx" ON "care_alert_events"("w
 CREATE INDEX "care_alert_events_alert_type_idx" ON "care_alert_events"("alert_type");
 CREATE INDEX "care_alert_events_severity_idx" ON "care_alert_events"("severity");
 CREATE INDEX "care_alert_events_acknowledged_idx" ON "care_alert_events"("acknowledged");
+CREATE INDEX "care_alert_events_ward_id_alert_type_timestamp_idx" ON "care_alert_events"("ward_id", "alert_type", "timestamp");
+CREATE INDEX "care_alert_events_call_id_idx" ON "care_alert_events"("call_id");
 
 -- Emotion summaries indexes
 CREATE INDEX "emotion_summaries_ward_id_period_start_idx" ON "emotion_summaries"("ward_id", "period_start" DESC);

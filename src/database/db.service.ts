@@ -132,10 +132,15 @@ export class DbService implements OnModuleDestroy {
     supportsCallKit?: boolean;
   }) {
     // 익명 사용자 생성 차단 - 기존 사용자만 허용
-    // 카카오 JWT는 userId를, API 토큰은 identity를 전달하므로 둘 다 검색
-    const user =
-      (await this.findUserByIdentity(params.identity)) ??
-      (await this.findUserById(params.identity));
+    // NOTE: UUID 형식 판별 후 1번만 DB 호출 (기존: identity → id 순차 검색으로 최대 2번 호출)
+    // 카카오 identity는 "kakao_123456" 형식, userId는 UUID 형식이므로 정규식으로 구분 가능
+    const isUuid =
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
+        params.identity,
+      );
+    const user = isUuid
+      ? await this.findUserById(params.identity)
+      : await this.findUserByIdentity(params.identity);
     if (!user) {
       throw new Error('로그인이 필요합니다');
     }
@@ -266,6 +271,14 @@ export class DbService implements OnModuleDestroy {
     return this.calls.getSummary(callId);
   }
 
+  async getActiveCallCount() {
+    return this.calls.getActiveCallCount();
+  }
+
+  async hasActiveCall(userId: string) {
+    return this.calls.hasActiveCall(userId);
+  }
+
   // ============================================================
   // Guardian methods
   // ============================================================
@@ -391,6 +404,26 @@ export class DbService implements OnModuleDestroy {
   }
 
   // ============================================================
+  // Call Slot Config methods
+  // ============================================================
+  async getSlotConfig() {
+    return this.guardians.getSlotConfig();
+  }
+
+  async getSlotCapacity(
+    hour: number,
+    minute: number,
+    weekday: number,
+    excludeWardId?: string,
+  ) {
+    return this.guardians.getSlotCapacity(hour, minute, weekday, excludeWardId);
+  }
+
+  async getSlotAvailability(hour: number, minute: number) {
+    return this.guardians.getSlotAvailability(hour, minute);
+  }
+
+  // ============================================================
   // Call Schedule Group methods
   // ============================================================
   async getCallScheduleGroups(guardianId: string) {
@@ -402,7 +435,8 @@ export class DbService implements OnModuleDestroy {
     wardId: string | null,
     items: Array<{
       id?: string;
-      time: string;
+      slotStartHour: number;
+      slotStartMinute: number;
       weekdays: number[];
       isEnabled: boolean;
     }>,
@@ -411,6 +445,29 @@ export class DbService implements OnModuleDestroy {
       registrationId,
       wardId,
       items,
+    );
+  }
+
+  /**
+   * SELECT FOR UPDATE를 사용하여 슬롯 용량을 원자적으로 검증하고 스케줄 생성
+   * Race condition 방지를 위해 트랜잭션 내에서 잠금 후 INSERT
+   */
+  async createCallScheduleGroupsWithLock(
+    registrationId: string | null,
+    wardId: string | null,
+    items: Array<{
+      slotStartHour: number;
+      slotStartMinute: number;
+      weekdays: number[];
+      isEnabled: boolean;
+    }>,
+    maxCapacity: number,
+  ) {
+    return this.guardians.createCallScheduleGroupsWithLock(
+      registrationId,
+      wardId,
+      items,
+      maxCapacity,
     );
   }
 
@@ -545,8 +602,12 @@ export class DbService implements OnModuleDestroy {
     return this.wards.markReminderSent(scheduleId);
   }
 
-  async getSchedulesForCurrentTime(dayOfWeek: number, time: string) {
-    return this.wards.getSchedulesForCurrentTime(dayOfWeek, time);
+  async getSchedulesForCurrentSlot(
+    dayOfWeek: number,
+    slotStartHour: number,
+    slotStartMinute: number,
+  ) {
+    return this.wards.getSchedulesForCurrentSlot(dayOfWeek, slotStartHour, slotStartMinute);
   }
 
   async listOrganizationBeneficiaries(params: {
@@ -1009,7 +1070,8 @@ export class DbService implements OnModuleDestroy {
       isEnabled: boolean;
       items: Array<{
         id?: string;
-        time: string;
+        slotStartHour: number;
+        slotStartMinute: number;
         weekdays: number[];
         isEnabled: boolean;
       }>;
@@ -1066,7 +1128,8 @@ export class DbService implements OnModuleDestroy {
           data: params.callSchedule.items.map(item => ({
             registrationId: registration.id,
             wardId: null,
-            time: item.time,
+            slotStartHour: item.slotStartHour,
+            slotStartMinute: item.slotStartMinute,
             weekdays: item.weekdays,
             isEnabled: item.isEnabled,
           })),

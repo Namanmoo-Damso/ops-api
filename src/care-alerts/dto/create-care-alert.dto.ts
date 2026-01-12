@@ -4,6 +4,8 @@ import {
   IsIn,
   IsObject,
   ValidateNested,
+  IsOptional,
+  IsUUID,
 } from 'class-validator';
 import { Type } from 'class-transformer';
 
@@ -29,4 +31,21 @@ export class CreateCareAlertDto {
   @ValidateNested()
   @Type(() => CareAlertDataDto)
   data: CareAlertDataDto;
+
+  // Agent 연동 필드 (선택)
+  @IsOptional()
+  @IsUUID()
+  callId?: string;
+
+  @IsOptional()
+  @IsString()
+  roomName?: string;
+
+  @IsOptional()
+  @IsString()
+  agentResponse?: string;
+
+  @IsOptional()
+  @IsIn(['ios', 'agent'])
+  source?: 'ios' | 'agent';
 }

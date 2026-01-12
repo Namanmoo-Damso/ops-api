@@ -137,22 +137,24 @@ export class NotificationScheduler {
   }
 
   /**
-   * 스케줄된 시간에 자동 전화 발신
-   * 매 분 0초에 실행
+   * 스케줄된 슬롯에 자동 전화 발신
+   * 매 10분 0초에 실행 (0, 10, 20, 30, 40, 50분)
    */
-  @Cron('0 * * * * *')
+  @Cron('0 */10 * * * *')
   async initiateScheduledCalls() {
     const now = new Date();
     const dayOfWeek = now.getDay(); // 0=일, 1=월, ..., 6=토
-    const currentTime = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
+    const slotStartHour = now.getHours();
+    const slotStartMinute = Math.floor(now.getMinutes() / 10) * 10; // 10분 단위로 정규화
 
     // 오래된 캐시 정리
     this.cleanupRecentlyCalled();
 
     try {
-      const schedules = await this.dbService.getSchedulesForCurrentTime(
+      const schedules = await this.dbService.getSchedulesForCurrentSlot(
         dayOfWeek,
-        currentTime,
+        slotStartHour,
+        slotStartMinute,
       );
 
       if (schedules.length === 0) {
@@ -160,7 +162,7 @@ export class NotificationScheduler {
       }
 
       this.logger.log(
-        `initiateScheduledCalls dayOfWeek=${dayOfWeek} time=${currentTime} found=${schedules.length}`,
+        `initiateScheduledCalls dayOfWeek=${dayOfWeek} slot=${slotStartHour}:${String(slotStartMinute).padStart(2, '0')} found=${schedules.length}`,
       );
 
       for (const schedule of schedules) {
