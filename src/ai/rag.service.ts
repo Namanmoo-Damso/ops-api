@@ -93,6 +93,7 @@ export class RagService implements OnModuleInit {
   private readonly SIMILARITY_THRESHOLD = parseFloat(
     process.env.SIMILARITY_THRESHOLD || '0.0',
   );
+  private readonly CACHE_VERSION = 'v1';
 
   constructor(private readonly prisma: PrismaService) {}
 
@@ -143,6 +144,8 @@ export class RagService implements OnModuleInit {
         redisClient: this.redisClient,
         getRecentContext: (wardId: string, limit?: number) =>
           this.getRecentContext(wardId, limit),
+        getGreetingCacheKey: (wardId: string) =>
+          this.getGreetingCacheKey(wardId),
       },
       {
         llmModel: this.LLM_MODEL,
@@ -296,8 +299,8 @@ export class RagService implements OnModuleInit {
         return;
       }
 
-      // Store in Redis with structure: rag:ward:{wardId}:vectors
-      const cacheKey = `rag:ward:${wardId}:vectors`;
+      // Store in Redis with structure: rag:{version}:ward:{wardId}:vectors
+      const cacheKey = this.getRedisVectorsKey(wardId);
       const cacheData = JSON.stringify(vectors);
 
       await this.redisClient.setEx(cacheKey, this.REDIS_CACHE_TTL, cacheData);
@@ -348,9 +351,9 @@ export class RagService implements OnModuleInit {
             searchLimit,
           );
           if (cached && cached.length > 0) {
-            this.logger.log(`✅ Redis cache HIT: ${cached.length} results`);
-            return cached;
-          }
+      this.logger.log(`✅ Redis cache HIT: ${cached.length} results`);
+      return cached;
+    }
           this.logger.warn(`⚠️  Redis cache MISS - falling back to PGVector`);
         } catch (error) {
           this.logger.error(
@@ -390,7 +393,7 @@ export class RagService implements OnModuleInit {
   }> | null> {
     if (!this.redisClient) return null;
 
-    const cacheKey = `rag:ward:${wardId}:vectors`;
+    const cacheKey = this.getRedisVectorsKey(wardId);
     const cached = await this.redisClient.get(cacheKey);
 
     if (!cached) return null;
@@ -459,8 +462,8 @@ export class RagService implements OnModuleInit {
     try {
       // 🚀 Try Redis cache first (FAST PATH)
       if (this.redisClient) {
-        const cacheKey = `rag:ward:${wardId}:vectors`;
-        const cached = await this.redisClient.get(cacheKey);
+      const cacheKey = this.getRedisVectorsKey(wardId);
+      const cached = await this.redisClient.get(cacheKey);
 
         if (cached) {
           this.logger.log(
@@ -753,6 +756,11 @@ export class RagService implements OnModuleInit {
       return 0;
     }
 
+    if (normA === 0 || normB === 0) {
+      this.logger.warn('Zero-norm vector encountered in cosineSimilarity');
+      return 0;
+    }
+
     return dotProduct / (Math.sqrt(normA) * Math.sqrt(normB));
   }
 
@@ -784,5 +792,13 @@ export class RagService implements OnModuleInit {
       throw new Error('Greeting generator not initialized');
     }
     return this.greetingGenerator;
+  }
+
+  private getRedisVectorsKey(wardId: string): string {
+    return `rag:${this.CACHE_VERSION}:ward:${wardId}:vectors`;
+  }
+
+  private getGreetingCacheKey(wardId: string): string {
+    return `rag:${this.CACHE_VERSION}:ward:${wardId}:greeting`;
   }
 }

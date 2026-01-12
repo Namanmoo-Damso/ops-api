@@ -64,9 +64,11 @@ function extractKeywords(text: string): string[] {
     .map(w => w.trim())
     .filter(w => w.length > 1);
 
+  const seen = new Set<string>();
   const unique: string[] = [];
   for (const w of words) {
-    if (!unique.includes(w)) {
+    if (!seen.has(w)) {
+      seen.add(w);
       unique.push(w);
     }
   }
