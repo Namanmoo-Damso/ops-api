@@ -7,6 +7,7 @@ import {
   HttpCode,
   HttpStatus,
   Logger,
+  BadRequestException,
 } from '@nestjs/common';
 import { RagService } from './rag.service';
 import { TranscriptStore } from './transcript.store';
@@ -47,10 +48,13 @@ export class RagController {
   ): Promise<{ message: string }> {
     const { callId, wardId } = body;
 
-    this.logger.log(`Received index request: callId=${callId}, wardId=${wardId}`);
+    this.logger.log(
+      `Received index request: callId=${callId}, wardId=${wardId}`,
+    );
 
     // Fetch transcript entries from Redis
-    const transcriptEntries = await this.transcriptStore.getTranscriptEntries(callId);
+    const transcriptEntries =
+      await this.transcriptStore.getTranscriptEntries(callId);
 
     if (!transcriptEntries || transcriptEntries.length === 0) {
       this.logger.warn(`No transcripts found for callId=${callId}`);
@@ -62,7 +66,7 @@ export class RagController {
     // Index asynchronously (don't wait for completion)
     this.ragService
       .indexConversation(callId, wardId, transcriptEntries)
-      .catch((error) => {
+      .catch(error => {
         this.logger.error(
           `Background indexing failed for call ${callId}: ${error.message}`,
         );
@@ -86,7 +90,7 @@ export class RagController {
     results: Array<{ text: string; metadata: any; similarity: number }>;
   }> {
     if (!wardId || !query) {
-      throw new Error('wardId and query are required');
+      throw new BadRequestException('wardId and query are required');
     }
 
     const searchLimit = limit ? parseInt(limit, 10) : undefined;
@@ -111,7 +115,7 @@ export class RagController {
     context: Array<{ text: string; createdAt: Date }>;
   }> {
     if (!wardId) {
-      throw new Error('wardId is required');
+      throw new BadRequestException('wardId is required');
     }
 
     const contextLimit = limit ? parseInt(limit, 10) : 10;
@@ -121,5 +125,107 @@ export class RagController {
     );
 
     return { context };
+  }
+
+  /**
+   * Preload weekly context into Redis cache when call starts
+   * POST /v1/rag/preload
+   *
+   * Body:
+   * {
+   *   "wardId": "uuid",
+   *   "callDirection": "inbound" | "outbound" (REQUIRED - must specify call direction)
+   * }
+   *
+   * This should be called when participants join the room (before first greeting)
+   * Now also generates and caches personalized greeting
+   */
+  @Post('preload')
+  @HttpCode(HttpStatus.OK)
+  async preloadContext(
+    @Body() body: { wardId: string; callDirection?: 'inbound' | 'outbound' },
+  ): Promise<{ message: string }> {
+    const { wardId, callDirection } = body;
+
+    if (!wardId) {
+      throw new BadRequestException('wardId is required');
+    }
+
+    if (!callDirection) {
+      throw new BadRequestException(
+        'callDirection is required (inbound or outbound)',
+      );
+    }
+
+    if (callDirection !== 'inbound' && callDirection !== 'outbound') {
+      throw new BadRequestException(
+        'callDirection must be either "inbound" or "outbound"',
+      );
+    }
+
+    this.logger.log(
+      `Preloading context and greeting for ward: ${wardId}, direction: ${callDirection}`,
+    );
+
+    // Preload both weekly context and personalized greeting asynchronously
+    Promise.all([
+      this.ragService.preloadWeeklyContext(wardId),
+      this.ragService.generatePersonalizedGreeting(wardId, callDirection),
+    ]).catch(error => {
+      this.logger.error(
+        `Background preload failed for ward ${wardId}: ${error.message}`,
+      );
+    });
+
+    return {
+      message: 'Context and greeting preload started',
+    };
+  }
+
+  /**
+   * Generate personalized greeting for ward
+   * POST /v1/rag/greeting/generate
+   *
+   * Body:
+   * {
+   *   "wardId": "uuid",
+   *   "callDirection": "inbound" | "outbound" (REQUIRED - must specify call direction)
+   * }
+   *
+   * Returns personalized greeting based on last 7 days of conversation context
+   */
+  @Post('greeting/generate')
+  @HttpCode(HttpStatus.OK)
+  async generateGreeting(
+    @Body() body: { wardId: string; callDirection?: 'inbound' | 'outbound' },
+  ): Promise<{ greeting: string }> {
+    const { wardId, callDirection } = body;
+
+    if (!wardId) {
+      throw new BadRequestException('wardId is required');
+    }
+
+    if (!callDirection) {
+      throw new BadRequestException(
+        'callDirection is required (inbound or outbound)',
+      );
+    }
+
+    if (callDirection !== 'inbound' && callDirection !== 'outbound') {
+      throw new BadRequestException(
+        'callDirection must be either "inbound" or "outbound"',
+      );
+    }
+
+    this.logger.log(
+      `Generating greeting for ward: ${wardId}, direction: ${callDirection}`,
+    );
+
+    const greeting = await this.ragService.generatePersonalizedGreeting(
+      wardId,
+      callDirection,
+    );
+
+    return { greeting };
   }
 }
