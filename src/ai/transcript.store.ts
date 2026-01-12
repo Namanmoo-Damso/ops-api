@@ -18,9 +18,9 @@ export class TranscriptStore {
     if (!this.redisUrl) {
       if (!this.warnedMissingUrl) {
         this.warnedMissingUrl = true;
-        this.logger.warn('REDIS_URL not set - transcript lookup disabled');
+        this.logger.error('REDIS_URL not set - transcript lookup disabled (required)');
       }
-      return null;
+      throw new Error('REDIS_URL is required for transcript storage');
     }
 
     if (this.client?.isOpen) {
@@ -37,14 +37,21 @@ export class TranscriptStore {
       .connect()
       .then(() => {
         // Handle runtime errors after successful connection
-        this.client?.on('error', (error) => {
-          this.logger.error(`Redis runtime error: ${error.message}`, error.stack);
+        this.client?.on('error', error => {
+          this.logger.error(
+            `Redis runtime error: ${error.message}`,
+            error.stack,
+          );
         });
         return this.client;
       })
-      .catch((error) => {
-        this.logger.error(`Redis connection failed: ${(error as Error).message}`, (error as Error).stack);
-        throw error;
+      .catch(error => {
+        const err = error as Error;
+        this.logger.error(
+          `Redis connection failed: ${err.message}`,
+          err.stack,
+        );
+        throw new Error(`Redis connection failed for transcript store: ${err.message}`);
       })
       .finally(() => {
         this.connecting = null;
@@ -94,7 +101,13 @@ export class TranscriptStore {
     }
   }
 
-  async getTranscriptEntries(callId: string): Promise<Array<{ speaker: string; text: string; timestamp?: string }> | null> {
+  async getTranscriptEntries(
+    callId: string,
+  ): Promise<Array<{
+    speaker: string;
+    text: string;
+    timestamp?: string;
+  }> | null> {
     if (!callId) return null;
     const client = await this.getClient();
     if (!client) return null;
@@ -104,7 +117,11 @@ export class TranscriptStore {
       const entries = await client.lRange(key, 0, -1);
       if (!entries.length) return null;
 
-      const results: Array<{ speaker: string; text: string; timestamp?: string }> = [];
+      const results: Array<{
+        speaker: string;
+        text: string;
+        timestamp?: string;
+      }> = [];
       for (const raw of entries) {
         try {
           const parsed = JSON.parse(raw) as TranscriptEntry;
