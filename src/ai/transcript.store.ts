@@ -18,9 +18,9 @@ export class TranscriptStore {
     if (!this.redisUrl) {
       if (!this.warnedMissingUrl) {
         this.warnedMissingUrl = true;
-        this.logger.warn('REDIS_URL not set - transcript lookup disabled');
+        this.logger.error('REDIS_URL not set - transcript lookup disabled (required)');
       }
-      return null;
+      throw new Error('REDIS_URL is required for transcript storage');
     }
 
     if (this.client?.isOpen) {
@@ -46,11 +46,12 @@ export class TranscriptStore {
         return this.client;
       })
       .catch(error => {
+        const err = error as Error;
         this.logger.error(
-          `Redis connection failed: ${(error as Error).message}`,
-          (error as Error).stack,
+          `Redis connection failed: ${err.message}`,
+          err.stack,
         );
-        throw error;
+        throw new Error(`Redis connection failed for transcript store: ${err.message}`);
       })
       .finally(() => {
         this.connecting = null;

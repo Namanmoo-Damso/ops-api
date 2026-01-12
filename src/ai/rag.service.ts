@@ -116,19 +116,17 @@ export class RagService implements OnModuleInit {
 
     // Initialize Redis client for vector cache
     const redisUrl = process.env.REDIS_URL;
-    if (redisUrl) {
-      try {
-        this.redisClient = createClient({ url: redisUrl });
-        await this.redisClient.connect();
-        this.logger.log('Redis connected for RAG vector cache');
-      } catch (error) {
-        this.logger.error(
-          `Redis connection failed: ${error.message}. Vector cache disabled - performance will be degraded.`,
-        );
-        this.redisClient = null;
-      }
-    } else {
-      this.logger.warn('REDIS_URL not set - vector cache disabled');
+    if (!redisUrl) {
+      throw new Error('REDIS_URL is required for RAG service (cache + greetings)');
+    }
+
+    try {
+      this.redisClient = createClient({ url: redisUrl });
+      await this.redisClient.connect();
+      this.logger.log('Redis connected for RAG vector cache');
+    } catch (error) {
+      // Fail fast: Redis는 RAG 캐시 및 인사말 Pub/Sub 필수 의존성
+      throw new Error(`Redis connection failed: ${error.message}`);
     }
 
     this.logger.log(
@@ -748,6 +746,11 @@ export class RagService implements OnModuleInit {
       dotProduct += a[i] * b[i];
       normA += a[i] * a[i];
       normB += b[i] * b[i];
+    }
+
+    if (normA === 0 || normB === 0) {
+      this.logger.warn('Zero-norm vector encountered in cosineSimilarity');
+      return 0;
     }
 
     return dotProduct / (Math.sqrt(normA) * Math.sqrt(normB));

@@ -144,7 +144,7 @@ export class RagController {
   @HttpCode(HttpStatus.OK)
   async preloadContext(
     @Body() body: { wardId: string; callDirection?: 'inbound' | 'outbound' },
-  ): Promise<{ message: string }> {
+  ): Promise<{ message: string; greeting: string }> {
     const { wardId, callDirection } = body;
 
     if (!wardId) {
@@ -167,19 +167,25 @@ export class RagController {
       `Preloading context and greeting for ward: ${wardId}, direction: ${callDirection}`,
     );
 
-    // Preload both weekly context and personalized greeting asynchronously
-    Promise.all([
-      this.ragService.preloadWeeklyContext(wardId),
-      this.ragService.generatePersonalizedGreeting(wardId, callDirection),
-    ]).catch(error => {
-      this.logger.error(
-        `Background preload failed for ward ${wardId}: ${error.message}`,
-      );
-    });
+    try {
+      // Preload both weekly context and personalized greeting synchronously
+      const [_, greeting] = await Promise.all([
+        this.ragService.preloadWeeklyContext(wardId),
+        this.ragService.generatePersonalizedGreeting(wardId, callDirection),
+      ]);
 
-    return {
-      message: 'Context and greeting preload started',
-    };
+      return {
+        message: 'Context and greeting preload completed',
+        greeting,
+      };
+    } catch (error) {
+      this.logger.error(
+        `Preload failed for ward ${wardId}: ${error.message}`,
+        error.stack,
+      );
+      throw error;
+    }
+
   }
 
   /**
