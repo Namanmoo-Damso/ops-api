@@ -36,6 +36,8 @@ services:
       - '6379:6379' # agent 서비스에서 localhost로 접근할 수 있도록
     volumes:
       - redis_data:/data
+    ports:
+      - '127.0.0.0:6379:6379'
     healthcheck:
       test: ['CMD', 'redis-cli', 'ping']
       interval: 5s
