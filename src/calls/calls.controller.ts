@@ -11,7 +11,7 @@ import {
 } from '@nestjs/common';
 import { CallsService } from './calls.service';
 import { AuthService } from '../auth';
-import { AiService } from '../ai';
+import { AiService, TranscriptStore } from '../ai';
 import { NotificationScheduler } from '../scheduler';
 import { ConfigService } from '../core/config';
 
@@ -25,6 +25,7 @@ export class CallsController {
     private readonly configService: ConfigService,
     private readonly aiService: AiService,
     private readonly notificationScheduler: NotificationScheduler,
+    private readonly transcriptStore: TranscriptStore,
   ) {}
 
   @Post('invite')
@@ -179,6 +180,42 @@ export class CallsController {
       roomName,
       callId: context.call_id,
       wardId: context.ward_id,
+    };
+  }
+
+  @Get('room/:roomName/transcripts')
+  async roomTranscripts(
+    @Headers('authorization') authorization: string | undefined,
+    @Param('roomName') roomNameParam: string,
+  ) {
+    const config = this.configService.getConfig();
+    const auth = this.authService.getAuthContext(authorization);
+    if (config.authRequired && !auth) {
+      throw new HttpException('Unauthorized', HttpStatus.UNAUTHORIZED);
+    }
+
+    const roomName = roomNameParam?.trim();
+    if (!roomName) {
+      throw new HttpException('roomName is required', HttpStatus.BAD_REQUEST);
+    }
+
+    this.logger.log(`roomTranscripts room=${roomName}`);
+
+    // Get callId from roomName
+    const context = await this.callsService.getCallContextByRoom(roomName);
+    if (!context) {
+      throw new HttpException('Call not found', HttpStatus.NOT_FOUND);
+    }
+
+    // Fetch transcripts from Redis
+    const transcripts = await this.transcriptStore.getTranscriptEntries(
+      context.call_id,
+    );
+
+    return {
+      roomName,
+      callId: context.call_id,
+      transcripts: transcripts ?? [],
     };
   }
 }

@@ -197,6 +197,12 @@ export class RtcTokenService {
           identity,
           name,
         });
+
+        // Schedule orphan room cleanup check after 15 seconds
+        // If iOS user doesn't join, room will be cleaned up
+        setTimeout(() => {
+          this.liveKitService.closeRoomIfAdminOnly(roomName);
+        }, 15000);
       } catch (err) {
         this.logger.error(`Failed to dispatch voice agent: ${(err as Error).message}`);
         throw new Error('Voice agent dispatch failed');
