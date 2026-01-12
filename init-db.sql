@@ -64,8 +64,6 @@ CREATE TABLE "organizations" (
 CREATE TABLE "guardians" (
     "id" UUID NOT NULL DEFAULT gen_random_uuid(),
     "user_id" UUID NOT NULL,
-    "ward_email" TEXT NOT NULL,
-    "ward_phone_number" TEXT NOT NULL,
     "created_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updated_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
@@ -185,6 +183,15 @@ CREATE TABLE "guardian_ward_registrations" (
     "linked_ward_id" UUID,
     "created_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updated_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    -- Ward Basic Info
+    "ward_name" TEXT,
+    "relation" TEXT,
+    "birth_date" TEXT,
+    "gender" TEXT,
+    "address" TEXT,
+    -- AI Care Info
+    "medical_conditions" TEXT,
+    "medications" TEXT,
 
     CONSTRAINT "guardian_ward_registrations_pkey" PRIMARY KEY ("id")
 );
@@ -202,6 +209,20 @@ CREATE TABLE "call_schedules" (
     "updated_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
     CONSTRAINT "call_schedules_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable: call_schedule_groups
+CREATE TABLE "call_schedule_groups" (
+    "id" UUID NOT NULL DEFAULT gen_random_uuid(),
+    "registration_id" UUID,
+    "ward_id" UUID,
+    "time" TEXT NOT NULL,
+    "weekdays" INTEGER[],
+    "is_enabled" BOOLEAN NOT NULL DEFAULT true,
+    "created_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updated_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    CONSTRAINT "call_schedule_groups_pkey" PRIMARY KEY ("id")
 );
 
 -- CreateTable: organization_wards (includes gender and ward_type from migration 20260105183600)
@@ -374,6 +395,39 @@ CREATE TABLE "conversation_vectors" (
     CONSTRAINT "conversation_vectors_pkey" PRIMARY KEY ("id")
 );
 
+-- CreateTable: care_alert_events (케어 알림 이벤트 로그)
+CREATE TABLE "care_alert_events" (
+    "id" UUID NOT NULL DEFAULT gen_random_uuid(),
+    "ward_id" UUID NOT NULL,
+    "alert_type" VARCHAR(20) NOT NULL,
+    "severity" VARCHAR(10) NOT NULL,
+    "timestamp" TIMESTAMPTZ NOT NULL,
+    "raw_payload" JSONB NOT NULL,
+    "acknowledged" BOOLEAN DEFAULT FALSE,
+    "acknowledged_at" TIMESTAMPTZ,
+    "acknowledged_by" UUID,
+    "created_at" TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+
+    CONSTRAINT "care_alert_events_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable: emotion_summaries (감정 10분 집계)
+CREATE TABLE "emotion_summaries" (
+    "id" UUID NOT NULL DEFAULT gen_random_uuid(),
+    "ward_id" UUID NOT NULL,
+    "period_start" TIMESTAMPTZ NOT NULL,
+    "period_end" TIMESTAMPTZ NOT NULL,
+    "total_samples" INTEGER NOT NULL,
+    "emotion_distribution" JSONB NOT NULL,
+    "average_confidence" DECIMAL(4, 3) NOT NULL,
+    "negative_ratio" DECIMAL(4, 3) NOT NULL,
+    "dominant_emotion" VARCHAR(20) NOT NULL,
+    "created_at" TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+
+    CONSTRAINT "emotion_summaries_pkey" PRIMARY KEY ("id"),
+    CONSTRAINT "emotion_summaries_ward_id_period_start_key" UNIQUE ("ward_id", "period_start")
+);
+
 -- ============================================================================
 -- INDEXES
 -- ============================================================================
@@ -395,7 +449,6 @@ CREATE INDEX "devices_env_idx" ON "devices"("env");
 -- Guardians indexes
 CREATE UNIQUE INDEX "guardians_user_id_key" ON "guardians"("user_id");
 CREATE INDEX "guardians_user_id_idx" ON "guardians"("user_id");
-CREATE INDEX "guardians_ward_email_idx" ON "guardians"("ward_email");
 
 -- Wards indexes
 CREATE UNIQUE INDEX "wards_user_id_key" ON "wards"("user_id");
@@ -443,6 +496,11 @@ CREATE INDEX "guardian_ward_registrations_linked_ward_id_idx" ON "guardian_ward_
 CREATE INDEX "call_schedules_ward_id_idx" ON "call_schedules"("ward_id");
 CREATE INDEX "call_schedules_day_of_week_idx" ON "call_schedules"("day_of_week");
 CREATE INDEX "call_schedules_is_active_idx" ON "call_schedules"("is_active");
+
+-- Call schedule groups indexes
+CREATE INDEX "call_schedule_groups_registration_id_idx" ON "call_schedule_groups"("registration_id");
+CREATE INDEX "call_schedule_groups_ward_id_idx" ON "call_schedule_groups"("ward_id");
+CREATE INDEX "call_schedule_groups_is_enabled_idx" ON "call_schedule_groups"("is_enabled");
 
 -- Organization wards indexes
 CREATE INDEX "organization_wards_organization_id_idx" ON "organization_wards"("organization_id");
@@ -510,6 +568,15 @@ CREATE INDEX "conversation_vectors_ward_id_created_at_idx" ON "conversation_vect
 -- HNSW index for fast vector similarity search (m=16, ef_construction=64)
 CREATE INDEX "conversation_vectors_embedding_idx" ON "conversation_vectors" USING hnsw (embedding vector_cosine_ops) WITH (m = 16, ef_construction = 64);
 
+-- Care alert events indexes
+CREATE INDEX "care_alert_events_ward_id_timestamp_idx" ON "care_alert_events"("ward_id", "timestamp" DESC);
+CREATE INDEX "care_alert_events_alert_type_idx" ON "care_alert_events"("alert_type");
+CREATE INDEX "care_alert_events_severity_idx" ON "care_alert_events"("severity");
+CREATE INDEX "care_alert_events_acknowledged_idx" ON "care_alert_events"("acknowledged");
+
+-- Emotion summaries indexes
+CREATE INDEX "emotion_summaries_ward_id_period_start_idx" ON "emotion_summaries"("ward_id", "period_start" DESC);
+
 -- ============================================================================
 -- FOREIGN KEYS
 -- ============================================================================
@@ -532,6 +599,8 @@ ALTER TABLE "refresh_tokens" ADD CONSTRAINT "refresh_tokens_user_id_fkey" FOREIG
 ALTER TABLE "guardian_ward_registrations" ADD CONSTRAINT "guardian_ward_registrations_guardian_id_fkey" FOREIGN KEY ("guardian_id") REFERENCES "guardians"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 ALTER TABLE "guardian_ward_registrations" ADD CONSTRAINT "guardian_ward_registrations_linked_ward_id_fkey" FOREIGN KEY ("linked_ward_id") REFERENCES "wards"("id") ON DELETE SET NULL ON UPDATE CASCADE;
 ALTER TABLE "call_schedules" ADD CONSTRAINT "call_schedules_ward_id_fkey" FOREIGN KEY ("ward_id") REFERENCES "wards"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+ALTER TABLE "call_schedule_groups" ADD CONSTRAINT "call_schedule_groups_registration_id_fkey" FOREIGN KEY ("registration_id") REFERENCES "guardian_ward_registrations"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+ALTER TABLE "call_schedule_groups" ADD CONSTRAINT "call_schedule_groups_ward_id_fkey" FOREIGN KEY ("ward_id") REFERENCES "wards"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 ALTER TABLE "organization_wards" ADD CONSTRAINT "organization_wards_organization_id_fkey" FOREIGN KEY ("organization_id") REFERENCES "organizations"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 ALTER TABLE "organization_wards" ADD CONSTRAINT "organization_wards_uploaded_by_admin_id_fkey" FOREIGN KEY ("uploaded_by_admin_id") REFERENCES "admins"("id") ON DELETE SET NULL ON UPDATE CASCADE;
 ALTER TABLE "organization_wards" ADD CONSTRAINT "organization_wards_ward_id_fkey" FOREIGN KEY ("ward_id") REFERENCES "wards"("id") ON DELETE SET NULL ON UPDATE CASCADE;
@@ -548,3 +617,9 @@ ALTER TABLE "admin_refresh_tokens" ADD CONSTRAINT "admin_refresh_tokens_admin_id
 ALTER TABLE "transcripts" ADD CONSTRAINT "transcripts_call_id_fkey" FOREIGN KEY ("call_id") REFERENCES "calls"("call_id") ON DELETE CASCADE ON UPDATE CASCADE;
 ALTER TABLE "conversation_vectors" ADD CONSTRAINT "conversation_vectors_ward_id_fkey" FOREIGN KEY ("ward_id") REFERENCES "wards"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 ALTER TABLE "conversation_vectors" ADD CONSTRAINT "conversation_vectors_call_id_fkey" FOREIGN KEY ("call_id") REFERENCES "calls"("call_id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- Care alert events foreign keys
+ALTER TABLE "care_alert_events" ADD CONSTRAINT "care_alert_events_ward_id_fkey" FOREIGN KEY ("ward_id") REFERENCES "wards"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- Emotion summaries foreign keys
+ALTER TABLE "emotion_summaries" ADD CONSTRAINT "emotion_summaries_ward_id_fkey" FOREIGN KEY ("ward_id") REFERENCES "wards"("id") ON DELETE CASCADE ON UPDATE CASCADE;

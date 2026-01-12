@@ -9,7 +9,12 @@ import {
 } from '@nestjs/common';
 import { AuthService } from './auth.service';
 import { LiveKitService } from '../integration/livekit';
-import { KakaoLoginDto, RefreshTokenDto, AnonymousAuthDto } from './dto';
+import {
+  KakaoLoginDto,
+  RefreshTokenDto,
+  AnonymousAuthDto,
+  DevGuardianDto,
+} from './dto';
 import { DbService } from '../database';
 import { EventsService } from '../events';
 
@@ -137,6 +142,49 @@ export class AuthController {
       throw new HttpException(
         'Logout failed',
         HttpStatus.INTERNAL_SERVER_ERROR,
+      );
+    }
+  }
+
+  /**
+   * 개발용: 카카오 로그인 없이 보호자 계정 생성 + 토큰 발급
+   * 프로덕션에서는 사용 금지
+   */
+  @Post('dev/guardian')
+  async devRegisterGuardian(@Body() body: DevGuardianDto) {
+    // 프로덕션 환경 체크
+    if (process.env.NODE_ENV === 'production') {
+      throw new HttpException(
+        'This endpoint is not available in production',
+        HttpStatus.FORBIDDEN,
+      );
+    }
+
+    const wardEmail = body.wardEmail?.trim();
+
+    if (!wardEmail) {
+      throw new HttpException('wardEmail is required', HttpStatus.BAD_REQUEST);
+    }
+
+    try {
+      this.logger.log(`devRegisterGuardian wardEmail=${wardEmail}`);
+      const result = await this.authService.devRegisterGuardian({
+        wardEmail,
+        wardPhoneNumber: body.wardPhoneNumber?.trim(),
+        wardBasicInfo: body.wardBasicInfo,
+        aiCareInfo: body.aiCareInfo,
+        callSchedule: body.callSchedule,
+        nickname: body.nickname,
+        email: body.email,
+      });
+      return result;
+    } catch (error) {
+      this.logger.error(
+        `devRegisterGuardian failed error=${(error as Error).message}`,
+      );
+      throw new HttpException(
+        (error as Error).message || 'Registration failed',
+        HttpStatus.BAD_REQUEST,
       );
     }
   }

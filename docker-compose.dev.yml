@@ -38,7 +38,11 @@ services:
   api:
     image: node:20-alpine
     working_dir: /app
-    env_file: ./api.env
+    env_file: ./.env
+    environment:
+      - TZ=Asia/Seoul
+      - DATABASE_URL=postgres://damso:de21a66b81fde0b7d5d3565bbfcb5b84@db:5432/damso
+      - REDIS_URL=redis://redis:6379
     extra_hosts:
       - 'host.docker.internal:host-gateway'
     volumes:
@@ -64,6 +68,8 @@ services:
     image: node:20-alpine
     working_dir: /app
     env_file: ../ops-web/web.env
+    environment:
+      - TZ=Asia/Seoul
     volumes:
       - ../ops-web:/app # 소스 코드 마운트
       - /app/node_modules # 컨테이너 내부 의존성 보호

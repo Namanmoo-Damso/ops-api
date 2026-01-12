@@ -18,6 +18,7 @@ import { PrismaModule } from './prisma';
 import { EventsModule } from './events';
 import { ConfigModule } from './core/config';
 import { LiveKitModule } from './integration/livekit';
+import { CareAlertsModule } from './care-alerts';
 
 @Module({
   imports: [
@@ -41,6 +42,7 @@ import { LiveKitModule } from './integration/livekit';
     DevicesModule,
     AdminModule,
     SchedulerModule,
+    CareAlertsModule,
   ],
   controllers: [AppController, PushController],
   providers: [],

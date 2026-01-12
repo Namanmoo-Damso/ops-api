@@ -22,6 +22,10 @@ export class UsersService {
 
     if (user.user_type === 'guardian') {
       const guardian = await this.dbService.findGuardianByUserId(user.id);
+      // 첫 번째 어르신 등록 정보 가져오기
+      const firstRegistration = guardian
+        ? await this.dbService.findFirstGuardianWardRegistration(guardian.id)
+        : undefined;
       const linkedWard = guardian
         ? await this.dbService.findWardByGuardianId(guardian.id)
         : undefined;
@@ -31,8 +35,9 @@ export class UsersService {
         guardianInfo: guardian
           ? {
               id: guardian.id,
-              wardEmail: guardian.ward_email,
-              wardPhoneNumber: guardian.ward_phone_number,
+              registrationId: firstRegistration?.id ?? null,
+              wardEmail: firstRegistration?.ward_email ?? null,
+              wardPhoneNumber: firstRegistration?.ward_phone_number ?? null,
               linkedWard: linkedWard
                 ? {
                     id: linkedWard.user_id,

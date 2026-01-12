@@ -21,7 +21,7 @@ export class GuardiansService {
     return { user, guardian };
   }
 
-  async getDashboard(userId: string) {
+  async getDashboard(userId: string, period?: 'today' | 'week' | 'month') {
     const { guardian } = await this.verifyGuardianAccess(userId);
     const linkedWard = await this.dbService.findWardByGuardianId(guardian.id);
 
@@ -33,23 +33,30 @@ export class GuardiansService {
           averageDuration: 0,
           overallMood: { positive: 0, negative: 0 },
         },
+        aiSummary: '',
         alerts: [],
         recentCalls: [],
       };
     }
 
     this.logger.log(
-      `getDashboard guardianId=${guardian.id} wardId=${linkedWard.id}`,
+      `getDashboard guardianId=${guardian.id} wardId=${linkedWard.id} period=${period ?? 'default'}`,
     );
+
+    // 기간에 따른 일수 계산
+    const days = period === 'today' ? 1 : period === 'month' ? 30 : 7;
 
     const [stats, weeklyChange, moodStats, alerts, recentCalls] =
       await Promise.all([
-        this.dbService.getWardCallStats(linkedWard.id),
+        this.dbService.getWardCallStats(linkedWard.id, days),
         this.dbService.getWardWeeklyCallChange(linkedWard.id),
-        this.dbService.getWardMoodStats(linkedWard.id),
+        this.dbService.getWardMoodStats(linkedWard.id, days),
         this.dbService.getHealthAlerts(guardian.id, 5),
         this.dbService.getRecentCallSummaries(linkedWard.id, 5),
       ]);
+
+    // aiSummary 생성 (최근 통화 기반)
+    const aiSummary = this.generateAiSummary(recentCalls, linkedWard.user_nickname);
 
     return {
       statistics: {
@@ -58,9 +65,32 @@ export class GuardiansService {
         averageDuration: stats.avgDuration,
         overallMood: moodStats,
       },
+      aiSummary,
       alerts,
       recentCalls,
     };
+  }
+
+  private generateAiSummary(
+    recentCalls: Array<{ summary?: string | null; mood?: string | null }>,
+    wardName?: string | null,
+  ): string {
+    if (recentCalls.length === 0) {
+      return wardName
+        ? `${wardName}님과의 최근 통화 기록이 없습니다.`
+        : '최근 통화 기록이 없습니다.';
+    }
+
+    const latestCall = recentCalls[0];
+    const displayName = wardName ?? '어르신';
+
+    if (latestCall.mood === 'positive') {
+      return `보호자님! ${displayName}님이 오늘 컨디션이 아주 좋으세요. ${latestCall.summary ?? ''}`;
+    } else if (latestCall.mood === 'negative') {
+      return `${displayName}님의 컨디션이 좋지 않아 보입니다. 관심이 필요해요. ${latestCall.summary ?? ''}`;
+    }
+
+    return `${displayName}님과 대화를 나눴어요. ${latestCall.summary ?? ''}`;
   }
 
   async getReport(userId: string, period: 'week' | 'month') {
@@ -145,7 +175,34 @@ export class GuardiansService {
     };
   }
 
-  async addWard(userId: string, wardEmail: string, wardPhoneNumber: string) {
+  async addWard(
+    userId: string,
+    wardEmail: string,
+    wardPhoneNumber: string,
+    options?: {
+      wardBasicInfo?: {
+        name?: string;
+        relation?: string;
+        phoneNumber?: string;
+        birthDate?: string;
+        gender?: string;
+        address?: string;
+      };
+      aiCareInfo?: {
+        medicalConditions?: string;
+        medications?: string;
+      };
+      callSchedule?: {
+        isEnabled: boolean;
+        items: Array<{
+          id?: string;
+          time: string;
+          weekdays: number[];
+          isEnabled: boolean;
+        }>;
+      };
+    },
+  ) {
     const { guardian } = await this.verifyGuardianAccess(userId);
     this.logger.log(`addWard guardianId=${guardian.id} wardEmail=${wardEmail}`);
 
@@ -153,7 +210,23 @@ export class GuardiansService {
       guardianId: guardian.id,
       wardEmail,
       wardPhoneNumber,
+      wardName: options?.wardBasicInfo?.name,
+      relation: options?.wardBasicInfo?.relation,
+      birthDate: options?.wardBasicInfo?.birthDate,
+      gender: options?.wardBasicInfo?.gender,
+      address: options?.wardBasicInfo?.address,
+      medicalConditions: options?.aiCareInfo?.medicalConditions,
+      medications: options?.aiCareInfo?.medications,
     });
+
+    // 스케줄 생성 (callSchedule이 있고 enabled인 경우)
+    if (options?.callSchedule?.isEnabled && options.callSchedule.items.length > 0) {
+      await this.dbService.createCallScheduleGroups(
+        registration.id,
+        null,
+        options.callSchedule.items,
+      );
+    }
 
     return {
       id: registration.id,
@@ -271,5 +344,66 @@ export class GuardiansService {
       callComplete: updated.call_complete,
       healthAlert: updated.health_alert,
     };
+  }
+
+  async getSchedules(userId: string) {
+    const { guardian } = await this.verifyGuardianAccess(userId);
+    this.logger.log(`getSchedules guardianId=${guardian.id}`);
+
+    const schedules = await this.dbService.getCallScheduleGroups(guardian.id);
+
+    return {
+      isEnabled: schedules.length > 0 && schedules.some(s => s.is_enabled),
+      items: schedules.map(s => ({
+        id: s.id,
+        time: s.time,
+        weekdays: s.weekdays,
+        isEnabled: s.is_enabled,
+      })),
+    };
+  }
+
+  async updateSchedules(
+    userId: string,
+    body: {
+      isEnabled: boolean;
+      items: Array<{
+        id?: string;
+        time: string;
+        weekdays: number[];
+        isEnabled: boolean;
+      }>;
+    },
+  ) {
+    const { guardian } = await this.verifyGuardianAccess(userId);
+    this.logger.log(`updateSchedules guardianId=${guardian.id}`);
+
+    const linkedWard = await this.dbService.findWardByGuardianId(guardian.id);
+
+    // 기존 스케줄 삭제 후 새로 생성 (upsert 방식)
+    await this.dbService.deleteCallScheduleGroupsByGuardian(guardian.id);
+
+    if (body.isEnabled && body.items.length > 0) {
+      // linkedWard가 있으면 wardId로, 없으면 registration으로
+      const registration = await this.dbService.findFirstGuardianWardRegistration(guardian.id);
+
+      await this.dbService.createCallScheduleGroups(
+        registration?.id ?? null,
+        linkedWard?.id ?? null,
+        body.items,
+      );
+    }
+
+    return this.getSchedules(userId);
+  }
+
+  async deleteSchedule(userId: string, scheduleId: string) {
+    const { guardian } = await this.verifyGuardianAccess(userId);
+    this.logger.log(`deleteSchedule guardianId=${guardian.id} scheduleId=${scheduleId}`);
+
+    const deleted = await this.dbService.deleteCallScheduleGroup(scheduleId, guardian.id);
+    if (!deleted) {
+      throw new HttpException('Schedule not found', HttpStatus.NOT_FOUND);
+    }
   }
 }

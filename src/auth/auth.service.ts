@@ -88,14 +88,19 @@ type KakaoLoginResult =
     };
 
 type GuardianRegistrationResult = {
+  isNewUser: boolean;
   accessToken: string;
   refreshToken: string;
   user: UserInfo;
   guardianInfo: {
     id: string;
-    wardEmail: string;
-    wardPhoneNumber: string;
-    linkedWard: null;
+    wards: Array<{
+      registrationId: string;
+      wardEmail: string;
+      wardPhoneNumber: string;
+      linkedWardId: string | null;
+      wardNickname: string | null;
+    }>;
   };
 };
 
@@ -153,6 +158,23 @@ export class AuthService {
 
       // 기존 사용자 - JWT 발급
       this.logger.log(`kakaoLogin existing user id=${existingUser.id}`);
+
+      // 보호자인 경우 미연동 어르신 자동 연동
+      if (existingUser.user_type === 'guardian') {
+        const guardian = await this.dbService.findGuardianByUserId(
+          existingUser.id,
+        );
+        if (guardian) {
+          const linkedCount =
+            await this.dbService.linkPendingWardsForGuardian(guardian.id);
+          if (linkedCount > 0) {
+            this.logger.log(
+              `kakaoLogin auto-linked ${linkedCount} wards for guardian=${guardian.id}`,
+            );
+          }
+        }
+      }
+
       const tokens = await this.issueTokens(
         existingUser.id,
         existingUser.user_type as UserType,
@@ -454,6 +476,27 @@ export class AuthService {
     accessToken: string;
     wardEmail: string;
     wardPhoneNumber: string;
+    wardBasicInfo?: {
+      name?: string;
+      relation?: string;
+      phoneNumber?: string;
+      birthDate?: string;
+      gender?: string;
+      address?: string;
+    };
+    aiCareInfo?: {
+      medicalConditions?: string;
+      medications?: string;
+    };
+    callSchedule?: {
+      isEnabled: boolean;
+      items: Array<{
+        id?: string;
+        time: string;
+        weekdays: number[];
+        isEnabled: boolean;
+      }>;
+    };
   }): Promise<GuardianRegistrationResult> {
     // 1. Access Token 검증
     const payload = this.verifyAccessToken(params.accessToken);
@@ -472,20 +515,24 @@ export class AuthService {
       throw new UnauthorizedException('User already registered as guardian');
     }
 
-    // 4. 트랜잭션으로 사용자 타입 변경 + 보호자 정보 생성
-    const { guardian } = await this.dbService.registerGuardianWithTransaction({
+    // 4. 트랜잭션으로 사용자 타입 변경 + 보호자 정보 + 어르신 등록 정보 생성
+    const { guardian, registration } = await this.dbService.registerGuardianWithTransaction({
       userId: user.id,
       wardEmail: params.wardEmail,
       wardPhoneNumber: params.wardPhoneNumber,
+      wardBasicInfo: params.wardBasicInfo,
+      aiCareInfo: params.aiCareInfo,
+      callSchedule: params.callSchedule,
     });
 
     // 5. 새 JWT 발급 (user_type이 변경되었으므로)
     const tokens = await this.issueTokens(user.id, 'guardian');
 
     this.logger.log(
-      `registerGuardian userId=${user.id} guardianId=${guardian.id}`,
+      `registerGuardian userId=${user.id} guardianId=${guardian.id} registrationId=${registration.id}`,
     );
     return {
+      isNewUser: true,
       ...tokens,
       user: {
         id: user.id,
@@ -496,9 +543,162 @@ export class AuthService {
       },
       guardianInfo: {
         id: guardian.id,
-        wardEmail: guardian.ward_email,
-        wardPhoneNumber: guardian.ward_phone_number,
-        linkedWard: null,
+        wards: [
+          {
+            registrationId: registration.id,
+            wardEmail: registration.ward_email,
+            wardPhoneNumber: registration.ward_phone_number,
+            linkedWardId: null,
+            wardNickname: null,
+          },
+        ],
+      },
+    };
+  }
+
+  /**
+   * 개발용: 카카오 로그인 없이 보호자 계정 생성 + 토큰 발급
+   * 프로덕션에서는 사용 금지
+   */
+  async devRegisterGuardian(params: {
+    wardEmail: string;
+    wardPhoneNumber?: string;
+    wardBasicInfo?: {
+      name?: string;
+      relation?: string;
+      phoneNumber?: string;
+      birthDate?: string;
+      gender?: string;
+      address?: string;
+    };
+    aiCareInfo?: {
+      medicalConditions?: string;
+      medications?: string;
+    };
+    callSchedule?: {
+      isEnabled: boolean;
+      items: Array<{
+        id?: string;
+        time: string;
+        weekdays: number[];
+        isEnabled: boolean;
+      }>;
+    };
+    nickname?: string;
+    email?: string;
+  }): Promise<GuardianRegistrationResult> {
+    // 1. 기존 guardian 확인 (wardEmail로 검색)
+    const existingGuardian = await this.dbService.findGuardianByWardEmail(
+      params.wardEmail,
+    );
+
+    if (existingGuardian) {
+      // 기존 guardian이 있으면 토큰만 발급
+      const user = await this.dbService.findUserById(existingGuardian.user_id);
+      if (!user) {
+        throw new Error('Guardian user not found');
+      }
+
+      // 미연동 어르신 자동 연동
+      const linkedCount = await this.dbService.linkPendingWardsForGuardian(
+        existingGuardian.id,
+      );
+      if (linkedCount > 0) {
+        this.logger.log(
+          `devRegisterGuardian auto-linked ${linkedCount} wards for guardian=${existingGuardian.id}`,
+        );
+      }
+
+      // 모든 어르신 목록 조회
+      const wards = await this.dbService.getGuardianWards(existingGuardian.id);
+
+      const tokens = await this.issueTokens(user.id, 'guardian');
+      this.logger.log(
+        `devRegisterGuardian existing guardian userId=${user.id} guardianId=${existingGuardian.id} wardsCount=${wards.length}`,
+      );
+
+      return {
+        isNewUser: false,
+        ...tokens,
+        user: {
+          id: user.id,
+          email: user.email,
+          nickname: user.nickname,
+          profileImageUrl: user.profile_image_url,
+          userType: 'guardian',
+        },
+        guardianInfo: {
+          id: existingGuardian.id,
+          wards: wards.map((w) => ({
+            registrationId: w.id,
+            wardEmail: w.ward_email,
+            wardPhoneNumber: w.ward_phone_number,
+            linkedWardId: w.linked_ward_id,
+            wardNickname: w.ward_nickname,
+          })),
+        },
+      };
+    }
+
+    // 2. 새 guardian 생성 - wardPhoneNumber 필수
+    if (!params.wardPhoneNumber) {
+      throw new Error('wardPhoneNumber is required for new guardian');
+    }
+
+    const dummyKakaoId = `dev_${Date.now()}_${Math.random().toString(36).substring(7)}`;
+    const nickname =
+      params.nickname || `테스트보호자_${Date.now().toString().slice(-4)}`;
+    const email = params.email || `dev_${Date.now()}@test.local`;
+
+    const user = await this.dbService.createUserWithKakao({
+      kakaoId: dummyKakaoId,
+      email,
+      nickname,
+      profileImageUrl: null,
+      userType: null,
+    });
+
+    this.logger.log(`devRegisterGuardian created dummy user id=${user.id}`);
+
+    // 3. Guardian + Registration 생성 (기존 로직 재사용)
+    const { guardian, registration } =
+      await this.dbService.registerGuardianWithTransaction({
+        userId: user.id,
+        wardEmail: params.wardEmail,
+        wardPhoneNumber: params.wardPhoneNumber,
+        wardBasicInfo: params.wardBasicInfo,
+        aiCareInfo: params.aiCareInfo,
+        callSchedule: params.callSchedule,
+      });
+
+    // 4. 토큰 발급
+    const tokens = await this.issueTokens(user.id, 'guardian');
+
+    this.logger.log(
+      `devRegisterGuardian userId=${user.id} guardianId=${guardian.id} registrationId=${registration.id}`,
+    );
+
+    return {
+      isNewUser: true,
+      ...tokens,
+      user: {
+        id: user.id,
+        email: user.email,
+        nickname: user.nickname,
+        profileImageUrl: user.profile_image_url,
+        userType: 'guardian',
+      },
+      guardianInfo: {
+        id: guardian.id,
+        wards: [
+          {
+            registrationId: registration.id,
+            wardEmail: registration.ward_email,
+            wardPhoneNumber: registration.ward_phone_number,
+            linkedWardId: null,
+            wardNickname: null,
+          },
+        ],
       },
     };
   }
@@ -608,7 +808,12 @@ export class AuthService {
       : '';
     if (!token) return null;
     try {
-      return this.verifyApiToken(token);
+      const payload = this.verifyApiToken(token);
+      // 카카오 로그인 JWT는 identity가 없으므로 sub를 폴백으로 사용
+      if (!payload.identity && payload.sub) {
+        payload.identity = payload.sub;
+      }
+      return payload;
     } catch {
       return null;
     }

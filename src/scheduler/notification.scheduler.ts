@@ -7,6 +7,10 @@ import { CallsService } from '../calls/calls.service';
 export class NotificationScheduler {
   private readonly logger = new Logger(NotificationScheduler.name);
 
+  // 중복 발신 방지: 최근 발신된 스케줄 ID (5분간 유지)
+  private readonly recentlyCalledSchedules = new Map<string, number>();
+  private readonly DUPLICATE_PREVENTION_MS = 5 * 60 * 1000; // 5분
+
   constructor(
     private readonly dbService: DbService,
     private readonly callsService: CallsService,
@@ -129,6 +133,81 @@ export class NotificationScheduler {
       this.logger.error(
         `notifyCallComplete failed callId=${callId} error=${(error as Error).message}`,
       );
+    }
+  }
+
+  /**
+   * 스케줄된 시간에 자동 전화 발신
+   * 매 분 0초에 실행
+   */
+  @Cron('0 * * * * *')
+  async initiateScheduledCalls() {
+    const now = new Date();
+    const dayOfWeek = now.getDay(); // 0=일, 1=월, ..., 6=토
+    const currentTime = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
+
+    // 오래된 캐시 정리
+    this.cleanupRecentlyCalled();
+
+    try {
+      const schedules = await this.dbService.getSchedulesForCurrentTime(
+        dayOfWeek,
+        currentTime,
+      );
+
+      if (schedules.length === 0) {
+        return; // 조용히 종료
+      }
+
+      this.logger.log(
+        `initiateScheduledCalls dayOfWeek=${dayOfWeek} time=${currentTime} found=${schedules.length}`,
+      );
+
+      for (const schedule of schedules) {
+        // 중복 발신 방지
+        if (this.recentlyCalledSchedules.has(schedule.schedule_id)) {
+          this.logger.log(
+            `initiateScheduledCalls skip duplicate scheduleId=${schedule.schedule_id}`,
+          );
+          continue;
+        }
+
+        try {
+          // 전화 발신
+          const result = await this.callsService.inviteCall({
+            callerIdentity: 'ai-scheduler',
+            callerName: schedule.ai_persona,
+            calleeIdentity: schedule.ward_identity,
+          });
+
+          // 중복 방지 캐시에 추가
+          this.recentlyCalledSchedules.set(schedule.schedule_id, Date.now());
+
+          this.logger.log(
+            `initiateScheduledCalls success scheduleId=${schedule.schedule_id} wardIdentity=${schedule.ward_identity} callId=${result.callId} roomName=${result.roomName}`,
+          );
+        } catch (callError) {
+          this.logger.error(
+            `initiateScheduledCalls call failed scheduleId=${schedule.schedule_id} error=${(callError as Error).message}`,
+          );
+        }
+      }
+    } catch (error) {
+      this.logger.error(
+        `initiateScheduledCalls failed error=${(error as Error).message}`,
+      );
+    }
+  }
+
+  /**
+   * 오래된 중복 방지 캐시 정리
+   */
+  private cleanupRecentlyCalled() {
+    const now = Date.now();
+    for (const [scheduleId, timestamp] of this.recentlyCalledSchedules) {
+      if (now - timestamp > this.DUPLICATE_PREVENTION_MS) {
+        this.recentlyCalledSchedules.delete(scheduleId);
+      }
     }
   }
 }

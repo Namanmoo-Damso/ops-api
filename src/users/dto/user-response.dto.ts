@@ -7,8 +7,9 @@ export class UserResponseDto {
   createdAt: string;
   guardianInfo?: {
     id: string;
-    wardEmail: string;
-    wardPhoneNumber: string;
+    registrationId: string | null;
+    wardEmail: string | null;
+    wardPhoneNumber: string | null;
     linkedWard: {
       id: string;
       nickname: string | null;
@@ -22,6 +23,10 @@ export class UserResponseDto {
       id: string;
       nickname: string | null;
       profileImageUrl: string | null;
+    } | null;
+    linkedOrganization: {
+      id: string;
+      name: string;
     } | null;
   } | null;
 }
