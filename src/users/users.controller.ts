@@ -99,6 +99,9 @@ export class UsersController {
         accessToken,
         wardEmail,
         wardPhoneNumber,
+        wardBasicInfo: body.wardBasicInfo,
+        aiCareInfo: body.aiCareInfo,
+        callSchedule: body.callSchedule,
       });
       return result;
     } catch (error) {

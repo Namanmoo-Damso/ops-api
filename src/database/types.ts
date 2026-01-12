@@ -21,8 +21,6 @@ export type UserRow = {
 export type GuardianRow = {
   id: string;
   user_id: string;
-  ward_email: string;
-  ward_phone_number: string;
   created_at: string;
   updated_at: string;
 };
@@ -218,5 +216,31 @@ export type HealthAlertRow = {
   message: string;
   call_summary_id: string | null;
   is_read: boolean;
+  created_at: string;
+};
+
+export type CareAlertEventRow = {
+  id: string;
+  ward_id: string;
+  alert_type: string;
+  severity: string;
+  timestamp: string;
+  raw_payload: Record<string, unknown>;
+  acknowledged: boolean;
+  acknowledged_at: string | null;
+  acknowledged_by: string | null;
+  created_at: string;
+};
+
+export type EmotionSummaryRow = {
+  id: string;
+  ward_id: string;
+  period_start: string;
+  period_end: string;
+  total_samples: number;
+  emotion_distribution: Record<string, number>;
+  average_confidence: number;
+  negative_ratio: number;
+  dominant_emotion: string;
   created_at: string;
 };

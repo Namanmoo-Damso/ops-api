@@ -16,14 +16,10 @@ export class GuardianRepository {
 
   async create(params: {
     userId: string;
-    wardEmail: string;
-    wardPhoneNumber: string;
   }): Promise<GuardianRow> {
     const guardian = await this.prisma.guardian.create({
       data: {
         userId: params.userId,
-        wardEmail: params.wardEmail,
-        wardPhoneNumber: params.wardPhoneNumber,
       },
     });
     return toGuardianRow(guardian);
@@ -62,34 +58,31 @@ export class GuardianRepository {
     };
   }
 
-  async findByWardEmail(wardEmail: string): Promise<GuardianRow | undefined> {
+  async findByWardEmail(wardEmail: string): Promise<
+    | (GuardianRow & {
+        registration_id: string;
+        ward_email: string;
+        ward_phone_number: string;
+      })
+    | undefined
+  > {
     const normalizedEmail = wardEmail.toLowerCase().trim();
-    const guardian = await this.prisma.guardian.findFirst({
+    // GuardianWardRegistration에서 wardEmail로 조회
+    const registration = await this.prisma.guardianWardRegistration.findFirst({
       where: { wardEmail: { equals: normalizedEmail, mode: 'insensitive' } },
+      include: { guardian: true },
     });
-    return guardian ? toGuardianRow(guardian) : undefined;
+    if (!registration?.guardian) return undefined;
+    return {
+      ...toGuardianRow(registration.guardian),
+      registration_id: registration.id,
+      ward_email: registration.wardEmail,
+      ward_phone_number: registration.wardPhoneNumber,
+    };
   }
 
   async getWards(guardianId: string) {
-    // Primary ward from guardians table
-    const guardian = await this.prisma.guardian.findUnique({
-      where: { id: guardianId },
-      include: {
-        wards: {
-          include: {
-            user: {
-              select: {
-                id: true,
-                nickname: true,
-                profileImageUrl: true,
-              },
-            },
-          },
-        },
-      },
-    });
-
-    // Additional registrations
+    // 모든 어르신 등록 정보는 GuardianWardRegistration에서 관리
     const registrations = await this.prisma.guardianWardRegistration.findMany({
       where: { guardianId },
       include: {
@@ -105,13 +98,11 @@ export class GuardianRepository {
           },
         },
       },
+      orderBy: { createdAt: 'asc' },
     });
 
     // Collect all ward userIds for batch query
     const wardUserIds: string[] = [];
-    if (guardian?.wards[0]?.userId) {
-      wardUserIds.push(guardian.wards[0].userId);
-    }
     for (const reg of registrations) {
       if (reg.linkedWard?.userId) {
         wardUserIds.push(reg.linkedWard.userId);
@@ -143,28 +134,9 @@ export class GuardianRepository {
       last_call_at: string | null;
     }> = [];
 
-    // Add primary ward
-    if (guardian) {
-      const primaryWard = guardian.wards[0];
-      const lastCallAt = primaryWard?.userId
-        ? (lastCallMap.get(primaryWard.userId)?.toISOString() ?? null)
-        : null;
-
-      results.push({
-        id: guardian.id,
-        ward_email: guardian.wardEmail,
-        ward_phone_number: guardian.wardPhoneNumber,
-        is_primary: true,
-        linked_ward_id: primaryWard?.id ?? null,
-        ward_user_id: primaryWard?.userId ?? null,
-        ward_nickname: primaryWard?.user.nickname ?? null,
-        ward_profile_image_url: primaryWard?.user.profileImageUrl ?? null,
-        last_call_at: lastCallAt,
-      });
-    }
-
-    // Add additional registrations
-    for (const reg of registrations) {
+    // 첫 번째 등록을 primary로 표시
+    for (let i = 0; i < registrations.length; i++) {
+      const reg = registrations[i];
       const lastCallAt = reg.linkedWard?.userId
         ? (lastCallMap.get(reg.linkedWard.userId)?.toISOString() ?? null)
         : null;
@@ -173,7 +145,7 @@ export class GuardianRepository {
         id: reg.id,
         ward_email: reg.wardEmail,
         ward_phone_number: reg.wardPhoneNumber,
-        is_primary: false,
+        is_primary: i === 0, // 첫 번째 등록이 primary
         linked_ward_id: reg.linkedWardId,
         ward_user_id: reg.linkedWard?.userId ?? null,
         ward_nickname: reg.linkedWard?.user.nickname ?? null,
@@ -189,15 +161,41 @@ export class GuardianRepository {
     guardianId: string;
     wardEmail: string;
     wardPhoneNumber: string;
+    wardName?: string;
+    relation?: string;
+    birthDate?: string;
+    gender?: string;
+    address?: string;
+    medicalConditions?: string;
+    medications?: string;
   }): Promise<GuardianWardRegistrationRow> {
     const registration = await this.prisma.guardianWardRegistration.create({
       data: {
         guardianId: params.guardianId,
         wardEmail: params.wardEmail,
         wardPhoneNumber: params.wardPhoneNumber,
+        wardName: params.wardName,
+        relation: params.relation,
+        birthDate: params.birthDate,
+        gender: params.gender,
+        address: params.address,
+        medicalConditions: params.medicalConditions,
+        medications: params.medications,
       },
     });
     return toGuardianWardRegistrationRow(registration);
+  }
+
+  async findFirstWardRegistration(
+    guardianId: string,
+  ): Promise<GuardianWardRegistrationRow | undefined> {
+    const registration = await this.prisma.guardianWardRegistration.findFirst({
+      where: { guardianId },
+      orderBy: { createdAt: 'asc' },
+    });
+    return registration
+      ? toGuardianWardRegistrationRow(registration)
+      : undefined;
   }
 
   async findWardRegistration(
@@ -262,25 +260,6 @@ export class GuardianRepository {
       });
       return result.count > 0;
     });
-  }
-
-  async updatePrimaryWard(params: {
-    guardianId: string;
-    wardEmail: string;
-    wardPhoneNumber: string;
-  }): Promise<GuardianRow | undefined> {
-    try {
-      const guardian = await this.prisma.guardian.update({
-        where: { id: params.guardianId },
-        data: {
-          wardEmail: params.wardEmail,
-          wardPhoneNumber: params.wardPhoneNumber,
-        },
-      });
-      return toGuardianRow(guardian);
-    } catch {
-      return undefined;
-    }
   }
 
   async unlinkPrimaryWard(guardianId: string): Promise<void> {
@@ -378,5 +357,159 @@ export class GuardianRepository {
       call_complete: settings.callComplete,
       health_alert: settings.healthAlert,
     };
+  }
+
+  // ===== Call Schedule Group Methods =====
+
+  async getCallScheduleGroups(guardianId: string) {
+    // 1. Get linked ward
+    const linkedWard = await this.prisma.ward.findFirst({
+      where: { guardianId },
+    });
+
+    // 2. Get registrations
+    const registrations = await this.prisma.guardianWardRegistration.findMany({
+      where: { guardianId },
+      select: { id: true },
+    });
+    const registrationIds = registrations.map(r => r.id);
+
+    // 3. Get schedules for ward or registrations
+    const schedules = await this.prisma.callScheduleGroup.findMany({
+      where: {
+        OR: [
+          ...(linkedWard ? [{ wardId: linkedWard.id }] : []),
+          ...(registrationIds.length > 0
+            ? [{ registrationId: { in: registrationIds } }]
+            : []),
+        ],
+      },
+      orderBy: { createdAt: 'asc' },
+    });
+
+    return schedules.map(s => ({
+      id: s.id,
+      registration_id: s.registrationId,
+      ward_id: s.wardId,
+      time: s.time,
+      weekdays: s.weekdays,
+      is_enabled: s.isEnabled,
+      created_at: s.createdAt,
+      updated_at: s.updatedAt,
+    }));
+  }
+
+  async createCallScheduleGroups(
+    registrationId: string | null,
+    wardId: string | null,
+    items: Array<{
+      id?: string;
+      time: string;
+      weekdays: number[];
+      isEnabled: boolean;
+    }>,
+  ) {
+    const data = items.map(item => ({
+      registrationId,
+      wardId,
+      time: item.time,
+      weekdays: item.weekdays,
+      isEnabled: item.isEnabled,
+    }));
+
+    await this.prisma.callScheduleGroup.createMany({ data });
+  }
+
+  async deleteCallScheduleGroupsByGuardian(guardianId: string) {
+    // 1. Get linked ward
+    const linkedWard = await this.prisma.ward.findFirst({
+      where: { guardianId },
+    });
+
+    // 2. Get registrations
+    const registrations = await this.prisma.guardianWardRegistration.findMany({
+      where: { guardianId },
+      select: { id: true },
+    });
+    const registrationIds = registrations.map(r => r.id);
+
+    // 3. Delete schedules
+    await this.prisma.callScheduleGroup.deleteMany({
+      where: {
+        OR: [
+          ...(linkedWard ? [{ wardId: linkedWard.id }] : []),
+          ...(registrationIds.length > 0
+            ? [{ registrationId: { in: registrationIds } }]
+            : []),
+        ],
+      },
+    });
+  }
+
+  async deleteCallScheduleGroup(
+    scheduleId: string,
+    guardianId: string,
+  ): Promise<boolean> {
+    // Verify ownership first
+    const linkedWard = await this.prisma.ward.findFirst({
+      where: { guardianId },
+    });
+
+    const registrations = await this.prisma.guardianWardRegistration.findMany({
+      where: { guardianId },
+      select: { id: true },
+    });
+    const registrationIds = registrations.map(r => r.id);
+
+    const schedule = await this.prisma.callScheduleGroup.findFirst({
+      where: {
+        id: scheduleId,
+        OR: [
+          ...(linkedWard ? [{ wardId: linkedWard.id }] : []),
+          ...(registrationIds.length > 0
+            ? [{ registrationId: { in: registrationIds } }]
+            : []),
+        ],
+      },
+    });
+
+    if (!schedule) return false;
+
+    await this.prisma.callScheduleGroup.delete({
+      where: { id: scheduleId },
+    });
+
+    return true;
+  }
+
+  // ===== Ward Linking Methods =====
+
+  async findPendingRegistrations(
+    guardianId: string,
+  ): Promise<Array<{ id: string; ward_email: string }>> {
+    const registrations = await this.prisma.guardianWardRegistration.findMany({
+      where: {
+        guardianId,
+        linkedWardId: null,
+      },
+      select: {
+        id: true,
+        wardEmail: true,
+      },
+    });
+    return registrations.map((r) => ({
+      id: r.id,
+      ward_email: r.wardEmail,
+    }));
+  }
+
+  async updateRegistrationLinkedWard(
+    registrationId: string,
+    wardId: string,
+  ): Promise<void> {
+    await this.prisma.guardianWardRegistration.update({
+      where: { id: registrationId },
+      data: { linkedWardId: wardId },
+    });
   }
 }
