@@ -40,7 +40,7 @@ export class UsersService {
               wardPhoneNumber: firstRegistration?.ward_phone_number ?? null,
               linkedWard: linkedWard
                 ? {
-                    id: linkedWard.user_id,
+                    id: linkedWard.id,
                     nickname: linkedWard.user_nickname,
                     profileImageUrl: linkedWard.user_profile_image_url,
                   }

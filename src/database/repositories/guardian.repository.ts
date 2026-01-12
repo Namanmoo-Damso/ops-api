@@ -532,33 +532,37 @@ export class GuardianRepository {
         const sortedWeekdays = [...item.weekdays].sort((a, b) => a - b);
 
         for (const weekday of sortedWeekdays) {
-          // SELECT FOR UPDATE로 해당 슬롯 행들 잠금
+          // 서브쿼리로 행 잠금 후 카운트 (PostgreSQL에서 aggregate + FOR UPDATE 불가)
           let result: [{ cnt: bigint }];
 
           if (wardId) {
             // 자기 자신(wardId) 제외하고 카운트
             result = await tx.$queryRaw<[{ cnt: bigint }]>`
-              SELECT COUNT(*) as cnt
-              FROM call_schedule_groups
-              WHERE slot_start_hour = ${item.slotStartHour}
-                AND slot_start_minute = ${item.slotStartMinute}
-                AND ${weekday} = ANY(weekdays)
-                AND is_enabled = TRUE
-                AND ward_id IS NOT NULL
-                AND ward_id != ${wardId}::uuid
-              FOR UPDATE
+              SELECT COUNT(*) as cnt FROM (
+                SELECT id
+                FROM call_schedule_groups
+                WHERE slot_start_hour = ${item.slotStartHour}
+                  AND slot_start_minute = ${item.slotStartMinute}
+                  AND ${weekday} = ANY(weekdays)
+                  AND is_enabled = TRUE
+                  AND ward_id IS NOT NULL
+                  AND ward_id != ${wardId}::uuid
+                FOR UPDATE
+              ) locked_rows
             `;
           } else {
             // wardId 없으면 전체 카운트
             result = await tx.$queryRaw<[{ cnt: bigint }]>`
-              SELECT COUNT(*) as cnt
-              FROM call_schedule_groups
-              WHERE slot_start_hour = ${item.slotStartHour}
-                AND slot_start_minute = ${item.slotStartMinute}
-                AND ${weekday} = ANY(weekdays)
-                AND is_enabled = TRUE
-                AND ward_id IS NOT NULL
-              FOR UPDATE
+              SELECT COUNT(*) as cnt FROM (
+                SELECT id
+                FROM call_schedule_groups
+                WHERE slot_start_hour = ${item.slotStartHour}
+                  AND slot_start_minute = ${item.slotStartMinute}
+                  AND ${weekday} = ANY(weekdays)
+                  AND is_enabled = TRUE
+                  AND ward_id IS NOT NULL
+                FOR UPDATE
+              ) locked_rows
             `;
           }
 
