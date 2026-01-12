@@ -327,4 +327,30 @@ export class CallRepository {
     });
     return summary ? toCallSummaryRow(summary) : null;
   }
+
+  /**
+   * 현재 활성 통화 수 조회 (ended 상태가 아닌 통화)
+   */
+  async getActiveCallCount(): Promise<number> {
+    return this.prisma.call.count({
+      where: {
+        state: { not: 'ended' },
+        endedAt: null,
+      },
+    });
+  }
+
+  /**
+   * 특정 사용자가 이미 활성 통화 중인지 확인
+   */
+  async hasActiveCall(userId: string): Promise<boolean> {
+    const count = await this.prisma.call.count({
+      where: {
+        OR: [{ callerUserId: userId }, { calleeUserId: userId }],
+        state: { not: 'ended' },
+        endedAt: null,
+      },
+    });
+    return count > 0;
+  }
 }

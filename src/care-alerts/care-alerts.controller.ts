@@ -16,6 +16,24 @@ import { AuthService } from '../auth';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateCareAlertDto } from './dto/create-care-alert.dto';
 
+type UserType = 'guardian' | 'ward';
+
+/** Internal token payload */
+type InternalAuthPayload = {
+  sub: 'internal';
+  role: 'internal';
+};
+
+/** User token payload from AuthService.verifyAccessToken */
+type UserAuthPayload = {
+  sub: string;
+  type: 'access' | 'refresh' | 'temp';
+  userType?: UserType;
+  kakaoId?: string;
+};
+
+type AuthPayload = InternalAuthPayload | UserAuthPayload;
+
 @Controller('v1')
 export class CareAlertsController {
   private readonly logger = new Logger(CareAlertsController.name);
@@ -24,9 +42,9 @@ export class CareAlertsController {
     private readonly careAlertsService: CareAlertsService,
     private readonly authService: AuthService,
     private readonly prisma: PrismaService,
-  ) {}
+  ) { }
 
-  private verifyAuthHeader(authorization: string | undefined) {
+  private verifyAuthHeader(authorization: string | undefined): AuthPayload {
     const authHeader = authorization ?? '';
     const token = authHeader.startsWith('Bearer ')
       ? authHeader.slice('Bearer '.length).trim()
@@ -37,6 +55,14 @@ export class CareAlertsController {
         'Access token is required',
         HttpStatus.UNAUTHORIZED,
       );
+    }
+
+    // Agent 등 내부 서비스 호출을 위한 Internal Token 확인
+    if (
+      process.env.API_INTERNAL_TOKEN &&
+      token === process.env.API_INTERNAL_TOKEN
+    ) {
+      return { sub: 'internal', role: 'internal' };
     }
 
     const payload = this.authService.verifyAccessToken(token);
@@ -57,9 +83,24 @@ export class CareAlertsController {
   @Post('care-alerts')
   async createAlert(
     @Headers('authorization') authorization: string | undefined,
+    @Headers('x-ward-id') xWardId: string | undefined,
     @Body() dto: CreateCareAlertDto,
   ) {
     const payload = this.verifyAuthHeader(authorization);
+
+    // Internal 요청인 경우 (Agent)
+    if ('role' in payload && payload.role === 'internal') {
+      if (!xWardId) {
+        throw new HttpException(
+          'X-Ward-Id header is required for internal requests',
+          HttpStatus.BAD_REQUEST,
+        );
+      }
+      this.logger.log(
+        `[API] POST /v1/care-alerts (Internal) wardId=${xWardId} alertType=${dto.alertType}`,
+      );
+      return await this.careAlertsService.processAlert(xWardId, dto);
+    }
 
     this.logger.log(
       `[API] POST /v1/care-alerts userId=${payload.sub} alertType=${dto.alertType}`,

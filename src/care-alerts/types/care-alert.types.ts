@@ -104,3 +104,30 @@ export const IMMEDIATE_ALERT_CONDITIONS: Record<AlertType, Severity[]> = {
 
 // 부정적 감정 목록
 export const NEGATIVE_EMOTIONS: EmotionType[] = ['sad', 'angry', 'fearful', 'disgusted'];
+
+// Type guard functions
+export function isDeviceFallPayload(
+  payload: unknown,
+): payload is DeviceFallPayload {
+  return (
+    typeof payload === 'object' && payload !== null && 'impactMagnitude' in payload
+  );
+}
+
+export function isPersonFallPayload(
+  payload: unknown,
+): payload is PersonFallPayload {
+  return (
+    typeof payload === 'object' && payload !== null && 'detectionType' in payload
+  );
+}
+
+export function isLoudVoicePayload(
+  payload: unknown,
+): payload is LoudVoicePayload {
+  return typeof payload === 'object' && payload !== null && 'decibel' in payload;
+}
+
+export function isEmotionPayload(payload: unknown): payload is EmotionPayload {
+  return typeof payload === 'object' && payload !== null && 'emotion' in payload;
+}

@@ -336,25 +336,44 @@ model CallSchedule {
 }
 
 // =============================================================================
-// 14-1. CALL_SCHEDULE_GROUPS (iOS 앱용 - 하나의 스케줄에 여러 요일)
+// 14-1. CALL_SLOT_CONFIG (전역 슬롯 설정)
+// =============================================================================
+model CallSlotConfig {
+  id                      Int      @id @default(1)              // 단일 row 보장
+  slotDurationMinutes     Int      @default(10) @map("slot_duration_minutes")
+  maxCallDurationMinutes  Int      @default(8) @map("max_call_duration_minutes")
+  maxCapacityPerSlot      Int      @default(40) @map("max_capacity_per_slot")
+  maxConcurrentCalls      Int      @default(50) @map("max_concurrent_calls")  // 동시 통화 최대 수
+  validMinutes            Int[]    @default([0, 10, 20, 30, 40, 50]) @map("valid_minutes")
+  createdAt               DateTime @default(now()) @map("created_at")
+  updatedAt               DateTime @default(now()) @updatedAt @map("updated_at")
+
+  @@map("call_slot_configs")
+}
+
+// =============================================================================
+// 14-2. CALL_SCHEDULE_GROUPS (iOS 앱용 - 슬롯 기반 스케줄)
 // =============================================================================
 model CallScheduleGroup {
-  id             String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  registrationId String?  @map("registration_id") @db.Uuid  // 연동 전 (GuardianWardRegistration)
-  wardId         String?  @map("ward_id") @db.Uuid          // 연동 후 (Ward)
-  time           String                                      // "10:00" 형식
-  weekdays       Int[]                                       // [0,1,2,3,4,5,6] - 0=일, 6=토
-  isEnabled      Boolean  @default(true) @map("is_enabled")
-  createdAt      DateTime @default(now()) @map("created_at")
-  updatedAt      DateTime @default(now()) @updatedAt @map("updated_at")
+  id              String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  registrationId  String?  @map("registration_id") @db.Uuid  // 연동 전 (GuardianWardRegistration)
+  wardId          String?  @map("ward_id") @db.Uuid          // 연동 후 (Ward)
+  slotStartHour   Int      @map("slot_start_hour")           // 0~23
+  slotStartMinute Int      @map("slot_start_minute")         // 0, 10, 20, 30, 40, 50
+  weekdays        Int[]                                       // [0,1,2,3,4,5,6] - 0=일, 6=토
+  isEnabled       Boolean  @default(true) @map("is_enabled")
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @default(now()) @updatedAt @map("updated_at")
 
   // Relations
   registration GuardianWardRegistration? @relation(fields: [registrationId], references: [id], onDelete: Cascade)
   ward         Ward?                      @relation("WardCallScheduleGroups", fields: [wardId], references: [id], onDelete: Cascade)
 
+  @@unique([wardId, slotStartHour, slotStartMinute])  // 동일 시간 중복 방지
   @@index([registrationId])
   @@index([wardId])
   @@index([isEnabled])
+  @@index([slotStartHour, slotStartMinute])           // 스케줄러 조회용
   @@map("call_schedule_groups")
 }
 
@@ -641,6 +660,12 @@ model CareAlertEvent {
   acknowledgedBy String?   @map("acknowledged_by") @db.Uuid
   createdAt      DateTime  @default(now()) @map("created_at")
 
+  // Agent 연동 필드
+  callId         String?   @map("call_id") @db.Uuid      // 통화 연관
+  roomName       String?   @map("room_name")              // LiveKit room name
+  agentResponse  String?   @map("agent_response")         // Agent 응답 메시지
+  source         String    @default("ios")                // 'ios' | 'agent'
+
   // Relations
   ward Ward @relation(fields: [wardId], references: [id], onDelete: Cascade)
 
@@ -648,6 +673,8 @@ model CareAlertEvent {
   @@index([alertType])
   @@index([severity])
   @@index([acknowledged])
+  @@index([wardId, alertType, timestamp])  // 중복 체크용 복합 인덱스
+  @@index([callId])                         // 통화별 조회용
   @@map("care_alert_events")
 }
 

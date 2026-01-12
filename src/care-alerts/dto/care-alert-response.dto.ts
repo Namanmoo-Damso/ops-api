@@ -4,7 +4,7 @@ import { AlertType, Severity, EmotionType } from '../types/care-alert.types';
 export interface CareAlertCreatedResponse {
   success: boolean;
   alertType: AlertType;
-  processed: 'buffered' | 'stored';
+  processed: 'buffered' | 'stored' | 'duplicate';
   alertId?: string;
 }
 

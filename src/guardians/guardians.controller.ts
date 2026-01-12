@@ -52,6 +52,7 @@ export class GuardiansController {
   async getDashboard(
     @Headers('authorization') authorization: string | undefined,
     @Query('period') period?: string,
+    @Query('ward_id') wardId?: string,
   ) {
     const payload = this.verifyAuthHeader(authorization);
     const dashboardPeriod = ['today', 'week', 'month'].includes(period ?? '')
@@ -59,7 +60,7 @@ export class GuardiansController {
       : undefined;
 
     try {
-      return await this.guardiansService.getDashboard(payload.sub, dashboardPeriod);
+      return await this.guardiansService.getDashboard(payload.sub, dashboardPeriod, wardId);
     } catch (error) {
       if ((error as HttpException).getStatus?.()) {
         throw error;
@@ -135,7 +136,8 @@ export class GuardiansController {
         isEnabled: boolean;
         items: Array<{
           id?: string;
-          time: string;
+          slotStartHour: number;
+          slotStartMinute: number;
           weekdays: number[];
           isEnabled: boolean;
         }>;
@@ -320,11 +322,12 @@ export class GuardiansController {
   @Get('schedules')
   async getSchedules(
     @Headers('authorization') authorization: string | undefined,
+    @Query('ward_id') wardId?: string,
   ) {
     const payload = this.verifyAuthHeader(authorization);
 
     try {
-      return await this.guardiansService.getSchedules(payload.sub);
+      return await this.guardiansService.getSchedules(payload.sub, wardId);
     } catch (error) {
       if ((error as HttpException).getStatus?.()) {
         throw error;
@@ -337,15 +340,49 @@ export class GuardiansController {
     }
   }
 
+  @Get('schedules/availability')
+  async getSlotAvailability(
+    @Headers('authorization') authorization: string | undefined,
+    @Query('hour') hour: string,
+    @Query('minute') minute: string,
+  ) {
+    const payload = this.verifyAuthHeader(authorization);
+
+    const hourNum = parseInt(hour, 10);
+    const minuteNum = parseInt(minute, 10);
+
+    if (isNaN(hourNum) || hourNum < 0 || hourNum > 23) {
+      throw new HttpException('Invalid hour parameter', HttpStatus.BAD_REQUEST);
+    }
+    if (isNaN(minuteNum) || ![0, 10, 20, 30, 40, 50].includes(minuteNum)) {
+      throw new HttpException('Invalid minute parameter (must be 0, 10, 20, 30, 40, 50)', HttpStatus.BAD_REQUEST);
+    }
+
+    try {
+      return await this.guardiansService.getSlotAvailability(payload.sub, hourNum, minuteNum);
+    } catch (error) {
+      if ((error as HttpException).getStatus?.()) {
+        throw error;
+      }
+      this.logger.warn(`getSlotAvailability failed error=${(error as Error).message}`);
+      throw new HttpException(
+        'Failed to get slot availability',
+        HttpStatus.INTERNAL_SERVER_ERROR,
+      );
+    }
+  }
+
   @Put('schedules')
   async updateSchedules(
     @Headers('authorization') authorization: string | undefined,
     @Body()
     body: {
+      wardId?: string;
       isEnabled: boolean;
       items: Array<{
         id?: string;
-        time: string;
+        slotStartHour: number;
+        slotStartMinute: number;
         weekdays: number[];
         isEnabled: boolean;
       }>;

@@ -57,8 +57,34 @@ export class CareAlertsService {
     );
 
     try {
+      // Emotion은 버퍼링 (중복 체크 불필요)
       if (dto.alertType === 'emotion') {
         return this.bufferEmotion(wardId, dto);
+      }
+
+      // 중복 Alert 체크 (같은 wardId + alertType + timestamp ±1초)
+      const alertTime = new Date(dto.timestamp);
+      const existingAlert = await this.prisma.careAlertEvent.findFirst({
+        where: {
+          wardId,
+          alertType: dto.alertType,
+          timestamp: {
+            gte: new Date(alertTime.getTime() - 1000),
+            lte: new Date(alertTime.getTime() + 1000),
+          },
+        },
+      });
+
+      if (existingAlert) {
+        this.logger.log(
+          `[CARE_ALERT_DUPLICATE] wardId=${wardId} alertType=${dto.alertType} existingId=${existingAlert.id}`,
+        );
+        return {
+          success: true,
+          alertType: dto.alertType,
+          processed: 'duplicate',
+          alertId: existingAlert.id,
+        };
       }
 
       // Fall/LoudVoice → 원본 저장 + 즉시 알림
@@ -266,6 +292,7 @@ export class CareAlertsService {
     severity: string;
     timestamp: Date;
     rawPayload: unknown;
+    roomName: string | null;
   }> {
     // JSON 타입으로 안전하게 변환
     const rawPayload = JSON.parse(JSON.stringify(dto.data));
@@ -277,11 +304,16 @@ export class CareAlertsService {
         severity: dto.severity,
         timestamp: new Date(dto.timestamp),
         rawPayload,
+        // Agent 연동 필드
+        callId: dto.callId ?? null,
+        roomName: dto.roomName ?? null,
+        agentResponse: dto.agentResponse ?? null,
+        source: dto.source ?? 'ios',
       },
     });
 
     this.logger.log(
-      `[CARE_ALERT_SAVED] wardId=${wardId} alertId=${event.id} alertType=${dto.alertType} severity=${dto.severity}`,
+      `[CARE_ALERT_SAVED] wardId=${wardId} alertId=${event.id} alertType=${dto.alertType} severity=${dto.severity} source=${dto.source ?? 'ios'}`,
     );
 
     return event;
@@ -303,7 +335,7 @@ export class CareAlertsService {
    */
   private async sendNotifications(
     wardId: string,
-    event: { id: string; alertType: string; severity: string; timestamp: Date },
+    event: { id: string; alertType: string; severity: string; timestamp: Date; roomName: string | null },
   ): Promise<void> {
     const notifyStart = Date.now();
 
@@ -363,14 +395,14 @@ export class CareAlertsService {
     }
 
     // 2. Organization에게 WebSocket 이벤트
-    if (ward.organization) {
+    if (ward.organization && event.roomName) {
       this.logger.log(
-        `[NOTIFY_WS] wardId=${wardId} organizationId=${ward.organization.id}`,
+        `[NOTIFY_WS] wardId=${wardId} organizationId=${ward.organization.id} roomName=${event.roomName}`,
       );
 
       this.eventsService.emit({
         type: 'room-danger',
-        roomName: `org:${ward.organization.id}`,
+        roomName: event.roomName,
         isDanger: true,
         name: `${event.alertType}:${wardId}`,
       });

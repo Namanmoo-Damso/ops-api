@@ -21,7 +21,8 @@ export class DevGuardianDto {
     isEnabled: boolean;
     items: Array<{
       id?: string;
-      time: string;
+      slotStartHour: number;
+      slotStartMinute: number;
       weekdays: number[];
       isEnabled: boolean;
     }>;

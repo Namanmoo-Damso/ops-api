@@ -849,13 +849,18 @@ export class WardRepository {
   }
 
   /**
-   * 현재 시간에 해당하는 스케줄 조회 (call_schedule_groups 테이블)
-   * 자동 전화 발신용
+   * 현재 슬롯에 해당하는 스케줄 조회 (call_schedule_groups 테이블)
+   * 자동 전화 발신용 - 10분 슬롯 기반
    */
-  async getSchedulesForCurrentTime(dayOfWeek: number, time: string) {
+  async getSchedulesForCurrentSlot(
+    dayOfWeek: number,
+    slotStartHour: number,
+    slotStartMinute: number,
+  ) {
     const schedules = await this.prisma.callScheduleGroup.findMany({
       where: {
-        time,
+        slotStartHour,
+        slotStartMinute,
         weekdays: { has: dayOfWeek },
         isEnabled: true,
         wardId: { not: null },

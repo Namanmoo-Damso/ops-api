@@ -359,6 +359,76 @@ export class GuardianRepository {
     };
   }
 
+  // ===== Call Slot Config Methods =====
+
+  async getSlotConfig() {
+    const config = await this.prisma.callSlotConfig.findFirst({
+      where: { id: 1 },
+    });
+    return config ?? {
+      id: 1,
+      slotDurationMinutes: 10,
+      maxCallDurationMinutes: 8,
+      maxCapacityPerSlot: 40,
+      maxConcurrentCalls: 50,
+      validMinutes: [0, 10, 20, 30, 40, 50],
+    };
+  }
+
+  /**
+   * 특정 슬롯(hour, minute, weekday)의 현재 예약 수 조회
+   */
+  async getSlotCapacity(
+    hour: number,
+    minute: number,
+    weekday: number,
+    excludeWardId?: string,
+  ): Promise<number> {
+    const count = await this.prisma.callScheduleGroup.count({
+      where: {
+        slotStartHour: hour,
+        slotStartMinute: minute,
+        weekdays: { has: weekday },
+        isEnabled: true,
+        wardId: { not: null },
+        ...(excludeWardId ? { wardId: { not: excludeWardId } } : {}),
+      },
+    });
+    return count;
+  }
+
+  /**
+   * 슬롯 가용성 조회 (모든 요일)
+   */
+  async getSlotAvailability(hour: number, minute: number) {
+    const config = await this.getSlotConfig();
+    const maxCapacity = config.maxCapacityPerSlot;
+
+    // 각 요일별 현재 예약 수 조회
+    const counts = await Promise.all(
+      [0, 1, 2, 3, 4, 5, 6].map(async weekday => {
+        const current = await this.getSlotCapacity(hour, minute, weekday);
+        return {
+          weekday,
+          current,
+          available: Math.max(0, maxCapacity - current),
+        };
+      }),
+    );
+
+    return {
+      slotStartHour: hour,
+      slotStartMinute: minute,
+      maxCapacity,
+      availabilityByWeekday: Object.fromEntries(
+        counts.map(c => [
+          c.weekday,
+          { current: c.current, available: c.available },
+        ]),
+      ),
+    };
+  }
+
   // ===== Call Schedule Group Methods =====
 
   async getCallScheduleGroups(guardianId: string) {
@@ -391,7 +461,8 @@ export class GuardianRepository {
       id: s.id,
       registration_id: s.registrationId,
       ward_id: s.wardId,
-      time: s.time,
+      slot_start_hour: s.slotStartHour,
+      slot_start_minute: s.slotStartMinute,
       weekdays: s.weekdays,
       is_enabled: s.isEnabled,
       created_at: s.createdAt,
@@ -404,7 +475,8 @@ export class GuardianRepository {
     wardId: string | null,
     items: Array<{
       id?: string;
-      time: string;
+      slotStartHour: number;
+      slotStartMinute: number;
       weekdays: number[];
       isEnabled: boolean;
     }>,
@@ -412,12 +484,120 @@ export class GuardianRepository {
     const data = items.map(item => ({
       registrationId,
       wardId,
-      time: item.time,
+      slotStartHour: item.slotStartHour,
+      slotStartMinute: item.slotStartMinute,
       weekdays: item.weekdays,
       isEnabled: item.isEnabled,
     }));
 
     await this.prisma.callScheduleGroup.createMany({ data });
+  }
+
+  /**
+   * 스케줄 생성 (SELECT FOR UPDATE 동시성 제어)
+   * 트랜잭션 내에서 용량 검증 + 생성을 원자적으로 수행
+   */
+  async createCallScheduleGroupsWithLock(
+    registrationId: string | null,
+    wardId: string | null,
+    items: Array<{
+      slotStartHour: number;
+      slotStartMinute: number;
+      weekdays: number[];
+      isEnabled: boolean;
+    }>,
+    maxCapacity: number,
+  ): Promise<{
+    success: boolean;
+    error?: {
+      code: string;
+      message: string;
+      details: {
+        weekday: number;
+        slotStartHour: number;
+        slotStartMinute: number;
+        currentCount: number;
+        maxCapacity: number;
+      };
+    };
+  }> {
+    const weekdayNames = ['일', '월', '화', '수', '목', '금', '토'];
+
+    return this.prisma.$transaction(async tx => {
+      // 각 item별로 용량 검증 (SELECT FOR UPDATE)
+      for (const item of items) {
+        if (!item.isEnabled) continue;
+
+        // 데드락 방지: 요일을 정렬하여 순서 고정
+        const sortedWeekdays = [...item.weekdays].sort((a, b) => a - b);
+
+        for (const weekday of sortedWeekdays) {
+          // SELECT FOR UPDATE로 해당 슬롯 행들 잠금
+          let result: [{ cnt: bigint }];
+
+          if (wardId) {
+            // 자기 자신(wardId) 제외하고 카운트
+            result = await tx.$queryRaw<[{ cnt: bigint }]>`
+              SELECT COUNT(*) as cnt
+              FROM call_schedule_groups
+              WHERE slot_start_hour = ${item.slotStartHour}
+                AND slot_start_minute = ${item.slotStartMinute}
+                AND ${weekday} = ANY(weekdays)
+                AND is_enabled = TRUE
+                AND ward_id IS NOT NULL
+                AND ward_id != ${wardId}::uuid
+              FOR UPDATE
+            `;
+          } else {
+            // wardId 없으면 전체 카운트
+            result = await tx.$queryRaw<[{ cnt: bigint }]>`
+              SELECT COUNT(*) as cnt
+              FROM call_schedule_groups
+              WHERE slot_start_hour = ${item.slotStartHour}
+                AND slot_start_minute = ${item.slotStartMinute}
+                AND ${weekday} = ANY(weekdays)
+                AND is_enabled = TRUE
+                AND ward_id IS NOT NULL
+              FOR UPDATE
+            `;
+          }
+
+          const currentCount = Number(result[0].cnt);
+
+          if (currentCount >= maxCapacity) {
+            // 트랜잭션 롤백 (에러 반환)
+            return {
+              success: false,
+              error: {
+                code: 'SLOT_CAPACITY_EXCEEDED',
+                message: `${weekdayNames[weekday]}요일 ${item.slotStartHour}:${String(item.slotStartMinute).padStart(2, '0')} 슬롯이 가득 찼습니다 (${currentCount}/${maxCapacity})`,
+                details: {
+                  weekday,
+                  slotStartHour: item.slotStartHour,
+                  slotStartMinute: item.slotStartMinute,
+                  currentCount,
+                  maxCapacity,
+                },
+              },
+            };
+          }
+        }
+      }
+
+      // 모든 용량 검증 통과 → INSERT
+      const data = items.map(item => ({
+        registrationId,
+        wardId,
+        slotStartHour: item.slotStartHour,
+        slotStartMinute: item.slotStartMinute,
+        weekdays: item.weekdays,
+        isEnabled: item.isEnabled,
+      }));
+
+      await tx.callScheduleGroup.createMany({ data });
+
+      return { success: true };
+    });
   }
 
   async deleteCallScheduleGroupsByGuardian(guardianId: string) {
