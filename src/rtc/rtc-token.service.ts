@@ -5,6 +5,7 @@ import { ConfigService } from '../core/config';
 import { DbService } from '../database';
 import { EventsService } from '../events/events.service';
 import { LiveKitService } from '../integration/livekit/livekit.service';
+import { RagService } from '../ai/rag.service';
 
 type Role = 'host' | 'viewer' | 'observer';
 
@@ -38,6 +39,7 @@ export class RtcTokenService {
     private readonly dbService: DbService,
     private readonly eventsService: EventsService,
     private readonly liveKitService: LiveKitService,
+    private readonly ragService: RagService,
   ) { }
 
   /**
@@ -228,6 +230,24 @@ export class RtcTokenService {
         identity,
         name,
       });
+
+      // 🚀 PRE-WARM: Generate personalized greeting BEFORE agent joins
+      // This runs immediately when user requests a call, parallel with agent dispatch
+      // By the time agent enters and subscribes to Redis, greeting is likely ready
+      const wardId = await this.dbService.findWardByUserId(user.id).then(w => w?.id);
+      if (wardId) {
+        this.logger.log(
+          `🚀 Pre-warming greeting for ward=${wardId} room=${roomName}`,
+        );
+        // Fire and forget - don't block token issuance
+        this.ragService
+          .generatePersonalizedGreeting(wardId, 'inbound')
+          .catch(error => {
+            this.logger.warn(
+              `Pre-warm greeting failed ward=${wardId}: ${error.message}`,
+            );
+          });
+      }
 
       // Dispatch voice agent
       try {

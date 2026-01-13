@@ -17,7 +17,7 @@ export type GreetingConfig = {
 type GreetingDeps = {
   logger: Logger;
   bedrockClient: () => BedrockRuntimeClient; // Lazy getter to avoid initialization order issues
-  redisClient: RedisClientType | null;
+  redisClient: () => RedisClientType | null; // Lazy getter to avoid initialization order issues
   getRecentContext: (wardId: string, limit?: number) => Promise<ContextEntry[]>;
   getGreetingCacheKey: (wardId: string) => string;
 };
@@ -83,9 +83,10 @@ export class GreetingGenerator {
       }
 
       // Cache in Redis for fast retrieval
-      if (this.deps.redisClient) {
+      const redisClient = this.deps.redisClient();
+      if (redisClient) {
         const greetingKey = this.deps.getGreetingCacheKey(wardId);
-        await this.deps.redisClient.setEx(
+        await redisClient.setEx(
           greetingKey,
           this.config.redisGreetingTTL,
           greeting,
@@ -94,9 +95,13 @@ export class GreetingGenerator {
 
         // 🚀 Publish to Pub/Sub channel for Push-based delivery
         const greetingChannel = `greeting:ward:${wardId}`;
-        await this.deps.redisClient.publish(greetingChannel, greeting);
+        await redisClient.publish(greetingChannel, greeting);
         this.deps.logger.log(
           `📡 Published greeting to channel: ${greetingChannel}`,
+        );
+      } else {
+        this.deps.logger.warn(
+          `⚠️ Redis client not available, greeting not cached/published for ward=${wardId}`,
         );
       }
 

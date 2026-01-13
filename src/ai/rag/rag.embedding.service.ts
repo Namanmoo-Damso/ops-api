@@ -62,33 +62,56 @@ export class RagEmbeddingService implements OnModuleInit {
    * Generate embedding with retry logic
    */
   async generateEmbedding(text: string): Promise<number[]> {
-    return this.retryAsync(
-      async () => {
-        const requestBody = {
-          inputText: text,
-          dimensions: this.VECTOR_DIMENSIONS,
-          normalize: true,
-        };
-
-        const command = new InvokeModelCommand({
-          modelId: this.EMBEDDING_MODEL,
-          body: JSON.stringify(requestBody),
-          contentType: 'application/json',
-          accept: 'application/json',
-        });
-
-        const response = await this.bedrockClient.send(command);
-        const responseBody = JSON.parse(
-          new TextDecoder().decode(response.body),
-        );
-
-        return responseBody.embedding;
-      },
-      this.BEDROCK_MAX_RETRIES,
-      this.BEDROCK_RETRY_DELAY,
-      this.BEDROCK_RETRY_BACKOFF,
-      'generate embedding',
+    const startTime = Date.now();
+    const truncatedText = text.substring(0, 100);
+    this.logger.debug(
+      `🔄 Bedrock embedding request: "${truncatedText}${text.length > 100 ? '...' : ''}" (${text.length} chars)`,
     );
+
+    try {
+      const embedding = await this.retryAsync(
+        async () => {
+          const requestBody = {
+            inputText: text,
+            dimensions: this.VECTOR_DIMENSIONS,
+            normalize: true,
+          };
+
+          const command = new InvokeModelCommand({
+            modelId: this.EMBEDDING_MODEL,
+            body: JSON.stringify(requestBody),
+            contentType: 'application/json',
+            accept: 'application/json',
+          });
+
+          this.logger.debug(`📡 Sending request to Bedrock...`);
+          const response = await this.bedrockClient.send(command);
+          const responseBody = JSON.parse(
+            new TextDecoder().decode(response.body),
+          );
+
+          return responseBody.embedding;
+        },
+        this.BEDROCK_MAX_RETRIES,
+        this.BEDROCK_RETRY_DELAY,
+        this.BEDROCK_RETRY_BACKOFF,
+        'generate embedding',
+      );
+
+      const elapsed = Date.now() - startTime;
+      this.logger.debug(
+        `✅ Bedrock embedding generated in ${elapsed}ms (${embedding.length} dimensions)`,
+      );
+
+      return embedding;
+    } catch (error) {
+      const elapsed = Date.now() - startTime;
+      this.logger.error(
+        `❌ Bedrock embedding failed after ${elapsed}ms: ${error.message}`,
+        error.stack,
+      );
+      throw error;
+    }
   }
 
   /**
