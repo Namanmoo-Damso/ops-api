@@ -131,6 +131,7 @@ export class RagEmbeddingService implements OnModuleInit {
         } else {
           this.logger.error(
             `Failed to ${operationName} after ${attempt + 1} attempt(s): ${error.message}`,
+            error instanceof Error ? error.stack : undefined,
           );
           break;
         }

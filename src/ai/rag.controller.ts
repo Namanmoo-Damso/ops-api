@@ -69,6 +69,7 @@ export class RagController {
       .catch(error => {
         this.logger.error(
           `Background indexing failed for call ${callId}: ${error.message}`,
+          error.stack,
         );
       });
 

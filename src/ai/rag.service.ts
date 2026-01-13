@@ -136,8 +136,10 @@ export class RagService implements OnModuleInit {
           const reason = (failure.result as PromiseRejectedResult).reason;
           const message =
             reason instanceof Error ? reason.message : String(reason);
+          const stack = reason instanceof Error ? reason.stack : undefined;
           this.logger.error(
             `Chunk ${failure.index + 1}/${chunks.length} failed to index: ${message}`,
+            stack,
           );
         }
 
@@ -222,7 +224,7 @@ export class RagService implements OnModuleInit {
 
       return pgResults;
     } catch (error) {
-      this.logger.error(`Search failed: ${error.message}`);
+      this.logger.error(`Search failed: ${error.message}`, error.stack);
       throw error;
     }
   }
@@ -276,16 +278,6 @@ export class RagService implements OnModuleInit {
     this.metricsService.reset();
   }
 
-  /**
-   * Get greeting generator (for external use)
-   */
-  getGreetingGenerator(): GreetingGenerator {
-    if (!this.greetingGenerator) {
-      throw new Error('Greeting generator not initialized');
-    }
-    return this.greetingGenerator;
-  }
-
   // ========== Private Helper Methods ==========
 
   /**
@@ -297,9 +289,10 @@ export class RagService implements OnModuleInit {
     const chunks: Array<{ text: string; transcripts: TranscriptLine[] }> = [];
     let currentChunk: TranscriptLine[] = [];
     let currentLength = 0;
+    const buildLineText = (t: TranscriptLine) => `[${t.speaker}]: ${t.text}`;
 
     for (const transcript of transcripts) {
-      const lineText = `[${transcript.speaker}]: ${transcript.text}`;
+      const lineText = buildLineText(transcript);
       const lineLength = lineText.length;
 
       if (
@@ -307,22 +300,23 @@ export class RagService implements OnModuleInit {
         currentChunk.length > 0
       ) {
         chunks.push({
-          text: currentChunk.map(t => `[${t.speaker}]: ${t.text}`).join('\n'),
+          text: currentChunk.map(buildLineText).join('\n'),
           transcripts: currentChunk,
         });
 
-        const overlapStart = Math.max(
-          0,
-          currentChunk.length -
-            Math.floor(
-              this.CHUNK_OVERLAP / (this.CHUNK_SIZE / currentChunk.length),
-            ),
-        );
-        currentChunk = currentChunk.slice(overlapStart);
-        currentLength = currentChunk.reduce(
-          (sum, t) => sum + `[${t.speaker}]: ${t.text}`.length,
-          0,
-        );
+        if (this.CHUNK_OVERLAP > 0) {
+          let overlapLength = 0;
+          let overlapStart = currentChunk.length;
+          while (overlapStart > 0 && overlapLength < this.CHUNK_OVERLAP) {
+            overlapStart -= 1;
+            overlapLength += buildLineText(currentChunk[overlapStart]).length;
+          }
+          currentChunk = currentChunk.slice(overlapStart);
+          currentLength = overlapLength;
+        } else {
+          currentChunk = [];
+          currentLength = 0;
+        }
       }
 
       currentChunk.push(transcript);
@@ -331,7 +325,7 @@ export class RagService implements OnModuleInit {
 
     if (currentChunk.length > 0) {
       chunks.push({
-        text: currentChunk.map(t => `[${t.speaker}]: ${t.text}`).join('\n'),
+        text: currentChunk.map(buildLineText).join('\n'),
         transcripts: currentChunk,
       });
     }
@@ -393,7 +387,7 @@ export class RagService implements OnModuleInit {
 
       this.logger.debug(`Indexed chunk: ${chunkText.substring(0, 50)}...`);
     } catch (error) {
-      this.logger.error(`Failed to index chunk: ${error.message}`);
+      this.logger.error(`Failed to index chunk: ${error.message}`, error.stack);
       throw error;
     }
   }

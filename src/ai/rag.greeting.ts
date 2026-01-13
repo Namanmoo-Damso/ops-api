@@ -45,18 +45,6 @@ export class GreetingGenerator {
         );
         const standardGreeting = this.getStandardGreeting(callDirection);
 
-        // 🚀 Publish standard greeting to Redis Pub/Sub even without context
-        if (this.deps.redisClient) {
-          const greetingChannel = `greeting:ward:${wardId}`;
-          await this.deps.redisClient.publish(
-            greetingChannel,
-            standardGreeting,
-          );
-          this.deps.logger.log(
-            `📡 Published standard greeting to channel: ${greetingChannel}`,
-          );
-        }
-
         return standardGreeting;
       }
 

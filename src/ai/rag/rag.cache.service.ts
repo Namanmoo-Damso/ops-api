@@ -215,7 +215,10 @@ export class RagCacheService implements OnModuleInit {
         createdAt: r.created_at,
       }));
     } catch (error) {
-      this.logger.error(`Failed to get recent context: ${error.message}`);
+      this.logger.error(
+        `Failed to get recent context: ${error.message}`,
+        error.stack,
+      );
       return [];
     }
   }

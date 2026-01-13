@@ -73,7 +73,10 @@ export class RagSearchService {
         callId: r.call_id,
       }));
     } catch (error) {
-      this.logger.error(`PGVector search failed: ${error.message}`);
+      this.logger.error(
+        `PGVector search failed: ${error.message}`,
+        error.stack,
+      );
       throw error;
     }
   }
