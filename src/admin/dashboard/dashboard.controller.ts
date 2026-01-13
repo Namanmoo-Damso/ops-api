@@ -92,6 +92,32 @@ export class DashboardController {
     }
   }
 
+  /**
+   * Get today's daily operations summary
+   * Returns call counts (total/incoming/outgoing), duration stats, and check-in rates
+   */
+  @Get('today-summary')
+  async getTodaySummary() {
+    this.logger.log('getTodaySummary called');
+
+    try {
+      const summary = await this.dbService.getTodayOperationsSummary();
+
+      return {
+        ...summary,
+        fetchedAt: new Date().toISOString(),
+      };
+    } catch (error) {
+      this.logger.warn(
+        `getTodaySummary failed error=${(error as Error).message}`,
+      );
+      throw new HttpException(
+        'Failed to fetch today summary',
+        HttpStatus.INTERNAL_SERVER_ERROR,
+      );
+    }
+  }
+
   @Get('realtime')
   async getRealtime() {
     this.logger.log('getRealtime called');

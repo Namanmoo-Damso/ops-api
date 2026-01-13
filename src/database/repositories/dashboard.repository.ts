@@ -74,6 +74,54 @@ export class DashboardRepository {
     };
   }
 
+  /**
+   * Get today's daily operations summary
+   * Returns call breakdown by direction and check-in completion stats
+   */
+  async getTodayOperationsSummary() {
+    const result = await this.prisma.$queryRaw<
+      Array<{
+        total_calls: bigint;
+        incoming_calls: bigint;
+        outgoing_calls: bigint;
+        total_duration_minutes: number;
+        avg_duration_minutes: number;
+        scheduled_check_ins: bigint;
+        completed_check_ins: bigint;
+      }>
+    >`
+      SELECT
+        (SELECT count(*) FROM calls
+         WHERE created_at >= current_date AND state = 'ended') as total_calls,
+        (SELECT count(*) FROM calls
+         WHERE created_at >= current_date AND state = 'ended' AND direction = 'inbound') as incoming_calls,
+        (SELECT count(*) FROM calls
+         WHERE created_at >= current_date AND state = 'ended' AND direction = 'outbound') as outgoing_calls,
+        (SELECT coalesce(sum(extract(epoch from (ended_at - answered_at))/60), 0)
+         FROM calls WHERE created_at >= current_date AND state = 'ended' AND answered_at IS NOT NULL) as total_duration_minutes,
+        (SELECT coalesce(avg(extract(epoch from (ended_at - answered_at))/60), 0)
+         FROM calls WHERE created_at >= current_date AND state = 'ended' AND answered_at IS NOT NULL) as avg_duration_minutes,
+        (SELECT count(*) FROM call_schedules
+         WHERE scheduled_date = current_date) as scheduled_check_ins,
+        (SELECT count(*) FROM call_schedules cs
+         JOIN calls c ON cs.ward_id = c.callee_user_id::text
+         WHERE cs.scheduled_date = current_date
+         AND c.created_at::date = current_date
+         AND c.state = 'ended') as completed_check_ins
+    `;
+
+    const row = result[0];
+    return {
+      totalCalls: Number(row.total_calls),
+      incomingCalls: Number(row.incoming_calls),
+      outgoingCalls: Number(row.outgoing_calls),
+      totalDurationMinutes: Math.round(Number(row.total_duration_minutes || 0)),
+      avgDurationMinutes: Math.round(Number(row.avg_duration_minutes || 0)),
+      scheduledCheckIns: Number(row.scheduled_check_ins),
+      completedCheckIns: Number(row.completed_check_ins),
+    };
+  }
+
   async getWeeklyTrend() {
     const result = await this.prisma.$queryRaw<
       Array<{

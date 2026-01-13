@@ -932,6 +932,10 @@ export class DbService implements OnModuleDestroy {
     return this.dashboard.getTodayStats();
   }
 
+  async getTodayOperationsSummary() {
+    return this.dashboard.getTodayOperationsSummary();
+  }
+
   async getWeeklyTrend() {
     return this.dashboard.getWeeklyTrend();
   }
