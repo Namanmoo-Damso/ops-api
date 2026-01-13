@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import {
   BedrockRuntimeClient,
   InvokeModelCommand,
@@ -13,7 +13,7 @@ import {
  * - Handles network errors and rate limiting
  */
 @Injectable()
-export class RagEmbeddingService {
+export class RagEmbeddingService implements OnModuleInit {
   private readonly logger = new Logger(RagEmbeddingService.name);
   private bedrockClient: BedrockRuntimeClient;
 

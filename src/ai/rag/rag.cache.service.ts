@@ -3,8 +3,7 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { Prisma } from '@prisma/client';
 import { createClient, type RedisClientType } from 'redis';
 import { SearchResult, ContextResult } from './rag.types';
-import { RagMetricsService } from './rag.metrics.service';
-import { RagSearchService } from './rag.search.service';
+import { cosineSimilarity } from './rag.utils';
 
 /**
  * RAG Cache Service
@@ -29,11 +28,7 @@ export class RagCacheService implements OnModuleInit {
   );
   private readonly CACHE_VERSION = 'v1';
 
-  constructor(
-    private readonly prisma: PrismaService,
-    private readonly metricsService: RagMetricsService,
-    private readonly searchService: RagSearchService,
-  ) {}
+  constructor(private readonly prisma: PrismaService) {}
 
   async onModuleInit() {
     const redisUrl = process.env.REDIS_URL;
@@ -125,7 +120,6 @@ export class RagCacheService implements OnModuleInit {
   ): Promise<SearchResult[] | null> {
     if (!this.redisClient) return null;
 
-    const startTime = Date.now();
     const cacheKey = this.getRedisVectorsKey(wardId);
     const cached = await this.redisClient.get(cacheKey);
 
@@ -144,10 +138,7 @@ export class RagCacheService implements OnModuleInit {
     for (const vec of vectors) {
       try {
         const vecEmbedding: number[] = JSON.parse(vec.embedding);
-        const similarity = this.searchService.cosineSimilarity(
-          queryEmbedding,
-          vecEmbedding,
-        );
+        const similarity = cosineSimilarity(queryEmbedding, vecEmbedding);
 
         results.push({
           text: vec.chunk_text,
@@ -162,7 +153,6 @@ export class RagCacheService implements OnModuleInit {
     }
 
     results.sort((a, b) => b.similarity - a.similarity);
-    const searchTime = Date.now() - startTime;
 
     return results.slice(0, limit);
   }

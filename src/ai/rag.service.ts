@@ -121,9 +121,36 @@ export class RagService implements OnModuleInit {
         this.indexChunk(wardId, callId, chunk.text, chunk.transcripts),
       );
 
-      await Promise.allSettled(indexPromises);
+      const results = await Promise.allSettled(indexPromises);
+      const failures = results
+        .map((result, index) => ({ result, index }))
+        .filter(({ result }) => result.status === 'rejected');
+      const successCount = results.length - failures.length;
 
-      this.logger.log(`✅ Indexed ${chunks.length} chunks for call: ${callId}`);
+      if (failures.length > 0) {
+        this.logger.warn(
+          `⚠️ Indexed ${successCount}/${chunks.length} chunks for call: ${callId}. ${failures.length} failed.`,
+        );
+
+        for (const failure of failures) {
+          const reason = (failure.result as PromiseRejectedResult).reason;
+          const message =
+            reason instanceof Error ? reason.message : String(reason);
+          this.logger.error(
+            `Chunk ${failure.index + 1}/${chunks.length} failed to index: ${message}`,
+          );
+        }
+
+        if (successCount === 0) {
+          throw new Error(
+            `Failed to index conversation ${callId}: all chunks failed`,
+          );
+        }
+      } else {
+        this.logger.log(
+          `✅ Indexed ${chunks.length} chunks for call: ${callId}`,
+        );
+      }
     } catch (error) {
       this.logger.error(
         `Failed to index conversation: ${error.message}`,
@@ -184,11 +211,14 @@ export class RagService implements OnModuleInit {
       this.logger.warn(`⚠️  Redis cache MISS - falling back to PGVector`);
 
       // 🔍 Fallback to PGVector (SLOW PATH)
+      const pgStartTime = Date.now();
       const pgResults = await this.searchService.searchPGVector(
         wardId,
         queryEmbedding,
         searchLimit,
       );
+      const pgSearchTime = Date.now() - pgStartTime;
+      this.metricsService.recordPgvectorSearch(pgSearchTime);
 
       return pgResults;
     } catch (error) {
