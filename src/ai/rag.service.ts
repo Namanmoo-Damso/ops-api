@@ -8,7 +8,12 @@ import { PrismaService } from '../prisma/prisma.service';
 import { Prisma } from '@prisma/client';
 import { GreetingGenerator } from './rag.greeting';
 import { TranscriptLine } from './rag.chunks';
-import { toKST, formatKST } from './rag/rag.utils';
+import {
+  toKST,
+  formatKST,
+  splitIntoChildChunks,
+  ChildChunk,
+} from './rag/rag.utils';
 import { RagEmbeddingService } from './rag/rag.embedding.service';
 import { RagSearchService } from './rag/rag.search.service';
 import { RagCacheService } from './rag/rag.cache.service';
@@ -54,6 +59,15 @@ export class RagService implements OnModuleInit {
     process.env.RAG_CHUNK_OVERLAP || '50',
     10,
   );
+  // Parent-Child configuration
+  private readonly CHILD_CHUNK_SIZE = parseInt(
+    process.env.RAG_CHILD_CHUNK_SIZE || '200',
+    10,
+  );
+  private readonly CHILD_CHUNK_OVERLAP = parseInt(
+    process.env.RAG_CHILD_CHUNK_OVERLAP || '50',
+    10,
+  );
   private readonly MAX_CONTEXT_CHARS = 3000;
   private readonly MAX_GREETING_TOKENS = 200;
   private readonly REDIS_GREETING_TTL = parseInt(
@@ -71,14 +85,12 @@ export class RagService implements OnModuleInit {
 
   async onModuleInit() {
     // Initialize greeting generator
-    const redisClient = this.cacheService.getRedisClient();
-
     this.greetingGenerator = new GreetingGenerator(
       {
         logger: this.logger,
         // Use lazy getter to avoid module initialization order issues
         bedrockClient: () => this.embeddingService.getBedrockClient(),
-        redisClient,
+        redisClient: () => this.cacheService.getRedisClient(),
         getRecentContext: (wardId: string, limit?: number) =>
           this.getRecentContext(wardId, limit),
         getGreetingCacheKey: (wardId: string) =>
@@ -96,7 +108,7 @@ export class RagService implements OnModuleInit {
   }
 
   /**
-   * Index conversation from a call
+   * Index conversation from a call using Parent-Child structure
    */
   async indexConversation(
     callId: string,
@@ -109,16 +121,23 @@ export class RagService implements OnModuleInit {
 
     try {
       this.logger.log(
-        `Indexing conversation: callId=${callId}, wardId=${wardId}, transcripts=${transcripts.length}`,
+        `Indexing conversation (Parent-Child): callId=${callId}, wardId=${wardId}, transcripts=${transcripts.length}`,
       );
 
-      // Chunk the conversation
-      const chunks = this.chunkConversation(transcripts);
-      this.logger.log(`Created ${chunks.length} chunks for indexing`);
+      // Step 1: Chunk the conversation into parent chunks
+      const parentChunks = this.chunkConversation(transcripts);
+      this.logger.log(
+        `Created ${parentChunks.length} parent chunks for indexing`,
+      );
 
-      // Index each chunk
-      const indexPromises = chunks.map(chunk =>
-        this.indexChunk(wardId, callId, chunk.text, chunk.transcripts),
+      // Step 2: Index each parent and its children
+      const indexPromises = parentChunks.map(parentChunk =>
+        this.indexParentWithChildren(
+          wardId,
+          callId,
+          parentChunk.text,
+          parentChunk.transcripts,
+        ),
       );
 
       const results = await Promise.allSettled(indexPromises);
@@ -129,7 +148,7 @@ export class RagService implements OnModuleInit {
 
       if (failures.length > 0) {
         this.logger.warn(
-          `⚠️ Indexed ${successCount}/${chunks.length} chunks for call: ${callId}. ${failures.length} failed.`,
+          `⚠️ Indexed ${successCount}/${parentChunks.length} parent chunks for call: ${callId}. ${failures.length} failed.`,
         );
 
         for (const failure of failures) {
@@ -138,19 +157,19 @@ export class RagService implements OnModuleInit {
             reason instanceof Error ? reason.message : String(reason);
           const stack = reason instanceof Error ? reason.stack : undefined;
           this.logger.error(
-            `Chunk ${failure.index + 1}/${chunks.length} failed to index: ${message}`,
+            `Parent chunk ${failure.index + 1}/${parentChunks.length} failed to index: ${message}`,
             stack,
           );
         }
 
         if (successCount === 0) {
           throw new Error(
-            `Failed to index conversation ${callId}: all chunks failed`,
+            `Failed to index conversation ${callId}: all parent chunks failed`,
           );
         }
       } else {
         this.logger.log(
-          `✅ Indexed ${chunks.length} chunks for call: ${callId}`,
+          `✅ Indexed ${parentChunks.length} parent chunks with children for call: ${callId}`,
         );
       }
     } catch (error) {
@@ -187,12 +206,22 @@ export class RagService implements OnModuleInit {
 
     try {
       const searchLimit = limit || this.SEARCH_LIMIT;
+      this.logger.log(
+        `🔍 RAG search started: ward=${wardId.substring(0, 8)}..., query="${query.substring(0, 30)}...", limit=${searchLimit}`,
+      );
 
       // Generate query embedding
+      this.logger.debug(`📝 Generating embedding for query: "${query}"`);
+      const embeddingStartTime = Date.now();
       const queryEmbedding =
         await this.embeddingService.generateEmbedding(query);
+      const embeddingTime = Date.now() - embeddingStartTime;
+      this.logger.debug(
+        `✅ Embedding generated in ${embeddingTime}ms (${queryEmbedding.length} dimensions)`,
+      );
 
       // 🚀 Try Redis cache first (FAST PATH)
+      this.logger.debug(`🔄 Checking Redis cache...`);
       const redisStartTime = Date.now();
       const cached = await this.cacheService.searchRedisCache(
         wardId,
@@ -204,15 +233,26 @@ export class RagService implements OnModuleInit {
       if (cached && cached.length > 0) {
         this.metricsService.recordCacheHit(redisSearchTime);
         this.logger.log(
-          `✅ Redis cache HIT: ${cached.length} results (${redisSearchTime}ms)`,
+          `✅ Redis cache HIT: ${cached.length} results (${redisSearchTime}ms) - returning cached results`,
         );
         return cached;
       }
 
+      // Cache miss - log reason
+      if (cached === null) {
+        this.logger.warn(
+          `⚠️  Redis cache MISS: No cache data found for ward=${wardId.substring(0, 8)}...`,
+        );
+      } else {
+        this.logger.warn(
+          `⚠️  Redis cache MISS: Cache empty (0 results) - falling back to PGVector`,
+        );
+      }
+
       this.metricsService.recordCacheMiss();
-      this.logger.warn(`⚠️  Redis cache MISS - falling back to PGVector`);
 
       // 🔍 Fallback to PGVector (SLOW PATH)
+      this.logger.log(`🔍 Searching PGVector database...`);
       const pgStartTime = Date.now();
       const pgResults = await this.searchService.searchPGVector(
         wardId,
@@ -222,9 +262,16 @@ export class RagService implements OnModuleInit {
       const pgSearchTime = Date.now() - pgStartTime;
       this.metricsService.recordPgvectorSearch(pgSearchTime);
 
+      this.logger.log(
+        `✅ PGVector search completed: ${pgResults.length} results (${pgSearchTime}ms)`,
+      );
+
       return pgResults;
     } catch (error) {
-      this.logger.error(`Search failed: ${error.message}`, error.stack);
+      this.logger.error(
+        `❌ RAG search failed for ward=${wardId.substring(0, 8)}..., query="${query}": ${error.message}`,
+        error.stack,
+      );
       throw error;
     }
   }
@@ -262,6 +309,50 @@ export class RagService implements OnModuleInit {
       wardId,
       callDirection,
     );
+  }
+
+  /**
+   * Cache and publish a standard greeting (fallback for pre-warm failures)
+   */
+  async cacheStandardGreeting(
+    wardId: string,
+    callDirection: 'inbound' | 'outbound' = 'inbound',
+  ): Promise<void> {
+    if (!wardId) {
+      this.logger.warn('cacheStandardGreeting called without wardId');
+      return;
+    }
+
+    if (!this.greetingGenerator) {
+      this.logger.warn('Greeting generator not initialized for fallback');
+      return;
+    }
+
+    const redisClient = this.cacheService.getRedisClient();
+    if (!redisClient) {
+      this.logger.warn('Redis client not available for greeting fallback');
+      return;
+    }
+
+    try {
+      const greeting = this.greetingGenerator.getStandardGreeting(callDirection);
+      const greetingKey = this.cacheService.getGreetingCacheKey(wardId);
+
+      await redisClient.setEx(
+        greetingKey,
+        this.REDIS_GREETING_TTL,
+        greeting,
+      );
+      await redisClient.publish(`greeting:ward:${wardId}`, greeting);
+
+      this.logger.log(
+        `Fallback greeting cached/published for ward=${wardId}`,
+      );
+    } catch (error) {
+      this.logger.warn(
+        `Failed to cache fallback greeting for ward=${wardId}: ${error.message}`,
+      );
+    }
   }
 
   /**
@@ -334,12 +425,12 @@ export class RagService implements OnModuleInit {
   }
 
   /**
-   * Index a single chunk
+   * Index a parent chunk with its children (Parent-Child structure)
    */
-  private async indexChunk(
+  private async indexParentWithChildren(
     wardId: string,
     callId: string,
-    chunkText: string,
+    parentText: string,
     transcripts: any[],
     extraMetadata: Record<string, any> = {},
   ): Promise<void> {
@@ -351,12 +442,8 @@ export class RagService implements OnModuleInit {
       const callStartKst = toKST(callStartUtc);
       const datePrefix = `[날짜: ${formatKST(callStartKst)}]`;
 
-      // Add date prefix to chunk text
-      const chunkTextWithDate = `${datePrefix} ${chunkText}`;
-
-      // Generate embedding
-      const embedding =
-        await this.embeddingService.generateEmbedding(chunkTextWithDate);
+      // Add date prefix to parent text
+      const parentTextWithDate = `${datePrefix} ${parentText}`;
 
       // Extract metadata
       const metadata = {
@@ -364,30 +451,125 @@ export class RagService implements OnModuleInit {
         timestamp: transcripts[0]?.timestamp,
         callDate: callStartKst.toISOString(),
         callStartAt: callStartKst.toISOString(),
-        chunkLength: chunkText.length,
+        parentLength: parentText.length,
         ...extraMetadata,
       };
 
-      const embeddingStr = JSON.stringify(embedding);
-      const metadataStr = JSON.stringify(metadata);
-
-      // Store in PGVector
-      await this.prisma.$executeRaw(
-        Prisma.sql`
-          INSERT INTO conversation_vectors (ward_id, call_id, chunk_text, embedding, metadata)
-          VALUES (
-            ${wardId}::uuid,
-            ${callId}::uuid,
-            ${chunkTextWithDate},
-            ${embeddingStr}::vector,
-            ${metadataStr}::jsonb
-          )
-        `,
+      // Step 1: Split parent into child chunks
+      const childChunks = splitIntoChildChunks(
+        parentTextWithDate,
+        this.CHILD_CHUNK_SIZE,
+        this.CHILD_CHUNK_OVERLAP,
       );
 
-      this.logger.debug(`Indexed chunk: ${chunkText.substring(0, 50)}...`);
+      if (childChunks.length === 0) {
+        this.logger.warn(
+          `No child chunks generated for call=${callId} ward=${wardId}`,
+        );
+        return;
+      }
+
+      // Step 2: Precompute child embeddings before DB transaction
+      const BATCH_SIZE = 50;
+      const childRows: Array<{
+        chunk: ChildChunk;
+        embeddingStr: string;
+        metadataStr: string;
+      }> = [];
+
+      for (
+        let batchStart = 0;
+        batchStart < childChunks.length;
+        batchStart += BATCH_SIZE
+      ) {
+        const batchEnd = Math.min(batchStart + BATCH_SIZE, childChunks.length);
+        const batch = childChunks.slice(batchStart, batchEnd);
+
+        for (const childChunk of batch) {
+          const embedding = await this.embeddingService.generateEmbedding(
+            childChunk.text,
+          );
+          const embeddingStr = JSON.stringify(embedding);
+          const childMetadata = {
+            ...metadata,
+            childLength: childChunk.text.length,
+          };
+          const metadataStr = JSON.stringify(childMetadata);
+
+          childRows.push({
+            chunk: childChunk,
+            embeddingStr,
+            metadataStr,
+          });
+        }
+      }
+
+      // Step 3: Insert parent + children atomically
+      let parentId: string | null = null;
+      await this.prisma.$transaction(async tx => {
+        const metadataStr = JSON.stringify(metadata);
+        const parentResult = await tx.$queryRaw<Array<{ id: string }>>(
+          Prisma.sql`
+            INSERT INTO conversation_vectors_parent (ward_id, call_id, parent_text, metadata)
+            VALUES (
+              ${wardId}::uuid,
+              ${callId}::uuid,
+              ${parentTextWithDate},
+              ${metadataStr}::jsonb
+            )
+            RETURNING id
+          `,
+        );
+
+        parentId = parentResult[0]?.id ?? null;
+        if (!parentId) {
+          throw new Error('Failed to get parent ID after insert');
+        }
+
+        for (
+          let batchStart = 0;
+          batchStart < childRows.length;
+          batchStart += BATCH_SIZE
+        ) {
+          const batchEnd = Math.min(
+            batchStart + BATCH_SIZE,
+            childRows.length,
+          );
+          const batch = childRows.slice(batchStart, batchEnd);
+
+          const values = batch.map(row => {
+            return Prisma.sql`(
+              ${parentId}::uuid,
+              ${wardId}::uuid,
+              ${callId}::uuid,
+              ${row.chunk.text},
+              ${row.embeddingStr}::vector,
+              ${row.chunk.offsetStart},
+              ${row.chunk.offsetEnd},
+              ${row.metadataStr}::jsonb
+            )`;
+          });
+
+          await tx.$executeRaw(
+            Prisma.sql`
+              INSERT INTO conversation_vectors_child (
+                parent_id, ward_id, call_id, child_text, embedding,
+                offset_start, offset_end, metadata
+              )
+              VALUES ${Prisma.join(values)}
+            `,
+          );
+        }
+      });
+
+      this.logger.debug(
+        `✅ Indexed ${childRows.length} children for parent ${parentId}`,
+      );
     } catch (error) {
-      this.logger.error(`Failed to index chunk: ${error.message}`, error.stack);
+      this.logger.error(
+        `Failed to index parent with children: ${error.message}`,
+        error.stack,
+      );
       throw error;
     }
   }

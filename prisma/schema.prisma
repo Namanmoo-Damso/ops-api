@@ -627,26 +627,55 @@ model Transcript {
 }
 
 // =============================================================================
-// 25. CONVERSATION_VECTORS - RAG vector embeddings for conversation search
+// 25. CONVERSATION_VECTORS_PARENT - RAG Parent storage for full context
 // =============================================================================
-model ConversationVector {
+model ConversationVectorParent {
   id          String                     @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   wardId      String                     @map("ward_id") @db.Uuid
   callId      String                     @map("call_id") @db.Uuid
-  chunkText   String                     @map("chunk_text")   // Original text chunk
-  embedding   Unsupported("vector(1024)")?                     // Bedrock Titan V2 embedding (1024 dimensions)
+  parentText  String                     @map("parent_text")   // Full parent text for context
   metadata    Json?                                            // { speaker, topics, sentiment, etc. }
   createdAt   DateTime                   @default(now()) @map("created_at")
+
+  // Relations
+  children    ConversationVectorChild[]
 
   @@index([wardId])
   @@index([callId])
   @@index([createdAt])
-  // HNSW index for vector similarity search (created via migration SQL)
-  @@map("conversation_vectors")
+  @@index([wardId, createdAt(sort: Desc)])
+  @@map("conversation_vectors_parent")
 }
 
 // =============================================================================
-// 26. CARE_ALERT_EVENTS - Fall/LoudVoice 이벤트 로그
+// 26. CONVERSATION_VECTORS_CHILD - RAG Child storage for searchable chunks
+// =============================================================================
+model ConversationVectorChild {
+  id          String                     @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  parentId    String                     @map("parent_id") @db.Uuid
+  wardId      String                     @map("ward_id") @db.Uuid
+  callId      String                     @map("call_id") @db.Uuid
+  childText   String                     @map("child_text")    // Child text chunk for search
+  embedding   Unsupported("vector(1024)")?                     // Bedrock Titan V2 embedding (1024 dimensions)
+  offsetStart Int                        @map("offset_start")  // Start position in parent text
+  offsetEnd   Int                        @map("offset_end")    // End position in parent text
+  metadata    Json?                                            // { speaker, topics, etc. }
+  createdAt   DateTime                   @default(now()) @map("created_at")
+
+  // Relations
+  parent      ConversationVectorParent   @relation(fields: [parentId], references: [id], onDelete: Cascade)
+
+  @@index([parentId])
+  @@index([wardId])
+  @@index([callId])
+  @@index([createdAt])
+  @@index([wardId, createdAt(sort: Desc)])
+  // HNSW index for vector similarity search (created via migration SQL)
+  @@map("conversation_vectors_child")
+}
+
+// =============================================================================
+// 27. CARE_ALERT_EVENTS - Fall/LoudVoice 이벤트 로그
 // =============================================================================
 model CareAlertEvent {
   id             String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
@@ -679,7 +708,7 @@ model CareAlertEvent {
 }
 
 // =============================================================================
-// 27. EMOTION_SUMMARIES - 감정 10분 집계
+// 28. EMOTION_SUMMARIES - 감정 10분 집계
 // =============================================================================
 model EmotionSummary {
   id                  String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid

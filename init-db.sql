@@ -397,17 +397,32 @@ CREATE TABLE "transcripts" (
     CONSTRAINT "transcripts_text_not_empty_check" CHECK (LENGTH(TRIM("text")) > 0)
 );
 
--- CreateTable: conversation_vectors (RAG vector storage)
-CREATE TABLE "conversation_vectors" (
+-- CreateTable: conversation_vectors_parent (RAG Parent storage - full context)
+CREATE TABLE "conversation_vectors_parent" (
     "id" UUID NOT NULL DEFAULT gen_random_uuid(),
     "ward_id" UUID NOT NULL,
     "call_id" UUID NOT NULL,
-    "chunk_text" TEXT NOT NULL,
-    "embedding" vector(1024),
+    "parent_text" TEXT NOT NULL,
     "metadata" JSONB,
     "created_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
-    CONSTRAINT "conversation_vectors_pkey" PRIMARY KEY ("id")
+    CONSTRAINT "conversation_vectors_parent_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable: conversation_vectors_child (RAG Child storage - searchable chunks)
+CREATE TABLE "conversation_vectors_child" (
+    "id" UUID NOT NULL DEFAULT gen_random_uuid(),
+    "parent_id" UUID NOT NULL,
+    "ward_id" UUID NOT NULL,
+    "call_id" UUID NOT NULL,
+    "child_text" TEXT NOT NULL,
+    "embedding" vector(1024),
+    "offset_start" INTEGER NOT NULL,
+    "offset_end" INTEGER NOT NULL,
+    "metadata" JSONB,
+    "created_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    CONSTRAINT "conversation_vectors_child_pkey" PRIMARY KEY ("id")
 );
 
 -- CreateTable: care_alert_events (케어 알림 이벤트 로그)
@@ -582,13 +597,20 @@ CREATE INDEX "transcripts_room_name_idx" ON "transcripts"("room_name");
 CREATE INDEX "transcripts_timestamp_idx" ON "transcripts"("timestamp");
 CREATE INDEX "transcripts_speaker_id_speaker_type_idx" ON "transcripts"("speaker_id", "speaker_type");
 
--- Conversation vectors indexes (RAG)
-CREATE INDEX "conversation_vectors_ward_id_idx" ON "conversation_vectors"("ward_id");
-CREATE INDEX "conversation_vectors_call_id_idx" ON "conversation_vectors"("call_id");
-CREATE INDEX "conversation_vectors_created_at_idx" ON "conversation_vectors"("created_at");
-CREATE INDEX "conversation_vectors_ward_id_created_at_idx" ON "conversation_vectors"("ward_id", "created_at" DESC);
+-- Conversation vectors parent indexes (RAG)
+CREATE INDEX "conversation_vectors_parent_ward_id_idx" ON "conversation_vectors_parent"("ward_id");
+CREATE INDEX "conversation_vectors_parent_call_id_idx" ON "conversation_vectors_parent"("call_id");
+CREATE INDEX "conversation_vectors_parent_created_at_idx" ON "conversation_vectors_parent"("created_at");
+CREATE INDEX "conversation_vectors_parent_ward_id_created_at_idx" ON "conversation_vectors_parent"("ward_id", "created_at" DESC);
+
+-- Conversation vectors child indexes (RAG)
+CREATE INDEX "conversation_vectors_child_parent_id_idx" ON "conversation_vectors_child"("parent_id");
+CREATE INDEX "conversation_vectors_child_ward_id_idx" ON "conversation_vectors_child"("ward_id");
+CREATE INDEX "conversation_vectors_child_call_id_idx" ON "conversation_vectors_child"("call_id");
+CREATE INDEX "conversation_vectors_child_created_at_idx" ON "conversation_vectors_child"("created_at");
+CREATE INDEX "conversation_vectors_child_ward_id_created_at_idx" ON "conversation_vectors_child"("ward_id", "created_at" DESC);
 -- HNSW index for fast vector similarity search (m=16, ef_construction=64)
-CREATE INDEX "conversation_vectors_embedding_idx" ON "conversation_vectors" USING hnsw (embedding vector_cosine_ops) WITH (m = 16, ef_construction = 64);
+CREATE INDEX "conversation_vectors_child_embedding_idx" ON "conversation_vectors_child" USING hnsw (embedding vector_cosine_ops) WITH (m = 16, ef_construction = 64);
 
 -- Care alert events indexes
 CREATE INDEX "care_alert_events_ward_id_timestamp_idx" ON "care_alert_events"("ward_id", "timestamp" DESC);
@@ -639,8 +661,12 @@ ALTER TABLE "admins" ADD CONSTRAINT "admins_organization_id_fkey" FOREIGN KEY ("
 ALTER TABLE "admin_permissions" ADD CONSTRAINT "admin_permissions_admin_id_fkey" FOREIGN KEY ("admin_id") REFERENCES "admins"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 ALTER TABLE "admin_refresh_tokens" ADD CONSTRAINT "admin_refresh_tokens_admin_id_fkey" FOREIGN KEY ("admin_id") REFERENCES "admins"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 ALTER TABLE "transcripts" ADD CONSTRAINT "transcripts_call_id_fkey" FOREIGN KEY ("call_id") REFERENCES "calls"("call_id") ON DELETE CASCADE ON UPDATE CASCADE;
-ALTER TABLE "conversation_vectors" ADD CONSTRAINT "conversation_vectors_ward_id_fkey" FOREIGN KEY ("ward_id") REFERENCES "wards"("id") ON DELETE CASCADE ON UPDATE CASCADE;
-ALTER TABLE "conversation_vectors" ADD CONSTRAINT "conversation_vectors_call_id_fkey" FOREIGN KEY ("call_id") REFERENCES "calls"("call_id") ON DELETE CASCADE ON UPDATE CASCADE;
+ALTER TABLE "conversation_vectors_parent" ADD CONSTRAINT "conversation_vectors_parent_ward_id_fkey" FOREIGN KEY ("ward_id") REFERENCES "wards"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+ALTER TABLE "conversation_vectors_parent" ADD CONSTRAINT "conversation_vectors_parent_call_id_fkey" FOREIGN KEY ("call_id") REFERENCES "calls"("call_id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+ALTER TABLE "conversation_vectors_child" ADD CONSTRAINT "conversation_vectors_child_parent_id_fkey" FOREIGN KEY ("parent_id") REFERENCES "conversation_vectors_parent"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+ALTER TABLE "conversation_vectors_child" ADD CONSTRAINT "conversation_vectors_child_ward_id_fkey" FOREIGN KEY ("ward_id") REFERENCES "wards"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+ALTER TABLE "conversation_vectors_child" ADD CONSTRAINT "conversation_vectors_child_call_id_fkey" FOREIGN KEY ("call_id") REFERENCES "calls"("call_id") ON DELETE CASCADE ON UPDATE CASCADE;
 
 -- Care alert events foreign keys
 ALTER TABLE "care_alert_events" ADD CONSTRAINT "care_alert_events_ward_id_fkey" FOREIGN KEY ("ward_id") REFERENCES "wards"("id") ON DELETE CASCADE ON UPDATE CASCADE;
