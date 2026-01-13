@@ -42,7 +42,7 @@ Staff-to-ward assignment relationships.
 
 | Component | Data Needed | API Endpoint | Status |
 |-----------|-------------|--------------|--------|
-| `DailyOperationsSummary` | totalCalls, incomingCalls, outgoingCalls, duration stats, check-in rate | `GET /v1/admin/dashboard/stats` | ⚠️ Needs frontend wiring |
+| `DailyOperationsSummary` | totalCalls, incomingCalls, outgoingCalls, duration stats, check-in rate | `GET /v1/admin/dashboard/today-summary` | ✅ **Implemented** |
 | `OperationsTimeline` | Hourly call data (scheduled, actual, incoming) | `GET /v1/admin/dashboard/timeline` | ✅ **Implemented** |
 | `BulletinBoard` | Bulletin CRUD | `GET/POST/PUT/DELETE /v1/admin/bulletins` | ✅ **Implemented** |
 | `EmergencyLog` | Emergency list with status | `GET /v1/admin/emergencies` | ✅ Exists |
@@ -61,10 +61,10 @@ Staff-to-ward assignment relationships.
 
 | Data | API Endpoint | Status |
 |------|--------------|--------|
-| Call statistics | `GET /v1/admin/dashboard/stats` | ⚠️ Needs frontend wiring |
-| Mood distribution | `GET /v1/admin/dashboard/stats` → `moodDistribution` | ⚠️ Needs frontend wiring |
-| Weekly trend | `GET /v1/admin/dashboard/stats` → `weeklyTrend` | ⚠️ Needs frontend wiring |
-| Top keywords | `GET /v1/admin/dashboard/stats` → `topKeywords` | ⚠️ Needs frontend wiring |
+| Call statistics | `GET /v1/admin/dashboard/stats` | ✅ **Implemented** |
+| Mood distribution | `GET /v1/admin/dashboard/stats` → `moodDistribution` | ✅ **Implemented** |
+| Weekly trend | `GET /v1/admin/dashboard/stats` → `weeklyTrend` | ✅ **Implemented** |
+| Top keywords | `GET /v1/admin/dashboard/stats` → `topKeywords` | ✅ **Implemented** |
 | Date range filter | Query params on stats endpoint | ❌ **TODO** |
 
 ### 4. Staff (`/app/staff`)
@@ -188,15 +188,26 @@ Connect existing APIs to frontend components.
 - [x] Add bulletins table to init-db.sql
 - [x] Create Bulletins API controller (`src/admin/bulletins/`)
 - [x] Register Bulletins module in `admin.module.ts`
+- [x] Create `useBulletinsApi` hook (`ops-web/hooks/useBulletinsApi.ts`)
+- [x] Create `useDashboardApi` hook (`ops-web/hooks/useDashboardApi.ts`)
+- [x] Wire dashboard page to bulletins API
+- [x] Wire dashboard page to timeline API
+- [x] Wire dashboard page to today-summary API
+- [x] Add today-summary endpoint for DailyOperationsSummary component
+- [x] Wire stats page to dashboard/stats API
+- [x] Fix infinite loading bugs in staff, settings, dashboard pages
 
-## 🔄 In Progress
+## ✅ All Major Integration Complete
 
-- [ ] Wire frontend to existing APIs
+All core frontend-API wiring is now complete:
+- ✅ Dashboard page (DailyOperationsSummary, OperationsTimeline, BulletinBoard)
+- ✅ Staff page (CRUD, assignments)
+- ✅ Settings page (get/update)
+- ✅ Stats page (call stats, trends, mood, keywords)
 
-## 📝 TODO
+## 📝 Remaining TODO
 
-- [ ] Wire dashboard components to API (timeline, bulletins)
-- [ ] Add date range filtering to stats
+- [ ] Add date range filtering to stats endpoint
 
 ---
 
