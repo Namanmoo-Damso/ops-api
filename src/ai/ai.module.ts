@@ -4,6 +4,10 @@ import { AiAnalysisProvider } from './ai.interface';
 import { TranscriptStore } from './transcript.store';
 import { RagService } from './rag.service';
 import { RagController } from './rag.controller';
+import { RagEmbeddingService } from './rag/rag.embedding.service';
+import { RagSearchService } from './rag/rag.search.service';
+import { RagCacheService } from './rag/rag.cache.service';
+import { RagMetricsService } from './rag/rag.metrics.service';
 import { OpenAiProvider } from './providers/openai.provider';
 import { BedrockProvider } from './providers/bedrock.provider';
 import { DEFAULT_AI_INSTRUCTION, AI_RESPONSE_SCHEMA } from './ai.constants';
@@ -22,6 +26,11 @@ import { DEFAULT_AI_INSTRUCTION, AI_RESPONSE_SCHEMA } from './ai.constants';
     AiService,
     TranscriptStore,
     RagService,
+    // RAG specialized services
+    RagEmbeddingService,
+    RagSearchService,
+    RagCacheService,
+    RagMetricsService,
     {
       provide: AiAnalysisProvider,
       useFactory: () => {
