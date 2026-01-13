@@ -76,6 +76,7 @@ model Organization {
   organizationWards OrganizationWard[]
   admins            Admin[]
   settings          OrganizationSettings?
+  bulletins         Bulletin[]
 
   @@map("organizations")
 }
@@ -568,6 +569,7 @@ model Admin {
   uploadedWards          OrganizationWard[]
   wardAssignments        WardAssignment[]     @relation("AdminAssignments")
   assignedByAssignments  WardAssignment[]     @relation("AssignedByAdmin")
+  bulletins              Bulletin[]
 
   @@unique([provider, providerId])
   @@index([email])
@@ -769,7 +771,29 @@ model WardAssignment {
 }
 
 // =============================================================================
-// 29. ORGANIZATION_SETTINGS - 기관 설정
+// 29. BULLETINS - 공지사항
+// =============================================================================
+model Bulletin {
+  id             String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organizationId String   @map("organization_id") @db.Uuid
+  title          String
+  content        String
+  authorId       String   @map("author_id") @db.Uuid
+  isPinned       Boolean  @default(false) @map("is_pinned")
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @default(now()) @updatedAt @map("updated_at")
+
+  // Relations
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  author       Admin        @relation(fields: [authorId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId])
+  @@index([createdAt(sort: Desc)])
+  @@map("bulletins")
+}
+
+// =============================================================================
+// 30. ORGANIZATION_SETTINGS - 기관 설정
 // =============================================================================
 model OrganizationSettings {
   id             String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid

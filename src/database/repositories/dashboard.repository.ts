@@ -302,4 +302,71 @@ export class DashboardRepository {
       time: r.time,
     }));
   }
+
+  /**
+   * Get hourly call distribution for operations timeline
+   * Returns scheduled, actual, and incoming call counts per hour
+   */
+  async getHourlyCallDistribution(date: Date) {
+    const dateStr = date.toISOString().split('T')[0];
+
+    const result = await this.prisma.$queryRaw<
+      Array<{
+        hour: number;
+        scheduled: bigint;
+        actual: bigint;
+        incoming: bigint;
+      }>
+    >`
+      WITH hours AS (
+        SELECT generate_series(6, 20) as hour
+      ),
+      scheduled_calls AS (
+        SELECT
+          extract(hour from scheduled_time)::int as hour,
+          count(*) as cnt
+        FROM call_schedules
+        WHERE scheduled_time::date = ${dateStr}::date
+        GROUP BY 1
+      ),
+      actual_calls AS (
+        SELECT
+          extract(hour from created_at)::int as hour,
+          count(*) as cnt
+        FROM calls
+        WHERE created_at::date = ${dateStr}::date
+          AND state = 'ended'
+          AND direction = 'outbound'
+        GROUP BY 1
+      ),
+      incoming_calls AS (
+        SELECT
+          extract(hour from created_at)::int as hour,
+          count(*) as cnt
+        FROM calls
+        WHERE created_at::date = ${dateStr}::date
+          AND state = 'ended'
+          AND direction = 'inbound'
+        GROUP BY 1
+      )
+      SELECT
+        h.hour,
+        coalesce(sc.cnt, 0) as scheduled,
+        coalesce(ac.cnt, 0) as actual,
+        coalesce(ic.cnt, 0) as incoming
+      FROM hours h
+      LEFT JOIN scheduled_calls sc ON h.hour = sc.hour
+      LEFT JOIN actual_calls ac ON h.hour = ac.hour
+      LEFT JOIN incoming_calls ic ON h.hour = ic.hour
+      ORDER BY h.hour
+    `;
+
+    return result.map(r => ({
+      hour: Number(r.hour),
+      label: `${String(r.hour).padStart(2, '0')}:00`,
+      scheduled: Number(r.scheduled),
+      actual: Number(r.actual),
+      incoming: Number(r.incoming),
+    }));
+  }
 }

@@ -607,7 +607,11 @@ export class DbService implements OnModuleDestroy {
     slotStartHour: number,
     slotStartMinute: number,
   ) {
-    return this.wards.getSchedulesForCurrentSlot(dayOfWeek, slotStartHour, slotStartMinute);
+    return this.wards.getSchedulesForCurrentSlot(
+      dayOfWeek,
+      slotStartHour,
+      slotStartMinute,
+    );
   }
 
   async listOrganizationBeneficiaries(params: {
@@ -954,6 +958,10 @@ export class DbService implements OnModuleDestroy {
 
   async getRecentActivity(limit: number = 10) {
     return this.dashboard.getRecentActivity(limit);
+  }
+
+  async getHourlyCallDistribution(date: Date) {
+    return this.dashboard.getHourlyCallDistribution(date);
   }
 
   // ============================================================

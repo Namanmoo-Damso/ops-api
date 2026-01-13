@@ -514,6 +514,20 @@ CREATE TABLE "organization_settings" (
     CONSTRAINT "organization_settings_organization_id_key" UNIQUE ("organization_id")
 );
 
+-- CreateTable: bulletins (공지사항)
+CREATE TABLE "bulletins" (
+    "id" UUID NOT NULL DEFAULT gen_random_uuid(),
+    "organization_id" UUID NOT NULL,
+    "title" TEXT NOT NULL,
+    "content" TEXT NOT NULL,
+    "author_id" UUID NOT NULL,
+    "is_pinned" BOOLEAN NOT NULL DEFAULT false,
+    "created_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updated_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    CONSTRAINT "bulletins_pkey" PRIMARY KEY ("id")
+);
+
 -- ============================================================================
 -- INDEXES
 -- ============================================================================
@@ -740,3 +754,11 @@ ALTER TABLE "ward_assignments" ADD CONSTRAINT "ward_assignments_assigned_by_fkey
 
 -- Organization settings foreign keys
 ALTER TABLE "organization_settings" ADD CONSTRAINT "organization_settings_organization_id_fkey" FOREIGN KEY ("organization_id") REFERENCES "organizations"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- Bulletins indexes
+CREATE INDEX "bulletins_organization_id_idx" ON "bulletins"("organization_id");
+CREATE INDEX "bulletins_created_at_idx" ON "bulletins"("created_at" DESC);
+
+-- Bulletins foreign keys
+ALTER TABLE "bulletins" ADD CONSTRAINT "bulletins_organization_id_fkey" FOREIGN KEY ("organization_id") REFERENCES "organizations"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+ALTER TABLE "bulletins" ADD CONSTRAINT "bulletins_author_id_fkey" FOREIGN KEY ("author_id") REFERENCES "admins"("id") ON DELETE CASCADE ON UPDATE CASCADE;

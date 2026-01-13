@@ -43,8 +43,8 @@ Staff-to-ward assignment relationships.
 | Component | Data Needed | API Endpoint | Status |
 |-----------|-------------|--------------|--------|
 | `DailyOperationsSummary` | totalCalls, incomingCalls, outgoingCalls, duration stats, check-in rate | `GET /v1/admin/dashboard/stats` | ⚠️ Needs frontend wiring |
-| `OperationsTimeline` | Hourly call data (scheduled, actual, incoming) | `GET /v1/admin/dashboard/timeline` | ❌ **TODO** |
-| `BulletinBoard` | Bulletin CRUD | `GET/POST/PUT/DELETE /v1/admin/bulletins` | ❌ **TODO** |
+| `OperationsTimeline` | Hourly call data (scheduled, actual, incoming) | `GET /v1/admin/dashboard/timeline` | ✅ **Implemented** |
+| `BulletinBoard` | Bulletin CRUD | `GET/POST/PUT/DELETE /v1/admin/bulletins` | ✅ **Implemented** |
 | `EmergencyLog` | Emergency list with status | `GET /v1/admin/emergencies` | ✅ Exists |
 
 ### 2. Beneficiaries (`/app/beneficiaries`)
@@ -116,16 +116,24 @@ POST   /v1/admin/staff/:id/assign                   - Assign ward to staff
 DELETE /v1/admin/staff/:id/assignments/:assignmentId - Unassign ward
 ```
 
-### Phase 2: Dashboard Enhancements
+### Phase 2: Dashboard Enhancements ✅ **COMPLETED**
 Extend existing dashboard controller.
 
-**Endpoints to add:**
+**Files:**
+- `src/admin/dashboard/dashboard.controller.ts` - Added timeline endpoint
+- `src/admin/bulletins/dto.ts` - DTOs for validation
+- `src/admin/bulletins/bulletins.service.ts` - Business logic
+- `src/admin/bulletins/bulletins.controller.ts` - REST endpoints
+- `src/admin/bulletins/index.ts` - Module exports
+
+**Endpoints:**
 ```
-GET /v1/admin/dashboard/timeline    - Hourly call distribution
-GET /v1/admin/bulletins             - List bulletins
-POST /v1/admin/bulletins            - Create bulletin
-PUT /v1/admin/bulletins/:id         - Update bulletin
-DELETE /v1/admin/bulletins/:id      - Delete bulletin
+GET    /v1/admin/dashboard/timeline  - Hourly call distribution
+GET    /v1/admin/bulletins           - List bulletins
+GET    /v1/admin/bulletins/:id       - Get bulletin detail
+POST   /v1/admin/bulletins           - Create bulletin
+PUT    /v1/admin/bulletins/:id       - Update bulletin
+DELETE /v1/admin/bulletins/:id       - Delete bulletin
 ```
 
 ### Phase 3: Settings API ✅ **COMPLETED**
@@ -175,17 +183,19 @@ Connect existing APIs to frontend components.
 - [x] Wire settings page to API (`ops-web/app/settings/page.tsx`)
 - [x] Add loading states to settings page
 - [x] Regenerate Prisma client with OrganizationSettings model
+- [x] Add dashboard timeline endpoint (`src/admin/dashboard/dashboard.controller.ts`)
+- [x] Create Bulletin model in Prisma schema
+- [x] Add bulletins table to init-db.sql
+- [x] Create Bulletins API controller (`src/admin/bulletins/`)
+- [x] Register Bulletins module in `admin.module.ts`
 
 ## 🔄 In Progress
 
-- [ ] Dashboard timeline endpoint
-- [ ] Bulletins CRUD
+- [ ] Wire frontend to existing APIs
 
 ## 📝 TODO
 
-- [ ] Add dashboard timeline endpoint
-- [ ] Add bulletins CRUD
-- [ ] Wire frontend to existing APIs
+- [ ] Wire dashboard components to API (timeline, bulletins)
 - [ ] Add date range filtering to stats
 
 ---
@@ -205,12 +215,18 @@ Connect existing APIs to frontend components.
 - `src/admin/beneficiaries/beneficiaries.controller.ts` - Beneficiary CRUD
 - `src/admin/emergencies/emergencies.controller.ts` - Emergency management
 - `src/admin/wards-management/wards-management.controller.ts` - Ward management
-- `src/admin/admin.module.ts` - Admin module (updated with StaffController, SettingsController)
+- `src/admin/admin.module.ts` - Admin module (updated with StaffController, SettingsController, BulletinsController)
 - `src/admin/settings/` - **Settings management module**
   - `dto.ts` - DTOs for validation
   - `settings.service.ts` - Business logic
   - `settings.controller.ts` - REST endpoints
   - `index.ts` - Exports
+- `src/admin/bulletins/` - **Bulletins management module**
+  - `dto.ts` - DTOs for validation
+  - `bulletins.service.ts` - Business logic
+  - `bulletins.controller.ts` - REST endpoints
+  - `index.ts` - Exports
+- `src/database/repositories/dashboard.repository.ts` - Dashboard queries (added getHourlyCallDistribution)
 
 ### Frontend (ops-web)
 - `app/dashboard/page.tsx` - Dashboard page

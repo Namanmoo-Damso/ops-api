@@ -4,6 +4,7 @@ import {
   HttpException,
   HttpStatus,
   Logger,
+  Query,
 } from '@nestjs/common';
 import { DbService } from '../../database';
 
@@ -53,6 +54,39 @@ export class DashboardController {
       this.logger.warn(`getStats failed error=${(error as Error).message}`);
       throw new HttpException(
         'Failed to fetch dashboard stats',
+        HttpStatus.INTERNAL_SERVER_ERROR,
+      );
+    }
+  }
+
+  /**
+   * Get hourly call distribution for operations timeline
+   * Returns scheduled, actual, and incoming call counts per hour
+   */
+  @Get('timeline')
+  async getTimeline(@Query('date') dateParam?: string) {
+    this.logger.log(`getTimeline called date=${dateParam || 'today'}`);
+
+    try {
+      // Parse date or default to today
+      const targetDate = dateParam ? new Date(dateParam) : new Date();
+      if (isNaN(targetDate.getTime())) {
+        throw new HttpException('Invalid date format', HttpStatus.BAD_REQUEST);
+      }
+
+      const timeline =
+        await this.dbService.getHourlyCallDistribution(targetDate);
+
+      return {
+        date: targetDate.toISOString().split('T')[0],
+        timeline,
+        fetchedAt: new Date().toISOString(),
+      };
+    } catch (error) {
+      if (error instanceof HttpException) throw error;
+      this.logger.warn(`getTimeline failed error=${(error as Error).message}`);
+      throw new HttpException(
+        'Failed to fetch timeline data',
         HttpStatus.INTERNAL_SERVER_ERROR,
       );
     }
