@@ -593,12 +593,15 @@ export class CareAlertsService {
 
     const now = new Date();
 
+    // Internal (Agent) 요청인 경우 acknowledgedBy를 null로 설정 (UUID 타입이므로)
+    const acknowledgedBy = userId === 'internal' ? null : userId;
+
     await this.prisma.careAlertEvent.update({
       where: { id: alertId },
       data: {
         acknowledged: true,
         acknowledgedAt: now,
-        acknowledgedBy: userId,
+        acknowledgedBy,
       },
     });
 

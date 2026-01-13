@@ -14,6 +14,7 @@ import {
 import { CareAlertsService } from './care-alerts.service';
 import { AuthService } from '../auth';
 import { PrismaService } from '../prisma/prisma.service';
+import { EventsService } from '../events/events.service';
 import { CreateCareAlertDto } from './dto/create-care-alert.dto';
 
 type UserType = 'guardian' | 'ward';
@@ -42,6 +43,7 @@ export class CareAlertsController {
     private readonly careAlertsService: CareAlertsService,
     private readonly authService: AuthService,
     private readonly prisma: PrismaService,
+    private readonly eventsService: EventsService,
   ) { }
 
   private verifyAuthHeader(authorization: string | undefined): AuthPayload {
@@ -213,8 +215,11 @@ export class CareAlertsController {
   }
 
   /**
-   * Guardian용 - 알림 확인 처리
+   * Guardian/Ward용 - 알림 확인 처리
    * PATCH /v1/guardians/alerts/:alertId/acknowledge
+   * 
+   * Guardian: 자신에게 연결된 Ward의 알림 해제 가능
+   * Ward: 자신의 알림만 해제 가능
    */
   @Patch('guardians/alerts/:alertId/acknowledge')
   async acknowledgeAlert(
@@ -228,13 +233,14 @@ export class CareAlertsController {
     );
 
     try {
-      // Alert의 ward가 Guardian에게 연결되어 있는지 확인
+      // Alert 조회 (ward, guardian, organization 포함)
       const alert = await this.prisma.careAlertEvent.findUnique({
         where: { id: alertId },
         include: {
           ward: {
             include: {
               guardian: true,
+              organization: true,
             },
           },
         },
@@ -244,19 +250,67 @@ export class CareAlertsController {
         throw new HttpException('Alert not found', HttpStatus.NOT_FOUND);
       }
 
-      // Guardian 권한 확인
-      const guardian = await this.prisma.guardian.findUnique({
-        where: { userId: payload.sub },
-      });
+      // Internal 요청인 경우 (Agent) - 권한 확인 스킵
+      const isInternal = 'role' in payload && payload.role === 'internal';
+      if (isInternal) {
+        this.logger.log(
+          `[API] acknowledgeAlert authorized as Internal (Agent)`,
+        );
+      }
 
-      if (!guardian || alert.ward.guardianId !== guardian.id) {
+      // 권한 확인: Guardian 또는 Ward 본인
+      let isAuthorized = isInternal;
+
+      // 1. Ward 본인인지 확인
+      if (!isAuthorized) {
+        const ward = await this.prisma.ward.findUnique({
+          where: { userId: payload.sub },
+        });
+        if (ward && ward.id === alert.wardId) {
+          isAuthorized = true;
+          this.logger.log(
+            `[API] acknowledgeAlert authorized as Ward: wardId=${ward.id}`,
+          );
+        }
+      }
+
+      // 2. Guardian인지 확인
+      if (!isAuthorized) {
+        const guardian = await this.prisma.guardian.findUnique({
+          where: { userId: payload.sub },
+        });
+        if (guardian && alert.ward.guardianId === guardian.id) {
+          isAuthorized = true;
+          this.logger.log(
+            `[API] acknowledgeAlert authorized as Guardian: guardianId=${guardian.id}`,
+          );
+        }
+      }
+
+      if (!isAuthorized) {
         throw new HttpException(
           'Not authorized to acknowledge this alert',
           HttpStatus.FORBIDDEN,
         );
       }
 
-      return await this.careAlertsService.acknowledgeAlert(alertId, payload.sub);
+      // 알림 해제 처리
+      const result = await this.careAlertsService.acknowledgeAlert(alertId, payload.sub);
+
+      // WebSocket으로 room-danger 해제 이벤트 전송 (Organization이 있는 경우)
+      if (alert.roomName && alert.ward.organization) {
+        this.logger.log(
+          `[API] Emitting room-danger=false for roomName=${alert.roomName}`,
+        );
+        this.eventsService.emit({
+          type: 'room-danger',
+          roomName: alert.roomName,
+          isDanger: false,
+          name: `acknowledge:${alertId}`,
+        });
+      }
+
+      return result;
     } catch (error) {
       if ((error as HttpException).getStatus?.()) {
         throw error;
