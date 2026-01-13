@@ -590,6 +590,15 @@ export class DbService implements OnModuleDestroy {
     return this.wards.getOrganizationWardsStats(organizationId);
   }
 
+  async getBeneficiaryUsageStats(params: {
+    organizationId: string;
+    beneficiaryId: string;
+    startDate: string;
+    endDate: string;
+  }) {
+    return this.wards.getBeneficiaryUsageStats(params);
+  }
+
   async getUpcomingCallSchedules(
     dayOfWeek: number,
     startTime: string,

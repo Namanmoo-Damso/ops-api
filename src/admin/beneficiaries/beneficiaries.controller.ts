@@ -57,6 +57,14 @@ class ListBeneficiariesQueryDto {
   pageSize: number = 10;
 }
 
+class UsageStatsQueryDto {
+  @IsDateString()
+  startDate: string;
+
+  @IsDateString()
+  endDate: string;
+}
+
 class UpdateBeneficiaryDto {
   @IsOptional()
   @TransformEmptyToUndefined()
@@ -176,6 +184,52 @@ export class BeneficiariesController {
     };
   }
 
+  @Get(':id/stats')
+  async getUsageStats(
+    @CurrentAdmin() admin: { organization_id?: string },
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @Query() query: UsageStatsQueryDto,
+  ): Promise<{
+    beneficiaryId: string;
+    period: { startDate: string; endDate: string };
+    summary: {
+      totalCalls: number;
+      totalDurationMinutes: number;
+      averageDurationMinutes: number;
+    };
+    callDates: string[];
+  }> {
+    const organizationId = this.getOrganizationId(admin);
+
+    const stats = await this.dbService.getBeneficiaryUsageStats({
+      organizationId,
+      beneficiaryId: id,
+      startDate: query.startDate,
+      endDate: query.endDate,
+    });
+
+    if (!stats) {
+      throw new HttpException(
+        '대상자 정보를 찾을 수 없습니다.',
+        HttpStatus.NOT_FOUND,
+      );
+    }
+
+    return {
+      beneficiaryId: id,
+      period: {
+        startDate: query.startDate,
+        endDate: query.endDate,
+      },
+      summary: {
+        totalCalls: stats.totalCalls,
+        totalDurationMinutes: stats.totalDurationMinutes,
+        averageDurationMinutes: stats.averageDurationMinutes,
+      },
+      callDates: stats.callDates,
+    };
+  }
+
   @Get(':id')
   async detail(
     @CurrentAdmin() admin: { organization_id?: string },
@@ -189,7 +243,10 @@ export class BeneficiariesController {
     });
 
     if (!detail) {
-      throw new HttpException('대상자 정보를 찾을 수 없습니다.', HttpStatus.NOT_FOUND);
+      throw new HttpException(
+        '대상자 정보를 찾을 수 없습니다.',
+        HttpStatus.NOT_FOUND,
+      );
     }
 
     return { data: detail };
@@ -208,7 +265,10 @@ export class BeneficiariesController {
     });
 
     if (!deleted) {
-      throw new HttpException('대상자 정보를 찾을 수 없습니다.', HttpStatus.NOT_FOUND);
+      throw new HttpException(
+        '대상자 정보를 찾을 수 없습니다.',
+        HttpStatus.NOT_FOUND,
+      );
     }
 
     return { success: true, message: '대상자 정보가 삭제되었습니다.' };
@@ -240,7 +300,10 @@ export class BeneficiariesController {
     });
 
     if (!updated) {
-      throw new HttpException('대상자 정보를 찾을 수 없습니다.', HttpStatus.NOT_FOUND);
+      throw new HttpException(
+        '대상자 정보를 찾을 수 없습니다.',
+        HttpStatus.NOT_FOUND,
+      );
     }
 
     return { data: updated };
