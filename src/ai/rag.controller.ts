@@ -69,6 +69,7 @@ export class RagController {
       .catch(error => {
         this.logger.error(
           `Background indexing failed for call ${callId}: ${error.message}`,
+          error.stack,
         );
       });
 
@@ -87,7 +88,13 @@ export class RagController {
     @Query('query') query: string,
     @Query('limit') limit?: string,
   ): Promise<{
-    results: Array<{ text: string; metadata: any; similarity: number }>;
+    results: Array<{
+      text: string;
+      metadata: any;
+      similarity: number;
+      createdAt: string;
+      callId: string;
+    }>;
   }> {
     if (!wardId || !query) {
       throw new BadRequestException('wardId and query are required');
@@ -185,7 +192,6 @@ export class RagController {
       );
       throw error;
     }
-
   }
 
   /**
@@ -233,5 +239,36 @@ export class RagController {
     );
 
     return { greeting };
+  }
+
+  /**
+   * Get performance metrics
+   * GET /v1/rag/metrics
+   *
+   * Returns cache hit rate and search response times
+   */
+  @Get('metrics')
+  async getMetrics(): Promise<{
+    cacheHitRate: number;
+    avgRedisSearchTime: number;
+    avgPgvectorSearchTime: number;
+    totalSearches: number;
+    cacheHits: number;
+    cacheMisses: number;
+  }> {
+    return this.ragService.getPerformanceMetrics();
+  }
+
+  /**
+   * Reset performance metrics
+   * POST /v1/rag/metrics/reset
+   *
+   * Resets all performance counters to zero
+   */
+  @Post('metrics/reset')
+  @HttpCode(HttpStatus.OK)
+  async resetMetrics(): Promise<{ message: string }> {
+    this.ragService.resetPerformanceMetrics();
+    return { message: 'Performance metrics reset successfully' };
   }
 }

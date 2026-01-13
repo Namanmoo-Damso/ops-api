@@ -16,7 +16,7 @@ export type GreetingConfig = {
 
 type GreetingDeps = {
   logger: Logger;
-  bedrockClient: BedrockRuntimeClient;
+  bedrockClient: () => BedrockRuntimeClient; // Lazy getter to avoid initialization order issues
   redisClient: RedisClientType | null;
   getRecentContext: (wardId: string, limit?: number) => Promise<ContextEntry[]>;
   getGreetingCacheKey: (wardId: string) => string;
@@ -43,7 +43,9 @@ export class GreetingGenerator {
         this.deps.logger.log(
           `No conversation history for ward=${wardId}, using standard greeting`,
         );
-        return this.getStandardGreeting(callDirection);
+        const standardGreeting = this.getStandardGreeting(callDirection);
+
+        return standardGreeting;
       }
 
       // Build context summary with size limit
@@ -141,7 +143,9 @@ export class GreetingGenerator {
         accept: 'application/json',
       });
 
-      const response = await this.deps.bedrockClient.send(command);
+      // Get BedrockClient lazily
+      const bedrockClient = this.deps.bedrockClient();
+      const response = await bedrockClient.send(command);
 
       // Parse response with guards
       if (!response.body) {
