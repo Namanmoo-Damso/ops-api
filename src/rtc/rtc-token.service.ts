@@ -246,6 +246,13 @@ export class RtcTokenService {
             this.logger.warn(
               `Pre-warm greeting failed ward=${wardId}: ${error.message}`,
             );
+            this.ragService
+              .cacheStandardGreeting(wardId, 'inbound')
+              .catch(fallbackError => {
+                this.logger.warn(
+                  `Fallback greeting cache failed ward=${wardId}: ${fallbackError.message}`,
+                );
+              });
           });
       }
 

@@ -96,14 +96,44 @@ export function splitIntoChildChunks(
       const searchText = parentText.substring(searchStart, currentEnd + 20);
 
       // Korean and English sentence endings
-      const sentenceEndings = ['\n\n', '. ', '! ', '? ', '。 ', '！ ', '？ '];
+      const sentenceEndings = [
+        '\n\n',
+        '.\n',
+        '!\n',
+        '?\n',
+        '. ',
+        '! ',
+        '? ',
+        '。 ',
+        '！ ',
+        '？ ',
+        '。\n',
+        '！\n',
+        '？\n',
+        '다. ',
+        '다.\n',
+        '요. ',
+        '요.\n',
+        '죠. ',
+        '죠.\n',
+        '니다. ',
+        '니다.\n',
+        '습니다. ',
+        '습니다.\n',
+        '네요. ',
+        '네요.\n',
+        '군요. ',
+        '군요.\n',
+      ];
       let bestBoundary = -1;
 
       for (const ending of sentenceEndings) {
         const idx = searchText.lastIndexOf(ending);
         if (idx !== -1) {
-          bestBoundary = searchStart + idx + ending.length;
-          break;
+          const candidate = searchStart + idx + ending.length;
+          if (candidate > bestBoundary) {
+            bestBoundary = candidate;
+          }
         }
       }
 

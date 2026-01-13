@@ -261,7 +261,7 @@ export class GreetingGenerator {
     return prompt;
   }
 
-  private getStandardGreeting(callDirection: 'inbound' | 'outbound'): string {
+  getStandardGreeting(callDirection: 'inbound' | 'outbound'): string {
     if (callDirection === 'outbound') {
       return '안녕하세요 어르신, 저 소담이에요.';
     } else {

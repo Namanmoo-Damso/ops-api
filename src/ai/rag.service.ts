@@ -312,6 +312,50 @@ export class RagService implements OnModuleInit {
   }
 
   /**
+   * Cache and publish a standard greeting (fallback for pre-warm failures)
+   */
+  async cacheStandardGreeting(
+    wardId: string,
+    callDirection: 'inbound' | 'outbound' = 'inbound',
+  ): Promise<void> {
+    if (!wardId) {
+      this.logger.warn('cacheStandardGreeting called without wardId');
+      return;
+    }
+
+    if (!this.greetingGenerator) {
+      this.logger.warn('Greeting generator not initialized for fallback');
+      return;
+    }
+
+    const redisClient = this.cacheService.getRedisClient();
+    if (!redisClient) {
+      this.logger.warn('Redis client not available for greeting fallback');
+      return;
+    }
+
+    try {
+      const greeting = this.greetingGenerator.getStandardGreeting(callDirection);
+      const greetingKey = this.cacheService.getGreetingCacheKey(wardId);
+
+      await redisClient.setEx(
+        greetingKey,
+        this.REDIS_GREETING_TTL,
+        greeting,
+      );
+      await redisClient.publish(`greeting:ward:${wardId}`, greeting);
+
+      this.logger.log(
+        `Fallback greeting cached/published for ward=${wardId}`,
+      );
+    } catch (error) {
+      this.logger.warn(
+        `Failed to cache fallback greeting for ward=${wardId}: ${error.message}`,
+      );
+    }
+  }
+
+  /**
    * Get performance metrics
    */
   getPerformanceMetrics(): PerformanceMetrics {
@@ -411,45 +455,27 @@ export class RagService implements OnModuleInit {
         ...extraMetadata,
       };
 
-      const metadataStr = JSON.stringify(metadata);
-
-      // Step 1: Insert parent into conversation_vectors_parent
-      const parentResult = await this.prisma.$queryRaw<Array<{ id: string }>>(
-        Prisma.sql`
-          INSERT INTO conversation_vectors_parent (ward_id, call_id, parent_text, metadata)
-          VALUES (
-            ${wardId}::uuid,
-            ${callId}::uuid,
-            ${parentTextWithDate},
-            ${metadataStr}::jsonb
-          )
-          RETURNING id
-        `,
-      );
-
-      const parentId = parentResult[0]?.id;
-      if (!parentId) {
-        throw new Error('Failed to get parent ID after insert');
-      }
-
-      this.logger.debug(
-        `Indexed parent: ${parentText.substring(0, 50)}... (ID: ${parentId})`,
-      );
-
-      // Step 2: Split parent into child chunks
+      // Step 1: Split parent into child chunks
       const childChunks = splitIntoChildChunks(
         parentTextWithDate,
         this.CHILD_CHUNK_SIZE,
         this.CHILD_CHUNK_OVERLAP,
       );
 
-      this.logger.debug(
-        `Split parent ${parentId} into ${childChunks.length} child chunks`,
-      );
+      if (childChunks.length === 0) {
+        this.logger.warn(
+          `No child chunks generated for call=${callId} ward=${wardId}`,
+        );
+        return;
+      }
 
-      // Step 3: Index child chunks in batches to avoid memory issues
+      // Step 2: Precompute child embeddings before DB transaction
       const BATCH_SIZE = 50;
-      let childFailures = 0;
+      const childRows: Array<{
+        chunk: ChildChunk;
+        embeddingStr: string;
+        metadataStr: string;
+      }> = [];
 
       for (
         let batchStart = 0;
@@ -459,96 +485,89 @@ export class RagService implements OnModuleInit {
         const batchEnd = Math.min(batchStart + BATCH_SIZE, childChunks.length);
         const batch = childChunks.slice(batchStart, batchEnd);
 
-        this.logger.debug(
-          `Processing batch ${Math.floor(batchStart / BATCH_SIZE) + 1} for parent ${parentId} (${batch.length} chunks)`,
-        );
-
-        // Process batch sequentially to avoid memory issues
         for (const childChunk of batch) {
-          try {
-            await this.indexChildChunk(
-              parentId,
-              wardId,
-              callId,
-              childChunk,
-              metadata,
-            );
-          } catch (error) {
-            childFailures++;
-            this.logger.warn(`Failed to index child chunk: ${error.message}`);
-          }
+          const embedding = await this.embeddingService.generateEmbedding(
+            childChunk.text,
+          );
+          const embeddingStr = JSON.stringify(embedding);
+          const childMetadata = {
+            ...metadata,
+            childLength: childChunk.text.length,
+          };
+          const metadataStr = JSON.stringify(childMetadata);
+
+          childRows.push({
+            chunk: childChunk,
+            embeddingStr,
+            metadataStr,
+          });
         }
       }
 
-      if (childFailures > 0) {
-        this.logger.warn(
-          `⚠️ ${childFailures}/${childChunks.length} child chunks failed for parent ${parentId}`,
+      // Step 3: Insert parent + children atomically
+      let parentId: string | null = null;
+      await this.prisma.$transaction(async tx => {
+        const metadataStr = JSON.stringify(metadata);
+        const parentResult = await tx.$queryRaw<Array<{ id: string }>>(
+          Prisma.sql`
+            INSERT INTO conversation_vectors_parent (ward_id, call_id, parent_text, metadata)
+            VALUES (
+              ${wardId}::uuid,
+              ${callId}::uuid,
+              ${parentTextWithDate},
+              ${metadataStr}::jsonb
+            )
+            RETURNING id
+          `,
         );
-      } else {
-        this.logger.debug(
-          `✅ Indexed ${childChunks.length} children for parent ${parentId}`,
-        );
-      }
+
+        parentId = parentResult[0]?.id ?? null;
+        if (!parentId) {
+          throw new Error('Failed to get parent ID after insert');
+        }
+
+        for (
+          let batchStart = 0;
+          batchStart < childRows.length;
+          batchStart += BATCH_SIZE
+        ) {
+          const batchEnd = Math.min(
+            batchStart + BATCH_SIZE,
+            childRows.length,
+          );
+          const batch = childRows.slice(batchStart, batchEnd);
+
+          const values = batch.map(row => {
+            return Prisma.sql`(
+              ${parentId}::uuid,
+              ${wardId}::uuid,
+              ${callId}::uuid,
+              ${row.chunk.text},
+              ${row.embeddingStr}::vector,
+              ${row.chunk.offsetStart},
+              ${row.chunk.offsetEnd},
+              ${row.metadataStr}::jsonb
+            )`;
+          });
+
+          await tx.$executeRaw(
+            Prisma.sql`
+              INSERT INTO conversation_vectors_child (
+                parent_id, ward_id, call_id, child_text, embedding,
+                offset_start, offset_end, metadata
+              )
+              VALUES ${Prisma.join(values)}
+            `,
+          );
+        }
+      });
+
+      this.logger.debug(
+        `✅ Indexed ${childRows.length} children for parent ${parentId}`,
+      );
     } catch (error) {
       this.logger.error(
         `Failed to index parent with children: ${error.message}`,
-        error.stack,
-      );
-      throw error;
-    }
-  }
-
-  /**
-   * Index a single child chunk
-   */
-  private async indexChildChunk(
-    parentId: string,
-    wardId: string,
-    callId: string,
-    childChunk: ChildChunk,
-    parentMetadata: Record<string, any> = {},
-  ): Promise<void> {
-    try {
-      // Generate embedding for child chunk
-      const embedding = await this.embeddingService.generateEmbedding(
-        childChunk.text,
-      );
-
-      const embeddingStr = JSON.stringify(embedding);
-
-      // Child metadata includes parent info
-      const childMetadata = {
-        ...parentMetadata,
-        childLength: childChunk.text.length,
-      };
-      const metadataStr = JSON.stringify(childMetadata);
-
-      // Insert child into conversation_vectors_child
-      await this.prisma.$executeRaw(
-        Prisma.sql`
-          INSERT INTO conversation_vectors_child (
-            parent_id, ward_id, call_id, child_text, embedding,
-            offset_start, offset_end, metadata
-          )
-          VALUES (
-            ${parentId}::uuid,
-            ${wardId}::uuid,
-            ${callId}::uuid,
-            ${childChunk.text},
-            ${embeddingStr}::vector,
-            ${childChunk.offsetStart},
-            ${childChunk.offsetEnd},
-            ${metadataStr}::jsonb
-          )
-        `,
-      );
-
-      this.logger.debug(
-        `Indexed child: ${childChunk.text.substring(0, 30)}... (parent: ${parentId})`,
-      );
-    } catch (error) {
-      this.logger.error(
-        `Failed to index child chunk: ${error.message}`,
         error.stack,
       );
       throw error;

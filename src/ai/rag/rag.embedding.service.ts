@@ -35,6 +35,7 @@ export class RagEmbeddingService implements OnModuleInit {
     process.env.BEDROCK_RETRY_BACKOFF_FACTOR || '2',
     10,
   );
+  private readonly DEBUG_LOGS = process.env.RAG_DEBUG_LOGS === 'true';
 
   async onModuleInit() {
     const awsRegion = process.env.AWS_REGION || 'ap-northeast-2';
@@ -63,10 +64,12 @@ export class RagEmbeddingService implements OnModuleInit {
    */
   async generateEmbedding(text: string): Promise<number[]> {
     const startTime = Date.now();
-    const truncatedText = text.substring(0, 100);
-    this.logger.debug(
-      `🔄 Bedrock embedding request: "${truncatedText}${text.length > 100 ? '...' : ''}" (${text.length} chars)`,
-    );
+    if (this.DEBUG_LOGS) {
+      const truncatedText = text.substring(0, 100);
+      this.logger.debug(
+        `🔄 Bedrock embedding request: "${truncatedText}${text.length > 100 ? '...' : ''}" (${text.length} chars)`,
+      );
+    }
 
     try {
       const embedding = await this.retryAsync(
@@ -84,7 +87,9 @@ export class RagEmbeddingService implements OnModuleInit {
             accept: 'application/json',
           });
 
-          this.logger.debug(`📡 Sending request to Bedrock...`);
+          if (this.DEBUG_LOGS) {
+            this.logger.debug(`📡 Sending request to Bedrock...`);
+          }
           const response = await this.bedrockClient.send(command);
           const responseBody = JSON.parse(
             new TextDecoder().decode(response.body),
@@ -99,9 +104,11 @@ export class RagEmbeddingService implements OnModuleInit {
       );
 
       const elapsed = Date.now() - startTime;
-      this.logger.debug(
-        `✅ Bedrock embedding generated in ${elapsed}ms (${embedding.length} dimensions)`,
-      );
+      if (this.DEBUG_LOGS) {
+        this.logger.debug(
+          `✅ Bedrock embedding generated in ${elapsed}ms (${embedding.length} dimensions)`,
+        );
+      }
 
       return embedding;
     } catch (error) {

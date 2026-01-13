@@ -20,10 +20,17 @@ export class RagSearchService {
     process.env.SIMILARITY_THRESHOLD || '0.0',
   );
 
+  private readonly CHILD_SEARCH_MULTIPLIER = (() => {
+    const value = parseInt(process.env.RAG_CHILD_SEARCH_MULTIPLIER || '3', 10);
+    return Number.isFinite(value) && value > 0 ? value : 3;
+  })();
+
   private readonly WINDOW_CONTEXT_CHARS = parseInt(
     process.env.RAG_WINDOW_CONTEXT_CHARS || '150',
     10,
   );
+
+  private readonly DEBUG_LOGS = process.env.RAG_DEBUG_LOGS === 'true';
 
   constructor(private readonly prisma: PrismaService) {}
 
@@ -43,8 +50,9 @@ export class RagSearchService {
   ): Promise<SearchResult[]> {
     try {
       const embeddingStr = JSON.stringify(queryEmbedding);
-      this.logger.debug(
-        `Executing PGVector query: ward=${wardId.substring(0, 8)}..., limit=${limit * 3}`,
+      const expandedLimit = Math.max(limit, limit * this.CHILD_SEARCH_MULTIPLIER);
+      this.debug(
+        `Executing PGVector query: ward=${wardId.substring(0, 8)}..., limit=${expandedLimit}`,
       );
 
       // Step 1: Search child vectors and join with parent
@@ -78,11 +86,11 @@ export class RagSearchService {
           INNER JOIN conversation_vectors_parent p ON c.parent_id = p.id
           WHERE c.ward_id = ${wardId}::uuid
           ORDER BY c.embedding <=> ${embeddingStr}::vector
-          LIMIT ${limit * 3}
+          LIMIT ${expandedLimit}
         `,
       );
 
-      this.logger.debug(
+      this.debug(
         `Found ${childResults.length} child results from PGVector`,
       );
 
@@ -92,7 +100,7 @@ export class RagSearchService {
       );
 
       if (filtered.length < childResults.length) {
-        this.logger.debug(
+        this.debug(
           `Filtered ${childResults.length - filtered.length} child results below threshold ${this.SIMILARITY_THRESHOLD}`,
         );
       }
@@ -112,12 +120,12 @@ export class RagSearchService {
         .sort((a, b) => b.similarity - a.similarity)
         .slice(0, limit);
 
-      this.logger.debug(
+      this.debug(
         `Grouped ${filtered.length} child results into ${uniqueParents.length} unique parents`,
       );
 
       if (uniqueParents.length > 0) {
-        this.logger.debug(
+        this.debug(
           `Top result: similarity=${uniqueParents[0].similarity.toFixed(3)}, text="${uniqueParents[0].child_text.substring(0, 50)}..."`,
         );
       }
@@ -152,6 +160,12 @@ export class RagSearchService {
         error.stack,
       );
       throw error;
+    }
+  }
+
+  private debug(message: string): void {
+    if (this.DEBUG_LOGS) {
+      this.logger.debug(message);
     }
   }
 }

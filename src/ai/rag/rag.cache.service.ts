@@ -26,7 +26,9 @@ export class RagCacheService implements OnModuleInit {
     process.env.WEEKLY_CONTEXT_DAYS || '7',
     10,
   );
-  private readonly CACHE_VERSION = 'v1';
+  private readonly VECTOR_CACHE_VERSION = 'v2';
+  private readonly LEGACY_VECTOR_CACHE_VERSION = 'v1';
+  private readonly GREETING_CACHE_VERSION = 'v1';
 
   constructor(private readonly prisma: PrismaService) {}
 
@@ -133,24 +135,28 @@ export class RagCacheService implements OnModuleInit {
       return null;
     }
 
-    const cacheKey = this.getRedisVectorsKey(wardId);
-    this.logger.debug(`Checking cache key: ${cacheKey}`);
-
-    const cached = await this.redisClient.get(cacheKey);
-
+    const cached = await this.getCachedVectors(wardId);
     if (!cached) {
-      this.logger.debug(`Cache key not found: ${cacheKey}`);
       return null;
     }
 
     const vectors: Array<{
-      child_text: string;
+      child_text?: string;
+      chunk_text?: string;
       embedding: string;
       metadata: any;
       created_at: string;
       call_id: string;
-      parent_id: string;
-    }> = JSON.parse(cached);
+      parent_id?: string;
+    }> = cached.vectors as Array<{
+      child_text?: string;
+      chunk_text?: string;
+      embedding: string;
+      metadata: any;
+      created_at: string;
+      call_id: string;
+      parent_id?: string;
+    }>;
 
     this.logger.debug(
       `Found ${vectors.length} cached vectors for ward=${wardId.substring(0, 8)}...`,
@@ -160,11 +166,15 @@ export class RagCacheService implements OnModuleInit {
 
     for (const vec of vectors) {
       try {
+        const text = vec.child_text ?? vec.chunk_text;
+        if (!text) {
+          continue;
+        }
         const vecEmbedding: number[] = JSON.parse(vec.embedding);
         const similarity = cosineSimilarity(queryEmbedding, vecEmbedding);
 
         results.push({
-          text: vec.child_text,
+          text,
           metadata: vec.metadata,
           similarity,
           createdAt: vec.created_at,
@@ -213,17 +223,20 @@ export class RagCacheService implements OnModuleInit {
     try {
       // Try Redis cache first
       if (this.redisClient) {
-        const cacheKey = this.getRedisVectorsKey(wardId);
-        const cached = await this.redisClient.get(cacheKey);
-
+        const cached = await this.getCachedVectors(wardId);
         if (cached) {
           this.logger.log(
             `✅ Redis cache HIT for recent context: ward=${wardId}`,
           );
           const vectors: Array<{
-            child_text: string;
+            child_text?: string;
+            chunk_text?: string;
             created_at: string;
-          }> = JSON.parse(cached);
+          }> = cached.vectors as Array<{
+            child_text?: string;
+            chunk_text?: string;
+            created_at: string;
+          }>;
 
           return vectors
             .sort(
@@ -232,10 +245,17 @@ export class RagCacheService implements OnModuleInit {
                 new Date(a.created_at).getTime(),
             )
             .slice(0, limit)
-            .map(v => ({
-              text: v.child_text,
-              createdAt: new Date(v.created_at),
-            }));
+            .map(v => {
+              const text = v.child_text ?? v.chunk_text;
+              if (!text) {
+                return null;
+              }
+              return {
+                text,
+                createdAt: new Date(v.created_at),
+              };
+            })
+            .filter((v): v is ContextResult => v !== null);
         }
       }
 
@@ -274,14 +294,21 @@ export class RagCacheService implements OnModuleInit {
    * Get Redis vectors cache key
    */
   getRedisVectorsKey(wardId: string): string {
-    return `rag:${this.CACHE_VERSION}:ward:${wardId}:vectors`;
+    return `rag:${this.VECTOR_CACHE_VERSION}:ward:${wardId}:vectors`;
+  }
+
+  /**
+   * Get legacy Redis vectors cache key (pre parent-child)
+   */
+  getLegacyRedisVectorsKey(wardId: string): string {
+    return `rag:${this.LEGACY_VECTOR_CACHE_VERSION}:ward:${wardId}:vectors`;
   }
 
   /**
    * Get greeting cache key
    */
   getGreetingCacheKey(wardId: string): string {
-    return `rag:${this.CACHE_VERSION}:ward:${wardId}:greeting`;
+    return `rag:${this.GREETING_CACHE_VERSION}:ward:${wardId}:greeting`;
   }
 
   /**
@@ -289,5 +316,45 @@ export class RagCacheService implements OnModuleInit {
    */
   getRedisClient(): RedisClientType | null {
     return this.redisClient;
+  }
+
+  private async getCachedVectors(
+    wardId: string,
+  ): Promise<{ key: string; vectors: unknown[] } | null> {
+    if (!this.redisClient) {
+      return null;
+    }
+
+    const primaryKey = this.getRedisVectorsKey(wardId);
+    this.logger.debug(`Checking cache key: ${primaryKey}`);
+    const primary = await this.redisClient.get(primaryKey);
+    if (primary) {
+      try {
+        return { key: primaryKey, vectors: JSON.parse(primary) };
+      } catch (error) {
+        this.logger.warn(
+          `Failed to parse cached vectors for key=${primaryKey}: ${error.message}`,
+        );
+        return null;
+      }
+    }
+
+    const legacyKey = this.getLegacyRedisVectorsKey(wardId);
+    const legacy = await this.redisClient.get(legacyKey);
+    if (!legacy) {
+      this.logger.debug(`Cache key not found: ${primaryKey}`);
+      return null;
+    }
+
+    this.logger.warn(`Legacy cache key hit: ${legacyKey}`);
+
+    try {
+      return { key: legacyKey, vectors: JSON.parse(legacy) };
+    } catch (error) {
+      this.logger.warn(
+        `Failed to parse cached vectors for key=${legacyKey}: ${error.message}`,
+      );
+      return null;
+    }
   }
 }
