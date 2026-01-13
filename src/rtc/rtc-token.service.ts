@@ -231,29 +231,31 @@ export class RtcTokenService {
         name,
       });
 
-      // 🚀 PRE-WARM: Generate personalized greeting BEFORE agent joins
+      // 🚀 PRE-WARM: Preload weekly context and generate personalized greeting BEFORE agent joins
       // This runs immediately when user requests a call, parallel with agent dispatch
-      // By the time agent enters and subscribes to Redis, greeting is likely ready
+      // By the time agent enters and subscribes to Redis, both context and greeting are likely ready
       const wardId = await this.dbService.findWardByUserId(user.id).then(w => w?.id);
       if (wardId) {
         this.logger.log(
-          `🚀 Pre-warming greeting for ward=${wardId} room=${roomName}`,
+          `🚀 Pre-warming weekly context and greeting for ward=${wardId} room=${roomName}`,
         );
         // Fire and forget - don't block token issuance
-        this.ragService
-          .generatePersonalizedGreeting(wardId, 'inbound')
-          .catch(error => {
-            this.logger.warn(
-              `Pre-warm greeting failed ward=${wardId}: ${error.message}`,
-            );
-            this.ragService
-              .cacheStandardGreeting(wardId, 'inbound')
-              .catch(fallbackError => {
-                this.logger.warn(
-                  `Fallback greeting cache failed ward=${wardId}: ${fallbackError.message}`,
-                );
-              });
-          });
+        Promise.all([
+          this.ragService.preloadWeeklyContext(wardId),
+          this.ragService.generatePersonalizedGreeting(wardId, 'inbound'),
+        ]).catch(error => {
+          this.logger.warn(
+            `Pre-warm failed ward=${wardId}: ${error.message}`,
+          );
+          // Fallback to standard greeting if personalized greeting fails
+          this.ragService
+            .cacheStandardGreeting(wardId, 'inbound')
+            .catch(fallbackError => {
+              this.logger.warn(
+                `Fallback greeting cache failed ward=${wardId}: ${fallbackError.message}`,
+              );
+            });
+        });
       }
 
       // Dispatch voice agent
