@@ -8,6 +8,8 @@ import { WardsManagementController } from './wards-management/wards-management.c
 import { LocationsController } from './locations/locations.controller';
 import { EmergenciesController } from './emergencies/emergencies.controller';
 import { BeneficiariesController } from './beneficiaries/beneficiaries.controller';
+import { StaffController, StaffService } from './staff';
+import { SettingsController, SettingsService } from './settings';
 import { AuthService } from '../auth';
 import { CallsService } from '../calls';
 import { AdminOrganizationGuard } from '../common';
@@ -26,6 +28,8 @@ import { CsvHeaderMatcherService } from './wards-management/csv-header-matcher.s
     LocationsController,
     EmergenciesController,
     BeneficiariesController,
+    StaffController,
+    SettingsController,
   ],
   providers: [
     AdminAuthService,
@@ -33,7 +37,9 @@ import { CsvHeaderMatcherService } from './wards-management/csv-header-matcher.s
     CallsService,
     AdminOrganizationGuard,
     CsvHeaderMatcherService,
+    StaffService,
+    SettingsService,
   ],
-  exports: [AdminAuthService],
+  exports: [AdminAuthService, StaffService, SettingsService],
 })
 export class AdminModule {}

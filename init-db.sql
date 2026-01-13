@@ -356,6 +356,11 @@ CREATE TABLE "admins" (
     "last_login_at" TIMESTAMP(3),
     "created_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updated_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    -- Staff scheduling fields
+    "team" TEXT,
+    "job_title" TEXT,
+    "phone_number" TEXT,
+    "max_capacity" INTEGER NOT NULL DEFAULT 20,
 
     CONSTRAINT "admins_pkey" PRIMARY KEY ("id")
 );
@@ -470,6 +475,43 @@ CREATE TABLE "emotion_summaries" (
 
     CONSTRAINT "emotion_summaries_pkey" PRIMARY KEY ("id"),
     CONSTRAINT "emotion_summaries_ward_id_period_start_key" UNIQUE ("ward_id", "period_start")
+);
+
+-- CreateTable: ward_assignments (직원-대상자 배정)
+CREATE TABLE "ward_assignments" (
+    "id" UUID NOT NULL DEFAULT gen_random_uuid(),
+    "admin_id" UUID NOT NULL,
+    "organization_ward_id" UUID NOT NULL,
+    "assigned_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "assigned_by" UUID,
+    "is_active" BOOLEAN NOT NULL DEFAULT true,
+    "notes" TEXT,
+    "created_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updated_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    CONSTRAINT "ward_assignments_pkey" PRIMARY KEY ("id"),
+    CONSTRAINT "ward_assignments_admin_id_organization_ward_id_key" UNIQUE ("admin_id", "organization_ward_id")
+);
+
+-- CreateTable: organization_settings (기관 설정)
+CREATE TABLE "organization_settings" (
+    "id" UUID NOT NULL DEFAULT gen_random_uuid(),
+    "organization_id" UUID NOT NULL,
+    "preferred_start_time" TEXT NOT NULL DEFAULT '09:00',
+    "preferred_end_time" TEXT NOT NULL DEFAULT '18:00',
+    "max_retries" INTEGER NOT NULL DEFAULT 3,
+    "retry_interval" INTEGER NOT NULL DEFAULT 30,
+    "risk_sensitivity" INTEGER NOT NULL DEFAULT 2,
+    "health_check" BOOLEAN NOT NULL DEFAULT true,
+    "meal_check" BOOLEAN NOT NULL DEFAULT true,
+    "medication_check" BOOLEAN NOT NULL DEFAULT true,
+    "sleep_check" BOOLEAN NOT NULL DEFAULT false,
+    "mood_check" BOOLEAN NOT NULL DEFAULT true,
+    "created_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updated_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    CONSTRAINT "organization_settings_pkey" PRIMARY KEY ("id"),
+    CONSTRAINT "organization_settings_organization_id_key" UNIQUE ("organization_id")
 );
 
 -- ============================================================================
@@ -634,6 +676,12 @@ CREATE INDEX "care_alert_events_call_id_idx" ON "care_alert_events"("call_id");
 -- Emotion summaries indexes
 CREATE INDEX "emotion_summaries_ward_id_period_start_idx" ON "emotion_summaries"("ward_id", "period_start" DESC);
 
+-- Ward assignments indexes
+CREATE INDEX "ward_assignments_admin_id_idx" ON "ward_assignments"("admin_id");
+CREATE INDEX "ward_assignments_organization_ward_id_idx" ON "ward_assignments"("organization_ward_id");
+CREATE INDEX "ward_assignments_admin_id_is_active_idx" ON "ward_assignments"("admin_id", "is_active");
+CREATE INDEX "ward_assignments_assigned_by_idx" ON "ward_assignments"("assigned_by");
+
 -- ============================================================================
 -- FOREIGN KEYS
 -- ============================================================================
@@ -684,3 +732,11 @@ ALTER TABLE "care_alert_events" ADD CONSTRAINT "care_alert_events_ward_id_fkey" 
 
 -- Emotion summaries foreign keys
 ALTER TABLE "emotion_summaries" ADD CONSTRAINT "emotion_summaries_ward_id_fkey" FOREIGN KEY ("ward_id") REFERENCES "wards"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- Ward assignments foreign keys
+ALTER TABLE "ward_assignments" ADD CONSTRAINT "ward_assignments_admin_id_fkey" FOREIGN KEY ("admin_id") REFERENCES "admins"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+ALTER TABLE "ward_assignments" ADD CONSTRAINT "ward_assignments_organization_ward_id_fkey" FOREIGN KEY ("organization_ward_id") REFERENCES "organization_wards"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+ALTER TABLE "ward_assignments" ADD CONSTRAINT "ward_assignments_assigned_by_fkey" FOREIGN KEY ("assigned_by") REFERENCES "admins"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+
+-- Organization settings foreign keys
+ALTER TABLE "organization_settings" ADD CONSTRAINT "organization_settings_organization_id_fkey" FOREIGN KEY ("organization_id") REFERENCES "organizations"("id") ON DELETE CASCADE ON UPDATE CASCADE;

@@ -75,6 +75,7 @@ model Organization {
   wards             Ward[]
   organizationWards OrganizationWard[]
   admins            Admin[]
+  settings          OrganizationSettings?
 
   @@map("organizations")
 }
@@ -397,10 +398,11 @@ model OrganizationWard {
   updatedAt         DateTime  @default(now()) @updatedAt @map("updated_at")
 
   // Relations
-  organization    Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  uploadedByAdmin Admin?       @relation(fields: [uploadedByAdminId], references: [id], onDelete: SetNull)
-  ward            Ward?        @relation(fields: [wardId], references: [id], onDelete: SetNull)
+  organization    Organization     @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  uploadedByAdmin Admin?           @relation(fields: [uploadedByAdminId], references: [id], onDelete: SetNull)
+  ward            Ward?            @relation(fields: [wardId], references: [id], onDelete: SetNull)
   detail          OrganizationWardDetail?
+  wardAssignments WardAssignment[]
 
   @@unique([organizationId, email])
   @@index([organizationId])
@@ -553,12 +555,19 @@ model Admin {
   lastLoginAt    DateTime? @map("last_login_at")
   createdAt      DateTime  @default(now()) @map("created_at")
   updatedAt      DateTime  @default(now()) @updatedAt @map("updated_at")
+  // Staff scheduling fields
+  team           String?                       // '방문 1팀' | '방문 2팀' | '방문 3팀'
+  jobTitle       String?   @map("job_title")   // '사회복지사' | '팀장'
+  phoneNumber    String?   @map("phone_number")
+  maxCapacity    Int       @default(20) @map("max_capacity")
 
   // Relations
-  organization      Organization?       @relation(fields: [organizationId], references: [id], onDelete: SetNull)
-  permissions       AdminPermission[]
-  refreshTokens     AdminRefreshToken[]
-  uploadedWards     OrganizationWard[]
+  organization           Organization?        @relation(fields: [organizationId], references: [id], onDelete: SetNull)
+  permissions            AdminPermission[]
+  refreshTokens          AdminRefreshToken[]
+  uploadedWards          OrganizationWard[]
+  wardAssignments        WardAssignment[]     @relation("AdminAssignments")
+  assignedByAssignments  WardAssignment[]     @relation("AssignedByAdmin")
 
   @@unique([provider, providerId])
   @@index([email])
@@ -731,3 +740,66 @@ model EmotionSummary {
   @@index([wardId, periodStart(sort: Desc)])
   @@map("emotion_summaries")
 }
+
+// =============================================================================
+// 28. WARD_ASSIGNMENTS - 직원-대상자 배정
+// =============================================================================
+model WardAssignment {
+  id                 String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  adminId            String   @map("admin_id") @db.Uuid
+  organizationWardId String   @map("organization_ward_id") @db.Uuid
+  assignedAt         DateTime @default(now()) @map("assigned_at")
+  assignedById       String?  @map("assigned_by") @db.Uuid
+  isActive           Boolean  @default(true) @map("is_active")
+  notes              String?
+  createdAt          DateTime @default(now()) @map("created_at")
+  updatedAt          DateTime @default(now()) @updatedAt @map("updated_at")
+
+  // Relations
+  admin            Admin            @relation("AdminAssignments", fields: [adminId], references: [id], onDelete: Cascade)
+  organizationWard OrganizationWard @relation(fields: [organizationWardId], references: [id], onDelete: Cascade)
+  assignedBy       Admin?           @relation("AssignedByAdmin", fields: [assignedById], references: [id], onDelete: SetNull)
+
+  @@unique([adminId, organizationWardId])
+  @@index([adminId])
+  @@index([organizationWardId])
+  @@index([adminId, isActive])
+  @@index([assignedById])
+  @@map("ward_assignments")
+}
+
+// =============================================================================
+// 29. ORGANIZATION_SETTINGS - 기관 설정
+// =============================================================================
+model OrganizationSettings {
+  id             String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organizationId String   @unique @map("organization_id") @db.Uuid
+
+  // Scheduled Calls
+  preferredStartTime String @default("09:00") @map("preferred_start_time")
+  preferredEndTime   String @default("18:00") @map("preferred_end_time")
+
+  // Retry Policy
+  maxRetries    Int @default(3) @map("max_retries")
+  retryInterval Int @default(30) @map("retry_interval") // minutes
+
+  // Risk Detection
+  riskSensitivity Int @default(2) @map("risk_sensitivity") // 1=low, 2=medium, 3=high
+
+  // Conversation Topics
+  healthCheck     Boolean @default(true) @map("health_check")
+  mealCheck       Boolean @default(true) @map("meal_check")
+  medicationCheck Boolean @default(true) @map("medication_check")
+  sleepCheck      Boolean @default(false) @map("sleep_check")
+  moodCheck       Boolean @default(true) @map("mood_check")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at")
+
+  // Relations
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@map("organization_settings")
+}
+
+
