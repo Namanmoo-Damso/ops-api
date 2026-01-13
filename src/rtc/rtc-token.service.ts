@@ -240,21 +240,31 @@ export class RtcTokenService {
           `🚀 Pre-warming weekly context and greeting for ward=${wardId} room=${roomName}`,
         );
         // Fire and forget - don't block token issuance
-        Promise.all([
+        Promise.allSettled([
           this.ragService.preloadWeeklyContext(wardId),
           this.ragService.generatePersonalizedGreeting(wardId, 'inbound'),
-        ]).catch(error => {
-          this.logger.warn(
-            `Pre-warm failed ward=${wardId}: ${error.message}`,
-          );
-          // Fallback to standard greeting if personalized greeting fails
-          this.ragService
-            .cacheStandardGreeting(wardId, 'inbound')
-            .catch(fallbackError => {
-              this.logger.warn(
-                `Fallback greeting cache failed ward=${wardId}: ${fallbackError.message}`,
-              );
-            });
+        ]).then(results => {
+          const preloadResult = results[0];
+          const greetingResult = results[1];
+
+          if (preloadResult.status === 'rejected') {
+            this.logger.warn(
+              `Pre-warm weekly context failed ward=${wardId}: ${preloadResult.reason?.message || preloadResult.reason}`,
+            );
+          }
+
+          if (greetingResult.status === 'rejected') {
+            this.logger.warn(
+              `Pre-warm greeting failed ward=${wardId}: ${greetingResult.reason?.message || greetingResult.reason}`,
+            );
+            this.ragService
+              .cacheStandardGreeting(wardId, 'inbound')
+              .catch(fallbackError => {
+                this.logger.warn(
+                  `Fallback greeting cache failed ward=${wardId}: ${fallbackError.message}`,
+                );
+              });
+          }
         });
       }
 
