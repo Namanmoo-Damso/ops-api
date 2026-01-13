@@ -66,8 +66,49 @@ const SEED_STAFF: SeedStaff[] = [
   },
 ];
 
-// 12 beneficiaries (3 per staff)
+// 12 beneficiaries (3 per staff) + 5 real teammate accounts for testing
 const SEED_WARDS: SeedWard[] = [
+  // Real teammate accounts for testing (preserved)
+  {
+    email: '1002dm@naver.com',
+    name: '권동민',
+    phoneNumber: '010-5029-0144',
+    birthDate: new Date('1950-01-01'),
+    gender: 'male',
+    address: '경기 용인시 처인구 영문로 55',
+  },
+  {
+    email: 'vhxmwhkd@naver.com',
+    name: '김상연',
+    phoneNumber: '010-9639-7703',
+    birthDate: new Date('1950-01-01'),
+    gender: 'male',
+    address: '경기 용인시 처인구 영문로 55',
+  },
+  {
+    email: 'seongsu0227@nate.com',
+    name: '문성수',
+    phoneNumber: '010-8616-6481',
+    birthDate: new Date('1950-01-01'),
+    gender: 'male',
+    address: '경기 용인시 처인구 영문로 55',
+  },
+  {
+    email: 'antjw1999@gmail.com',
+    name: '배재완',
+    phoneNumber: '010-7937-4563',
+    birthDate: new Date('1950-01-01'),
+    gender: 'male',
+    address: '경기 용인시 처인구 영문로 55',
+  },
+  {
+    email: 'kei1221@naver.com',
+    name: '임익화',
+    phoneNumber: '010-5919-5036',
+    birthDate: new Date('1950-01-01'),
+    gender: 'male',
+    address: '경기 용인시 처인구 영문로 55',
+  },
   // Staff 1's beneficiaries
   {
     email: 'ward01@example.com',
