@@ -47,7 +47,7 @@ Staff-to-ward assignment relationships.
 | `BulletinBoard` | Bulletin CRUD | `GET/POST/PUT/DELETE /v1/admin/bulletins` | ✅ **Implemented** |
 | `EmergencyLog` | Emergency list with status | `GET /v1/admin/emergencies` | ✅ Exists |
 
-### 2. Beneficiaries (`/app/beneficiaries`)
+### 4. Beneficiaries (`/app/beneficiaries`)
 
 | Feature | API Endpoint | Status |
 |---------|--------------|--------|
@@ -56,6 +56,7 @@ Staff-to-ward assignment relationships.
 | Update | `PUT /v1/admin/beneficiaries/:id` | ✅ Exists |
 | Delete | `DELETE /v1/admin/beneficiaries/:id` | ✅ Exists |
 | Bulk upload | `POST /v1/admin/wards/bulk-upload` | ✅ Exists |
+| Usage stats | `GET /v1/admin/beneficiaries/:id/stats` | ✅ **Implemented** |
 
 ### 3. Stats (`/app/stats`)
 
@@ -196,14 +197,20 @@ Connect existing APIs to frontend components.
 - [x] Add today-summary endpoint for DailyOperationsSummary component
 - [x] Wire stats page to dashboard/stats API
 - [x] Fix infinite loading bugs in staff, settings, dashboard pages
+- [x] Add beneficiary usage stats endpoint (`GET /v1/admin/beneficiaries/:id/stats`)
+- [x] Create `useBeneficiaryStatsApi` hook
+- [x] Wire UsageInfoTab to API with date range filtering
+- [x] Add comprehensive seed data (12 beneficiaries, 4 staff, call logs, summaries)
 
-## ✅ All Major Integration Complete
+## ✅ All Integration Complete
 
-All core frontend-API wiring is now complete:
+All frontend-API wiring is now complete and functional:
 - ✅ Dashboard page (DailyOperationsSummary, OperationsTimeline, BulletinBoard)
-- ✅ Staff page (CRUD, assignments)
+- ✅ Staff page (CRUD, assignments, stats)
 - ✅ Settings page (get/update)
 - ✅ Stats page (call stats, trends, mood, keywords)
+- ✅ Beneficiaries page (UsageInfoTab with stats and date filtering)
+- ✅ Seed data (4 staff, 12 beneficiaries, 180-300 calls with summaries)
 
 ## 📝 Remaining TODO
 
