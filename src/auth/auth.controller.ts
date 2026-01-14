@@ -9,11 +9,7 @@ import {
 } from '@nestjs/common';
 import { AuthService } from './auth.service';
 import { LiveKitService } from '../integration/livekit';
-import {
-  KakaoLoginDto,
-  RefreshTokenDto,
-  AnonymousAuthDto,
-} from './dto';
+import { KakaoLoginDto, RefreshTokenDto, AnonymousAuthDto } from './dto';
 import { DbService } from '../database';
 import { EventsService } from '../events';
 
@@ -75,7 +71,9 @@ export class AuthController {
       if ((error as HttpException).getStatus?.() === HttpStatus.UNAUTHORIZED) {
         throw error;
       }
-      this.logger.warn(`refreshTokens failed error=${(error as Error).message}`);
+      this.logger.warn(
+        `refreshTokens failed error=${(error as Error).message}`,
+      );
       throw new HttpException(
         (error as Error).message || 'Token refresh failed',
         HttpStatus.UNAUTHORIZED,
@@ -91,9 +89,7 @@ export class AuthController {
   }
 
   @Post('logout')
-  async logout(
-    @Headers('authorization') authorization: string | undefined,
-  ) {
+  async logout(@Headers('authorization') authorization: string | undefined) {
     const payload = this.authService.verifyAccessToken(
       authorization?.replace(/^Bearer\s+/i, '') ?? '',
     );
@@ -135,7 +131,9 @@ export class AuthController {
         message: '로그아웃이 완료되었습니다.',
       };
     } catch (error) {
-      this.logger.error(`logout failed userId=${userId} error=${(error as Error).message}`);
+      this.logger.error(
+        `logout failed userId=${userId} error=${(error as Error).message}`,
+      );
       throw new HttpException(
         'Logout failed',
         HttpStatus.INTERNAL_SERVER_ERROR,

@@ -48,7 +48,10 @@ export class AdminRepository {
     };
   }
 
-  async findByProviderId(provider: string, providerId: string): Promise<AdminResult | null> {
+  async findByProviderId(
+    provider: string,
+    providerId: string,
+  ): Promise<AdminResult | null> {
     const admin = await this.prisma.admin.findUnique({
       where: { provider_providerId: { provider, providerId } },
     });
@@ -79,7 +82,7 @@ export class AdminRepository {
   }): Promise<{ id: string }> {
     const count = await this.prisma.admin.count();
     const isFirstAdmin = count === 0;
-    const role = isFirstAdmin ? 'super_admin' : (params.role || 'admin');
+    const role = isFirstAdmin ? 'super_admin' : params.role || 'admin';
 
     const admin = await this.prisma.admin.create({
       data: {
@@ -106,10 +109,14 @@ export class AdminRepository {
       where: { adminId },
       select: { permission: true },
     });
-    return permissions.map((p) => p.permission);
+    return permissions.map(p => p.permission);
   }
 
-  async createRefreshToken(adminId: string, tokenHash: string, expiresAt: Date): Promise<{ id: string }> {
+  async createRefreshToken(
+    adminId: string,
+    tokenHash: string,
+    expiresAt: Date,
+  ): Promise<{ id: string }> {
     const token = await this.prisma.adminRefreshToken.create({
       data: { adminId, tokenHash, expiresAt },
     });
@@ -151,13 +158,17 @@ export class AdminRepository {
       },
       orderBy: { createdAt: 'desc' },
     });
-    return admins.map((a) => ({
+    return admins.map(a => ({
       ...this.toAdminResult(a),
       organization_name: a.organization?.name ?? null,
     }));
   }
 
-  async updateRole(adminId: string, role: string, organizationId?: string): Promise<void> {
+  async updateRole(
+    adminId: string,
+    role: string,
+    organizationId?: string,
+  ): Promise<void> {
     await this.prisma.admin.update({
       where: { id: adminId },
       data: { role, organizationId: organizationId ?? null },
@@ -171,7 +182,10 @@ export class AdminRepository {
     });
   }
 
-  async updateOrganization(adminId: string, organizationId: string): Promise<void> {
+  async updateOrganization(
+    adminId: string,
+    organizationId: string,
+  ): Promise<void> {
     await this.prisma.admin.update({
       where: { id: adminId },
       data: { organizationId },
@@ -195,7 +209,7 @@ export class AdminRepository {
     const orgs = await this.prisma.organization.findMany({
       orderBy: { name: 'asc' },
     });
-    return orgs.map((o) => ({
+    return orgs.map(o => ({
       id: o.id,
       name: o.name,
       created_at: o.createdAt.toISOString(),

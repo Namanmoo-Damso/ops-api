@@ -51,7 +51,10 @@ export class DashboardController {
       };
     } catch (error) {
       this.logger.warn(`getStats failed error=${(error as Error).message}`);
-      throw new HttpException('Failed to fetch dashboard stats', HttpStatus.INTERNAL_SERVER_ERROR);
+      throw new HttpException(
+        'Failed to fetch dashboard stats',
+        HttpStatus.INTERNAL_SERVER_ERROR,
+      );
     }
   }
 
@@ -72,7 +75,10 @@ export class DashboardController {
       };
     } catch (error) {
       this.logger.warn(`getRealtime failed error=${(error as Error).message}`);
-      throw new HttpException('Failed to fetch realtime stats', HttpStatus.INTERNAL_SERVER_ERROR);
+      throw new HttpException(
+        'Failed to fetch realtime stats',
+        HttpStatus.INTERNAL_SERVER_ERROR,
+      );
     }
   }
 }

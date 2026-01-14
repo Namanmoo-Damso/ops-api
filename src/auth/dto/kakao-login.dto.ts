@@ -15,12 +15,16 @@ export class KakaoLoginResponseDto {
     userType: 'guardian' | 'ward' | null;
   };
   requiresRegistration?: boolean;
-  matchStatus?: 'matched' | 'not_matched';
+  matchStatus?: 'matched';
   wardInfo?: {
     phoneNumber: string;
     linkedGuardian?: {
       id: string;
       nickname: string | null;
+    };
+    linkedOrganization?: {
+      id: string;
+      name: string;
     };
   };
 }

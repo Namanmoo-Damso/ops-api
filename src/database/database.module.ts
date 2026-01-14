@@ -14,8 +14,9 @@ import {
   LocationRepository,
   DashboardRepository,
 } from './repositories';
+import { SeedService } from './seed.service';
 
-const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
 /**
  * Database Pool Provider
@@ -78,6 +79,7 @@ const RepositoryProviders = [
     PrismaService,
     ...RepositoryProviders,
     DbService,
+    SeedService,
   ],
   exports: [
     'DATABASE_POOL', // 레거시 호환성 (추후 제거)

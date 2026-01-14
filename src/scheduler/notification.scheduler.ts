@@ -25,10 +25,16 @@ export class NotificationScheduler {
     const startTime = `${String(currentHour).padStart(2, '0')}:${String(currentMinute).padStart(2, '0')}:00`;
     const endTime = `${String(targetTime.getHours()).padStart(2, '0')}:${String(targetTime.getMinutes()).padStart(2, '0')}:00`;
 
-    this.logger.log(`checkCallReminders dayOfWeek=${dayOfWeek} timeRange=${startTime}-${endTime}`);
+    this.logger.log(
+      `checkCallReminders dayOfWeek=${dayOfWeek} timeRange=${startTime}-${endTime}`,
+    );
 
     try {
-      const schedules = await this.dbService.getUpcomingCallSchedules(dayOfWeek, startTime, endTime);
+      const schedules = await this.dbService.getUpcomingCallSchedules(
+        dayOfWeek,
+        startTime,
+        endTime,
+      );
 
       for (const schedule of schedules) {
         // 어르신에게 리마인더 푸시
@@ -43,10 +49,14 @@ export class NotificationScheduler {
         // 리마인더 전송 완료 기록
         await this.dbService.markReminderSent(schedule.id);
 
-        this.logger.log(`checkCallReminders sent wardIdentity=${schedule.ward_identity} scheduleId=${schedule.id}`);
+        this.logger.log(
+          `checkCallReminders sent wardIdentity=${schedule.ward_identity} scheduleId=${schedule.id}`,
+        );
       }
     } catch (error) {
-      this.logger.error(`checkCallReminders failed error=${(error as Error).message}`);
+      this.logger.error(
+        `checkCallReminders failed error=${(error as Error).message}`,
+      );
     }
   }
 
@@ -68,10 +78,14 @@ export class NotificationScheduler {
           payload: { type: 'missed_call', wardId: missed.ward_id },
         });
 
-        this.logger.log(`checkMissedCalls sent guardianIdentity=${missed.guardian_identity} wardId=${missed.ward_id}`);
+        this.logger.log(
+          `checkMissedCalls sent guardianIdentity=${missed.guardian_identity} wardId=${missed.ward_id}`,
+        );
       }
     } catch (error) {
-      this.logger.error(`checkMissedCalls failed error=${(error as Error).message}`);
+      this.logger.error(
+        `checkMissedCalls failed error=${(error as Error).message}`,
+      );
     }
   }
 
@@ -79,15 +93,23 @@ export class NotificationScheduler {
   async notifyCallComplete(callId: string) {
     try {
       const callInfo = await this.dbService.getCallWithWardInfo(callId);
-      if (!callInfo || !callInfo.guardian_identity || !callInfo.guardian_user_id) {
+      if (
+        !callInfo ||
+        !callInfo.guardian_identity ||
+        !callInfo.guardian_user_id
+      ) {
         this.logger.log(`notifyCallComplete no guardian callId=${callId}`);
         return;
       }
 
       // 보호자 알림 설정 확인
-      const settings = await this.dbService.getGuardianNotificationSettings(callInfo.guardian_user_id);
+      const settings = await this.dbService.getGuardianNotificationSettings(
+        callInfo.guardian_user_id,
+      );
       if (!settings.call_complete) {
-        this.logger.log(`notifyCallComplete disabled callId=${callId} guardianUserId=${callInfo.guardian_user_id}`);
+        this.logger.log(
+          `notifyCallComplete disabled callId=${callId} guardianUserId=${callInfo.guardian_user_id}`,
+        );
         return;
       }
 
@@ -100,9 +122,13 @@ export class NotificationScheduler {
         payload: { type: 'call_complete', callId },
       });
 
-      this.logger.log(`notifyCallComplete sent callId=${callId} guardianIdentity=${callInfo.guardian_identity}`);
+      this.logger.log(
+        `notifyCallComplete sent callId=${callId} guardianIdentity=${callInfo.guardian_identity}`,
+      );
     } catch (error) {
-      this.logger.error(`notifyCallComplete failed callId=${callId} error=${(error as Error).message}`);
+      this.logger.error(
+        `notifyCallComplete failed callId=${callId} error=${(error as Error).message}`,
+      );
     }
   }
 }

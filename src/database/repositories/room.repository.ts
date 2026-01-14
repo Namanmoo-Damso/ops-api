@@ -27,7 +27,7 @@ export class RoomRepository {
       orderBy: { joinedAt: 'asc' },
     });
 
-    return members.map((m) =>
+    return members.map(m =>
       toRoomMemberRow({
         identity: m.user.identity,
         displayName: m.user.displayName,

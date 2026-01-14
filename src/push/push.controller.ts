@@ -21,7 +21,9 @@ export class PushController {
     private readonly configService: ConfigService,
   ) {}
 
-  private summarizePayloadKeys(payload: Record<string, unknown> | undefined): string {
+  private summarizePayloadKeys(
+    payload: Record<string, unknown> | undefined,
+  ): string {
     if (!payload) return 'none';
     const keys = Object.keys(payload);
     if (keys.length === 0) return 'empty';

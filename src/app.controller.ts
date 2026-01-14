@@ -1,11 +1,4 @@
-import {
-  Body,
-  Controller,
-  Get,
-  Headers,
-  Post,
-  Logger,
-} from '@nestjs/common';
+import { Body, Controller, Get, Headers, Post, Logger } from '@nestjs/common';
 import { DbService } from './database';
 
 @Controller()
@@ -38,7 +31,9 @@ export class AppController {
     const kakaoId = body.user_id?.toString().trim();
     const referrerType = body.referrer_type ?? 'unknown';
 
-    this.logger.log(`kakaoUnlink received appId=${appId} kakaoId=${kakaoId} type=${referrerType}`);
+    this.logger.log(
+      `kakaoUnlink received appId=${appId} kakaoId=${kakaoId} type=${referrerType}`,
+    );
 
     if (!kakaoId) {
       this.logger.warn('kakaoUnlink missing user_id');
@@ -55,9 +50,13 @@ export class AppController {
         }
 
         await this.dbService.deleteUser(user.id);
-        this.logger.log(`kakaoUnlink deleted userId=${user.id} kakaoId=${kakaoId}`);
+        this.logger.log(
+          `kakaoUnlink deleted userId=${user.id} kakaoId=${kakaoId}`,
+        );
       } catch (error) {
-        this.logger.error(`kakaoUnlink failed kakaoId=${kakaoId} error=${(error as Error).message}`);
+        this.logger.error(
+          `kakaoUnlink failed kakaoId=${kakaoId} error=${(error as Error).message}`,
+        );
       }
     });
 

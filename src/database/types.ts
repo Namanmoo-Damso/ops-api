@@ -101,7 +101,7 @@ export type CallRow = {
 export type CallSummaryRow = {
   id: string;
   call_id: string;
-  ward_id: string;
+  ward_id: string | null;
   summary: string | null;
   mood: string | null;
   health_keywords: string[] | null;

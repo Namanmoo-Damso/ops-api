@@ -28,19 +28,27 @@ export class WardsController {
       : undefined;
 
     if (!token) {
-      throw new HttpException('Access token is required', HttpStatus.UNAUTHORIZED);
+      throw new HttpException(
+        'Access token is required',
+        HttpStatus.UNAUTHORIZED,
+      );
     }
 
     const payload = this.authService.verifyAccessToken(token);
     if (!payload) {
-      throw new HttpException('Invalid or expired access token', HttpStatus.UNAUTHORIZED);
+      throw new HttpException(
+        'Invalid or expired access token',
+        HttpStatus.UNAUTHORIZED,
+      );
     }
 
     return payload;
   }
 
   @Get('settings')
-  async getSettings(@Headers('authorization') authorization: string | undefined) {
+  async getSettings(
+    @Headers('authorization') authorization: string | undefined,
+  ) {
     const payload = this.verifyAuthHeader(authorization);
 
     try {
@@ -50,14 +58,18 @@ export class WardsController {
         throw error;
       }
       this.logger.warn(`getSettings failed error=${(error as Error).message}`);
-      throw new HttpException('Failed to get ward settings', HttpStatus.INTERNAL_SERVER_ERROR);
+      throw new HttpException(
+        'Failed to get ward settings',
+        HttpStatus.INTERNAL_SERVER_ERROR,
+      );
     }
   }
 
   @Put('settings')
   async updateSettings(
     @Headers('authorization') authorization: string | undefined,
-    @Body() body: {
+    @Body()
+    body: {
       aiPersona?: string;
       weeklyCallCount?: number;
       callDurationMinutes?: number;
@@ -75,15 +87,21 @@ export class WardsController {
       if ((error as HttpException).getStatus?.()) {
         throw error;
       }
-      this.logger.warn(`updateSettings failed error=${(error as Error).message}`);
-      throw new HttpException('Failed to update ward settings', HttpStatus.INTERNAL_SERVER_ERROR);
+      this.logger.warn(
+        `updateSettings failed error=${(error as Error).message}`,
+      );
+      throw new HttpException(
+        'Failed to update ward settings',
+        HttpStatus.INTERNAL_SERVER_ERROR,
+      );
     }
   }
 
   @Post('location')
   async updateLocation(
     @Headers('authorization') authorization: string | undefined,
-    @Body() body: {
+    @Body()
+    body: {
       latitude: number;
       longitude: number;
       accuracy?: number;
@@ -93,7 +111,10 @@ export class WardsController {
     const payload = this.verifyAuthHeader(authorization);
 
     if (body.latitude === undefined || body.longitude === undefined) {
-      throw new HttpException('latitude and longitude are required', HttpStatus.BAD_REQUEST);
+      throw new HttpException(
+        'latitude and longitude are required',
+        HttpStatus.BAD_REQUEST,
+      );
     }
 
     try {
@@ -107,15 +128,21 @@ export class WardsController {
       if ((error as HttpException).getStatus?.()) {
         throw error;
       }
-      this.logger.warn('updateLocation failed error=' + (error as Error).message);
-      throw new HttpException('Failed to update location', HttpStatus.INTERNAL_SERVER_ERROR);
+      this.logger.warn(
+        'updateLocation failed error=' + (error as Error).message,
+      );
+      throw new HttpException(
+        'Failed to update location',
+        HttpStatus.INTERNAL_SERVER_ERROR,
+      );
     }
   }
 
   @Post('emergency')
   async triggerEmergency(
     @Headers('authorization') authorization: string | undefined,
-    @Body() body: {
+    @Body()
+    body: {
       type: string;
       message?: string;
       latitude?: number;
@@ -137,8 +164,13 @@ export class WardsController {
       if ((error as HttpException).getStatus?.()) {
         throw error;
       }
-      this.logger.warn('triggerEmergency failed error=' + (error as Error).message);
-      throw new HttpException('Failed to trigger emergency', HttpStatus.INTERNAL_SERVER_ERROR);
+      this.logger.warn(
+        'triggerEmergency failed error=' + (error as Error).message,
+      );
+      throw new HttpException(
+        'Failed to trigger emergency',
+        HttpStatus.INTERNAL_SERVER_ERROR,
+      );
     }
   }
 }

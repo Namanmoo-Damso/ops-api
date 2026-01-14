@@ -2,7 +2,7 @@ services:
   api:
     build: .
     ports:
-      - "8080:8080"
+      - '8080:8080'
     environment:
       - DATABASE_URL=postgresql://damso:damso@db:5432/damso
       - REDIS_URL=redis://redis:6379
@@ -24,7 +24,7 @@ services:
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U damso"]
+      test: ['CMD-SHELL', 'pg_isready -U damso']
       interval: 5s
       timeout: 5s
       retries: 5

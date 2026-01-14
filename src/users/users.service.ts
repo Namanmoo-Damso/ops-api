@@ -53,6 +53,10 @@ export class UsersService {
         ? await this.dbService.findUserById(linkedGuardian.user_id)
         : null;
 
+      const linkedOrganization = ward?.organization_id
+        ? await this.dbService.findOrganizationById(ward.organization_id)
+        : null;
+
       return {
         ...baseResponse,
         wardInfo: ward
@@ -64,6 +68,12 @@ export class UsersService {
                     id: guardianUser.id,
                     nickname: guardianUser.nickname,
                     profileImageUrl: guardianUser.profile_image_url,
+                  }
+                : null,
+              linkedOrganization: linkedOrganization
+                ? {
+                    id: linkedOrganization.id,
+                    name: linkedOrganization.name,
                   }
                 : null,
             }

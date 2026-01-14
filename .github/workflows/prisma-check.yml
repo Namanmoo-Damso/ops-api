@@ -1,0 +1,110 @@
+name: Prisma Schema Validation
+
+on:
+  pull_request:
+    paths:
+      - 'prisma/schema.prisma'
+      - 'prisma/migrations/**'
+  push:
+    branches:
+      - dev
+      - main
+    paths:
+      - 'prisma/schema.prisma'
+      - 'prisma/migrations/**'
+
+jobs:
+  validate-prisma:
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: test
+          POSTGRES_PASSWORD: test
+          POSTGRES_DB: test
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Check schema.prisma changes
+        id: schema-check
+        run: |
+          # schema.prisma가 변경되었는지 확인
+          if git diff --name-only ${{ github.event.before }} ${{ github.sha }} | grep -q "prisma/schema.prisma"; then
+            echo "schema_changed=true" >> $GITHUB_OUTPUT
+
+            # 새로운 마이그레이션 파일이 추가되었는지 확인
+            NEW_MIGRATIONS=$(git diff --name-status ${{ github.event.before }} ${{ github.sha }} | grep "^A.*prisma/migrations/.*migration.sql$" | wc -l)
+            if [ "$NEW_MIGRATIONS" -gt 0 ]; then
+              echo "migrations_changed=true" >> $GITHUB_OUTPUT
+              echo "new_migration_count=$NEW_MIGRATIONS" >> $GITHUB_OUTPUT
+            else
+              echo "migrations_changed=false" >> $GITHUB_OUTPUT
+            fi
+          else
+            echo "schema_changed=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Validate schema changes have migrations
+        if: steps.schema-check.outputs.schema_changed == 'true' && steps.schema-check.outputs.migrations_changed == 'false'
+        run: |
+          echo "❌ ERROR: schema.prisma was changed but no new migrations were added!"
+          echo "Please run 'npx prisma migrate dev --name your_migration_name' to create a migration."
+          exit 1
+
+      - name: Validate Prisma schema
+        env:
+          DATABASE_URL: postgresql://test:test@localhost:5432/test
+        run: npx prisma validate
+
+      - name: Apply migrations
+        env:
+          DATABASE_URL: postgresql://test:test@localhost:5432/test
+        run: npx prisma migrate deploy
+
+      - name: Check migration status
+        env:
+          DATABASE_URL: postgresql://test:test@localhost:5432/test
+        run: npx prisma migrate status
+
+      - name: Generate Prisma Client
+        run: npx prisma generate
+
+      - name: Run database diff check
+        env:
+          DATABASE_URL: postgresql://test:test@localhost:5432/test
+        run: |
+          # schema.prisma와 실제 DB 간 차이 확인
+          npx prisma migrate diff \
+            --from-schema-datamodel prisma/schema.prisma \
+            --to-schema-datasource prisma/schema.prisma \
+            --script > /tmp/diff.sql || true
+
+          if [ -s /tmp/diff.sql ]; then
+            echo "❌ WARNING: Schema and database are out of sync!"
+            echo "Detected differences:"
+            cat /tmp/diff.sql
+            # 경고만 하고 실패시키지는 않음 (deploy에서 이미 확인됨)
+          else
+            echo "✅ Schema and database are in sync!"
+          fi
