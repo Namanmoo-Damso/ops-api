@@ -62,7 +62,7 @@ export class RagCacheService implements OnModuleInit {
       this.logger.log(`Preloading weekly context for ward: ${wardId}`);
 
       // Calculate week ago threshold (7 days from now)
-      // Use UTC timestamps to match database metadata.callStartAt
+      // Use UTC timestamps to match database metadata.callDate or callStartAt
       const now = new Date();
       const weekAgo = new Date(now);
       weekAgo.setDate(weekAgo.getDate() - this.WEEKLY_CONTEXT_DAYS);
@@ -72,12 +72,13 @@ export class RagCacheService implements OnModuleInit {
       );
 
       // Fetch from conversation_vectors_child (Parent-Child structure)
-      // Child has embeddings for search, parent has full context
-      // IMPORTANT: Filter by actual conversation time (callStartAt), not vector creation time (created_at)
+      // v2: Include chunk_header for better search quality
+      // Filter by callDate (primary) or callStartAt (fallback) from metadata
       const vectors = await this.prisma.$queryRaw<
         Array<{
           id: string;
           child_text: string;
+          chunk_header: string | null;
           embedding: string;
           metadata: any;
           created_at: Date;
@@ -89,6 +90,7 @@ export class RagCacheService implements OnModuleInit {
           SELECT
             c.id,
             c.child_text,
+            c.chunk_header,
             c.embedding::text,
             c.metadata,
             c.created_at,
@@ -96,8 +98,17 @@ export class RagCacheService implements OnModuleInit {
             c.parent_id
           FROM conversation_vectors_child c
           WHERE c.ward_id = ${wardId}::uuid
-            AND (c.metadata->>'callStartAt')::timestamp >= ${weekAgo}
-          ORDER BY (c.metadata->>'callStartAt')::timestamp DESC
+            AND (
+              -- v2: Use callDate if available, fallback to callStartAt
+              COALESCE(
+                (c.metadata->>'callDate')::timestamp,
+                (c.metadata->>'callStartAt')::timestamp
+              ) >= ${weekAgo}
+            )
+          ORDER BY COALESCE(
+            (c.metadata->>'callDate')::timestamp,
+            (c.metadata->>'callStartAt')::timestamp
+          ) DESC
         `,
       );
 
@@ -105,6 +116,16 @@ export class RagCacheService implements OnModuleInit {
         this.logger.log(`No weekly context found for ward: ${wardId}`);
         return;
       }
+
+      // Log metadata stats for debugging
+      const v2Count = vectors.filter(
+        v => v.metadata?.indexVersion === 'v2-dense-summary',
+      ).length;
+      const withHeaders = vectors.filter(v => v.chunk_header).length;
+
+      this.logger.log(
+        `📊 Preload stats: total=${vectors.length}, v2=${v2Count}, with_headers=${withHeaders}`,
+      );
 
       const cacheKey = this.getRedisVectorsKey(wardId);
       const cacheData = JSON.stringify(vectors);
@@ -143,6 +164,7 @@ export class RagCacheService implements OnModuleInit {
     const vectors: Array<{
       child_text?: string;
       chunk_text?: string;
+      chunk_header?: string | null;
       embedding: string;
       metadata: any;
       created_at: string;
@@ -151,6 +173,7 @@ export class RagCacheService implements OnModuleInit {
     }> = cached.vectors as Array<{
       child_text?: string;
       chunk_text?: string;
+      chunk_header?: string | null;
       embedding: string;
       metadata: any;
       created_at: string;
@@ -173,9 +196,17 @@ export class RagCacheService implements OnModuleInit {
         const vecEmbedding: number[] = JSON.parse(vec.embedding);
         const similarity = cosineSimilarity(queryEmbedding, vecEmbedding);
 
+        // v2: Include chunk_header in search results for better context
+        // chunk_header format: [YYYY-MM-DD | 주제 | 키워드1, 키워드2]
+        const chunkHeader = vec.chunk_header || vec.metadata?.header;
+
         results.push({
           text,
-          metadata: vec.metadata,
+          metadata: {
+            ...vec.metadata,
+            // Ensure chunk_header is in metadata for consistency
+            chunk_header: chunkHeader,
+          },
           similarity,
           createdAt: vec.created_at,
           callId: vec.call_id,
@@ -206,8 +237,14 @@ export class RagCacheService implements OnModuleInit {
       return [];
     }
 
+    // Log v2 stats for monitoring
+    const v2Results = filteredResults.filter(
+      r => r.metadata?.indexVersion === 'v2-dense-summary',
+    );
+    const withHeaders = filteredResults.filter(r => r.metadata?.chunk_header);
+
     this.logger.debug(
-      `Returning top ${filteredResults.length} results (max similarity: ${filteredResults[0]?.similarity.toFixed(3) || 'N/A'})`,
+      `Returning top ${filteredResults.length} results (v2=${v2Results.length}, with_headers=${withHeaders.length}, max similarity: ${filteredResults[0]?.similarity.toFixed(3) || 'N/A'})`,
     );
 
     return filteredResults;
@@ -231,11 +268,15 @@ export class RagCacheService implements OnModuleInit {
           const vectors: Array<{
             child_text?: string;
             chunk_text?: string;
+            chunk_header?: string | null;
             created_at: string;
+            metadata?: any;
           }> = cached.vectors as Array<{
             child_text?: string;
             chunk_text?: string;
+            chunk_header?: string | null;
             created_at: string;
+            metadata?: any;
           }>;
 
           return vectors
@@ -250,8 +291,12 @@ export class RagCacheService implements OnModuleInit {
               if (!text) {
                 return null;
               }
+              // v2: Include chunk_header for better context display
+              const header = v.chunk_header || v.metadata?.header;
+              const displayText = header ? `${header} ${text}` : text;
+
               return {
-                text,
+                text: displayText,
                 createdAt: new Date(v.created_at),
               };
             })
@@ -265,22 +310,36 @@ export class RagCacheService implements OnModuleInit {
       );
 
       const results = await this.prisma.$queryRaw<
-        Array<{ child_text: string; created_at: Date }>
+        Array<{
+          child_text: string;
+          chunk_header: string | null;
+          created_at: Date;
+        }>
       >(
         Prisma.sql`
-          SELECT child_text, created_at
+          SELECT child_text, chunk_header, created_at
           FROM conversation_vectors_child
           WHERE ward_id = ${wardId}::uuid
-            AND (metadata->>'callDate')::timestamp >= NOW() - INTERVAL '7 days'
+            AND (
+              COALESCE(
+                (metadata->>'callDate')::timestamp,
+                (metadata->>'callStartAt')::timestamp
+              ) >= NOW() - INTERVAL '7 days'
+            )
           ORDER BY created_at DESC
           LIMIT ${limit}
         `,
       );
 
-      return results.map(r => ({
-        text: r.child_text,
-        createdAt: r.created_at,
-      }));
+      return results.map(r => {
+        const displayText = r.chunk_header
+          ? `${r.chunk_header} ${r.child_text}`
+          : r.child_text;
+        return {
+          text: displayText,
+          createdAt: r.created_at,
+        };
+      });
     } catch (error) {
       this.logger.error(
         `Failed to get recent context: ${error.message}`,

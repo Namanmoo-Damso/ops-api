@@ -16,8 +16,11 @@ import { getWindowContext } from './rag.utils';
 export class RagSearchService {
   private readonly logger = new Logger(RagSearchService.name);
 
+  // Dense Summary + Contextual Header 적용 후 유사도가 높아지므로
+  // threshold를 0.4로 상향 조정 (기존 0.0 → 0.4)
+  // 환경 변수로 미세 조정 가능
   private readonly SIMILARITY_THRESHOLD = parseFloat(
-    process.env.SIMILARITY_THRESHOLD || '0.0',
+    process.env.SIMILARITY_THRESHOLD || '0.4',
   );
 
   private readonly CHILD_SEARCH_MULTIPLIER = (() => {

@@ -397,29 +397,31 @@ CREATE TABLE "transcripts" (
     CONSTRAINT "transcripts_text_not_empty_check" CHECK (LENGTH(TRIM("text")) > 0)
 );
 
--- CreateTable: conversation_vectors_parent (RAG Parent storage - full context)
+-- CreateTable: conversation_vectors_parent (RAG Parent storage - full context + dense summary)
 CREATE TABLE "conversation_vectors_parent" (
     "id" UUID NOT NULL DEFAULT gen_random_uuid(),
     "ward_id" UUID NOT NULL,
     "call_id" UUID NOT NULL,
-    "parent_text" TEXT NOT NULL,
-    "metadata" JSONB,
+    "parent_text" TEXT NOT NULL,                   -- 원본 대화 또는 기존 요약본
+    "summary_text" TEXT,                           -- LLM이 생성한 고밀도 상세 요약본 (Dense Summary)
+    "metadata" JSONB,                              -- { speakers, topics, keywords, sentiment, indexVersion, etc. }
     "created_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
     CONSTRAINT "conversation_vectors_parent_pkey" PRIMARY KEY ("id")
 );
 
--- CreateTable: conversation_vectors_child (RAG Child storage - searchable chunks)
+-- CreateTable: conversation_vectors_child (RAG Child storage - searchable chunks with contextual headers)
 CREATE TABLE "conversation_vectors_child" (
     "id" UUID NOT NULL DEFAULT gen_random_uuid(),
     "parent_id" UUID NOT NULL,
     "ward_id" UUID NOT NULL,
     "call_id" UUID NOT NULL,
-    "child_text" TEXT NOT NULL,
-    "embedding" vector(1024),
+    "child_text" TEXT NOT NULL,                    -- 헤더가 포함된 검색용 청크 (header + content)
+    "chunk_header" TEXT,                           -- 문맥 헤더 [날짜 | 주제 | 키워드] 형식
+    "embedding" vector(1024),                      -- Bedrock Titan V2 (1024 dimensions)
     "offset_start" INTEGER NOT NULL,
     "offset_end" INTEGER NOT NULL,
-    "metadata" JSONB,
+    "metadata" JSONB,                              -- { chunkIndex, header, contentLength, keywords, etc. }
     "created_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
     CONSTRAINT "conversation_vectors_child_pkey" PRIMARY KEY ("id")
