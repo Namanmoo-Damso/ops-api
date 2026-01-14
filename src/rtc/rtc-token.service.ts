@@ -117,8 +117,12 @@ export class RtcTokenService {
     const expiresAt = new Date(Date.now() + ttlSeconds * 1000).toISOString();
 
     // Generate unique room name for iOS users
+    // BUT if iOS provides a valid roomName (from scheduled call push), use it
     const isIosUser = !!(params.device?.apnsToken || params.device?.voipToken);
-    const roomName = isIosUser ? `room-${randomUUID()}` : params.roomName;
+    const isScheduledCall = params.roomName && params.roomName.startsWith('room-');
+    const roomName = isScheduledCall
+      ? params.roomName
+      : (isIosUser ? `room-${randomUUID()}` : params.roomName);
 
     const deviceSummary = params.device
       ? `apns=${this.summarizeToken(params.device.apnsToken)} voip=${this.summarizeToken(params.device.voipToken)} env=${params.device.env ?? 'default'} platform=${params.device.platform ?? 'ios'}`
@@ -176,15 +180,19 @@ export class RtcTokenService {
     // Web admins don't create rooms, they only join existing rooms created by iOS users
     if (isIosUser) {
       // 용량 체크: 동시 통화 제한 및 중복 통화 방지
+      // 예약 통화 수락 시, 해당 room의 ringing call은 "중복 통화"로 간주하지 않음
       const [activeCallCount, hasActiveCall, slotConfig] = await Promise.all([
         this.dbService.getActiveCallCount(),
-        this.dbService.hasActiveCall(user.id),
+        this.dbService.hasActiveCall(
+          user.id,
+          isScheduledCall ? roomName : undefined,
+        ),
         this.dbService.getSlotConfig(),
       ]);
 
       if (hasActiveCall) {
         this.logger.warn(
-          `issueToken rejected - user already in call userId=${user.id}`,
+          `issueToken rejected - user already in call userId=${user.id} (isScheduledCall=${isScheduledCall})`,
         );
         throw new HttpException(
           {
@@ -289,23 +297,40 @@ export class RtcTokenService {
         );
       }
 
-      try {
-        const call = await this.dbService.createCall({
-          callerIdentity: AUTO_CALLER_IDENTITY,
-          calleeIdentity: identity,
-          calleeUserId: user.id,
-          roomName,
-        });
-        callId = call.id;
-        this.logger.log(
-          `Auto call record created callId=${callId} room=${roomName} identity=${identity}`,
-        );
-      } catch (error) {
-        this.logger.warn(
-          `Auto call record failed room=${roomName} identity=${identity} error=${(
-            error as Error
-          ).message}`,
-        );
+      // 예약 통화 수락 시 기존 ringing call 사용, 새 통화 시 call 레코드 생성
+      if (isScheduledCall) {
+        // 예약 통화: 기존 ringing call 찾기
+        const existingCall = await this.dbService.findRingingCall(identity, roomName, 120);
+        if (existingCall) {
+          callId = existingCall.callId;
+          this.logger.log(
+            `Scheduled call accepted - using existing callId=${callId} room=${roomName}`,
+          );
+        } else {
+          this.logger.warn(
+            `Scheduled call but no ringing record found room=${roomName} identity=${identity}`,
+          );
+        }
+      } else {
+        // 새 통화: call 레코드 생성
+        try {
+          const call = await this.dbService.createCall({
+            callerIdentity: AUTO_CALLER_IDENTITY,
+            calleeIdentity: identity,
+            calleeUserId: user.id,
+            roomName,
+          });
+          callId = call.id;
+          this.logger.log(
+            `Auto call record created callId=${callId} room=${roomName} identity=${identity}`,
+          );
+        } catch (error) {
+          this.logger.warn(
+            `Auto call record failed room=${roomName} identity=${identity} error=${(
+              error as Error
+            ).message}`,
+          );
+        }
       }
     } else {
       // Web admin - don't create room, just log

@@ -10,7 +10,7 @@ import { toCallRow, toCallSummaryRow } from '../prisma-mappers';
 
 @Injectable()
 export class CallRepository {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(private readonly prisma: PrismaService) { }
 
   async findRinging(
     calleeIdentity: string,
@@ -85,8 +85,8 @@ export class CallRepository {
       const duration =
         s.call.answeredAt && s.call.endedAt
           ? Math.round(
-              (s.call.endedAt.getTime() - s.call.answeredAt.getTime()) / 60000,
-            )
+            (s.call.endedAt.getTime() - s.call.answeredAt.getTime()) / 60000,
+          )
           : 0;
       return {
         id: s.id,
@@ -150,13 +150,13 @@ export class CallRepository {
     const recentCalls =
       wardUserIds.length > 0
         ? await this.prisma.call.groupBy({
-            by: ['calleeUserId'],
-            where: {
-              calleeUserId: { in: wardUserIds },
-              state: 'ended',
-              createdAt: { gt: cutoff },
-            },
-          })
+          by: ['calleeUserId'],
+          where: {
+            calleeUserId: { in: wardUserIds },
+            state: 'ended',
+            createdAt: { gt: cutoff },
+          },
+        })
         : [];
     const hasRecentCallSet = new Set(recentCalls.map(c => c.calleeUserId));
 
@@ -342,13 +342,25 @@ export class CallRepository {
 
   /**
    * 특정 사용자가 이미 활성 통화 중인지 확인
+   * @param userId 사용자 ID
+   * @param excludeRingingRoom 예약 통화 수락 시, 해당 room의 ringing call은 제외
    */
-  async hasActiveCall(userId: string): Promise<boolean> {
+  async hasActiveCall(
+    userId: string,
+    excludeRingingRoom?: string,
+  ): Promise<boolean> {
+    // ringing 상태는 "전화벨 울리는 중"이지 "통화 중"이 아니므로
+    // answered 상태만 "활성 통화"로 간주
     const count = await this.prisma.call.count({
       where: {
         OR: [{ callerUserId: userId }, { calleeUserId: userId }],
-        state: { not: 'ended' },
+        state: 'answered',  // ringing이 아닌 answered만 체크
         endedAt: null,
+        // 예약 통화 수락 시, 해당 room의 ringing call은 "중복 통화"로 간주하지 않음
+        // (이 로직은 ringing 체크가 아니므로 사실상 불필요하지만, 명시성을 위해 유지)
+        NOT: excludeRingingRoom
+          ? { roomName: excludeRingingRoom, state: 'ringing' }
+          : undefined,
       },
     });
     return count > 0;

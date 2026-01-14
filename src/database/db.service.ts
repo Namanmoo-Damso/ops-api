@@ -275,8 +275,8 @@ export class DbService implements OnModuleDestroy {
     return this.calls.getActiveCallCount();
   }
 
-  async hasActiveCall(userId: string) {
-    return this.calls.hasActiveCall(userId);
+  async hasActiveCall(userId: string, excludeRingingRoom?: string) {
+    return this.calls.hasActiveCall(userId, excludeRingingRoom);
   }
 
   // ============================================================
