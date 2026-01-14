@@ -11,6 +11,8 @@ import {
   CallSummary,
   Ward,
   GuardianWardRegistration,
+  CareAlertEvent,
+  EmotionSummary,
 } from '@prisma/client';
 
 import {
@@ -23,6 +25,8 @@ import {
   RoomMemberRow,
   WardRow,
   GuardianWardRegistrationRow,
+  CareAlertEventRow,
+  EmotionSummaryRow,
 } from './types';
 
 export function toUserRow(user: User): UserRow {
@@ -67,8 +71,6 @@ export function toGuardianRow(guardian: Guardian): GuardianRow {
   return {
     id: guardian.id,
     user_id: guardian.userId,
-    ward_email: guardian.wardEmail,
-    ward_phone_number: guardian.wardPhoneNumber,
     created_at: guardian.createdAt.toISOString(),
     updated_at: guardian.updatedAt.toISOString(),
   };
@@ -139,5 +141,35 @@ export function toGuardianWardRegistrationRow(
     linked_ward_id: reg.linkedWardId,
     created_at: reg.createdAt.toISOString(),
     updated_at: reg.updatedAt.toISOString(),
+  };
+}
+
+export function toCareAlertEventRow(event: CareAlertEvent): CareAlertEventRow {
+  return {
+    id: event.id,
+    ward_id: event.wardId,
+    alert_type: event.alertType,
+    severity: event.severity,
+    timestamp: event.timestamp.toISOString(),
+    raw_payload: event.rawPayload as Record<string, unknown>,
+    acknowledged: event.acknowledged,
+    acknowledged_at: event.acknowledgedAt?.toISOString() ?? null,
+    acknowledged_by: event.acknowledgedBy ?? null,
+    created_at: event.createdAt.toISOString(),
+  };
+}
+
+export function toEmotionSummaryRow(summary: EmotionSummary): EmotionSummaryRow {
+  return {
+    id: summary.id,
+    ward_id: summary.wardId,
+    period_start: summary.periodStart.toISOString(),
+    period_end: summary.periodEnd.toISOString(),
+    total_samples: summary.totalSamples,
+    emotion_distribution: summary.emotionDistribution as Record<string, number>,
+    average_confidence: Number(summary.averageConfidence),
+    negative_ratio: Number(summary.negativeRatio),
+    dominant_emotion: summary.dominantEmotion,
+    created_at: summary.createdAt.toISOString(),
   };
 }

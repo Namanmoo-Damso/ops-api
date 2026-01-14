@@ -1,16 +1,68 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, OnModuleInit, OnModuleDestroy } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { DbService } from '../database';
 import { CallsService } from '../calls/calls.service';
+import { createClient, type RedisClientType } from 'redis';
 
 @Injectable()
-export class NotificationScheduler {
+export class NotificationScheduler implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(NotificationScheduler.name);
+
+  // 중복 발신 방지: 최근 발신된 스케줄 ID (5분간 유지)
+  private readonly recentlyCalledSchedules = new Map<string, number>();
+  private readonly DUPLICATE_PREVENTION_MS = 5 * 60 * 1000; // 5분
+
+  // Redis 분산 락
+  private redisClient: RedisClientType | null = null;
+  private readonly LOCK_TTL_SECONDS = 300; // 5분
 
   constructor(
     private readonly dbService: DbService,
     private readonly callsService: CallsService,
-  ) {}
+  ) { }
+
+  async onModuleInit() {
+    const redisUrl = process.env.REDIS_URL;
+    if (redisUrl) {
+      try {
+        this.redisClient = createClient({ url: redisUrl });
+        await this.redisClient.connect();
+        this.logger.log('Redis connected for scheduler distributed lock');
+      } catch (error) {
+        this.logger.warn(`Redis connection failed for scheduler lock: ${(error as Error).message}`);
+        this.redisClient = null;
+      }
+    } else {
+      this.logger.warn('REDIS_URL not set - scheduler lock disabled');
+    }
+  }
+
+  async onModuleDestroy() {
+    if (this.redisClient) {
+      await this.redisClient.quit();
+    }
+  }
+
+  /**
+   * 분산 락 획득 시도
+   * @returns true if lock acquired, false if already locked
+   */
+  private async tryAcquireLock(lockKey: string): Promise<boolean> {
+    if (!this.redisClient) {
+      return true; // Redis 없으면 락 없이 진행 (단일 인스턴스 가정)
+    }
+
+    try {
+      const result = await this.redisClient.set(lockKey, process.pid.toString(), {
+        NX: true, // Only set if not exists
+        EX: this.LOCK_TTL_SECONDS,
+      });
+      return result === 'OK';
+    } catch (error) {
+      this.logger.error(`Lock acquire failed: ${(error as Error).message}`);
+      return true; // 에러 시 진행 (락 없이)
+    }
+  }
 
   // 매 30분마다 리마인더 체크 (예: 09:00, 09:30, 10:00, ...)
   @Cron(CronExpression.EVERY_30_MINUTES)
@@ -19,6 +71,14 @@ export class NotificationScheduler {
     const dayOfWeek = now.getDay(); // 0=일, 1=월, ..., 6=토
     const currentHour = now.getHours();
     const currentMinute = now.getMinutes();
+
+    // 분산 락 획득 시도
+    const lockKey = `scheduler:reminder:${currentHour}:${currentMinute < 30 ? '00' : '30'}`;
+    const acquired = await this.tryAcquireLock(lockKey);
+    if (!acquired) {
+      this.logger.debug(`checkCallReminders skipped - lock exists: ${lockKey}`);
+      return;
+    }
 
     // 30분 후 예정된 통화 확인
     const targetTime = new Date(now.getTime() + 30 * 60 * 1000);
@@ -63,6 +123,14 @@ export class NotificationScheduler {
   // 매 시간 미진행 통화 체크
   @Cron(CronExpression.EVERY_HOUR)
   async checkMissedCalls() {
+    const now = new Date();
+    const lockKey = `scheduler:missed:${now.getHours()}`;
+    const acquired = await this.tryAcquireLock(lockKey);
+    if (!acquired) {
+      this.logger.debug(`checkMissedCalls skipped - lock exists: ${lockKey}`);
+      return;
+    }
+
     this.logger.log('checkMissedCalls started');
 
     try {
@@ -129,6 +197,91 @@ export class NotificationScheduler {
       this.logger.error(
         `notifyCallComplete failed callId=${callId} error=${(error as Error).message}`,
       );
+    }
+  }
+
+  /**
+   * 스케줄된 슬롯에 자동 전화 발신
+   * 매 10분 0초에 실행 (0, 10, 20, 30, 40, 50분)
+   */
+  @Cron('0 */10 * * * *')
+  async initiateScheduledCalls() {
+    const now = new Date();
+    const dayOfWeek = now.getDay(); // 0=일, 1=월, ..., 6=토
+    const slotStartHour = now.getHours();
+    const slotStartMinute = Math.floor(now.getMinutes() / 10) * 10; // 10분 단위로 정규화
+
+    // 분산 락 획득 시도
+    const lockKey = `scheduler:call:${slotStartHour}:${String(slotStartMinute).padStart(2, '0')}`;
+    const acquired = await this.tryAcquireLock(lockKey);
+    if (!acquired) {
+      this.logger.debug(`initiateScheduledCalls skipped - lock exists: ${lockKey}`);
+      return;
+    }
+
+    // 오래된 캐시 정리
+    this.cleanupRecentlyCalled();
+
+    try {
+      const schedules = await this.dbService.getSchedulesForCurrentSlot(
+        dayOfWeek,
+        slotStartHour,
+        slotStartMinute,
+      );
+
+      if (schedules.length === 0) {
+        return; // 조용히 종료
+      }
+
+      this.logger.log(
+        `initiateScheduledCalls dayOfWeek=${dayOfWeek} slot=${slotStartHour}:${String(slotStartMinute).padStart(2, '0')} found=${schedules.length}`,
+      );
+
+      for (const schedule of schedules) {
+        // 중복 발신 방지
+        if (this.recentlyCalledSchedules.has(schedule.schedule_id)) {
+          this.logger.log(
+            `initiateScheduledCalls skip duplicate scheduleId=${schedule.schedule_id}`,
+          );
+          continue;
+        }
+
+        try {
+          // 전화 발신
+          const result = await this.callsService.inviteCall({
+            callerIdentity: 'ai-scheduler',
+            callerName: schedule.ai_persona,
+            calleeIdentity: schedule.ward_identity,
+          });
+
+          // 중복 방지 캐시에 추가
+          this.recentlyCalledSchedules.set(schedule.schedule_id, Date.now());
+
+          this.logger.log(
+            `initiateScheduledCalls success scheduleId=${schedule.schedule_id} wardIdentity=${schedule.ward_identity} callId=${result.callId} roomName=${result.roomName}`,
+          );
+        } catch (callError) {
+          this.logger.error(
+            `initiateScheduledCalls call failed scheduleId=${schedule.schedule_id} error=${(callError as Error).message}`,
+          );
+        }
+      }
+    } catch (error) {
+      this.logger.error(
+        `initiateScheduledCalls failed error=${(error as Error).message}`,
+      );
+    }
+  }
+
+  /**
+   * 오래된 중복 방지 캐시 정리
+   */
+  private cleanupRecentlyCalled() {
+    const now = Date.now();
+    for (const [scheduleId, timestamp] of this.recentlyCalledSchedules) {
+      if (now - timestamp > this.DUPLICATE_PREVENTION_MS) {
+        this.recentlyCalledSchedules.delete(scheduleId);
+      }
     }
   }
 }

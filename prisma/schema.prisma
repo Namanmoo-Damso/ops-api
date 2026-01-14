@@ -83,12 +83,10 @@ model Organization {
 // 4. GUARDIANS
 // =============================================================================
 model Guardian {
-  id              String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  userId          String   @unique @map("user_id") @db.Uuid
-  wardEmail       String   @map("ward_email")
-  wardPhoneNumber String   @map("ward_phone_number")
-  createdAt       DateTime @default(now()) @map("created_at")
-  updatedAt       DateTime @default(now()) @updatedAt @map("updated_at")
+  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId    String   @unique @map("user_id") @db.Uuid
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at")
 
   // Relations
   user                      User                       @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -97,7 +95,6 @@ model Guardian {
   guardianWardRegistrations GuardianWardRegistration[]
 
   @@index([userId])
-  @@index([wardEmail])
   @@map("guardians")
 }
 
@@ -123,11 +120,14 @@ model Ward {
   callSummaries             CallSummary[]
   healthAlerts              HealthAlert[]
   callSchedules             CallSchedule[]
+  callScheduleGroups        CallScheduleGroup[]        @relation("WardCallScheduleGroups")
   organizationWards         OrganizationWard[]
   wardLocations             WardLocation[]
   wardCurrentLocation       WardCurrentLocation?
   emergencies               Emergency[]
   guardianWardRegistrations GuardianWardRegistration[]
+  careAlertEvents           CareAlertEvent[]
+  emotionSummaries          EmotionSummary[]
 
   @@index([userId])
   @@index([guardianId])
@@ -290,9 +290,21 @@ model GuardianWardRegistration {
   createdAt       DateTime @default(now()) @map("created_at")
   updatedAt       DateTime @default(now()) @updatedAt @map("updated_at")
 
+  // Ward Basic Info (from iOS wardBasicInfo)
+  wardName  String?  @map("ward_name")   // 어르신 성함
+  relation  String?                       // 관계: parent, grandparent, spouse, relative, other
+  birthDate String?  @map("birth_date")  // 생년월일 (YYYYMMDD)
+  gender    String?                       // 성별: male, female
+  address   String?                       // 거주지 주소
+
+  // AI Care Info (from iOS aiCareInfo)
+  medicalConditions String? @map("medical_conditions") // 기저질환
+  medications       String?                             // 복용 약
+
   // Relations
-  guardian   Guardian @relation(fields: [guardianId], references: [id], onDelete: Cascade)
-  linkedWard Ward?    @relation(fields: [linkedWardId], references: [id], onDelete: SetNull)
+  guardian       Guardian                @relation(fields: [guardianId], references: [id], onDelete: Cascade)
+  linkedWard     Ward?                   @relation(fields: [linkedWardId], references: [id], onDelete: SetNull)
+  callSchedules  CallScheduleGroup[]
 
   @@index([guardianId])
   @@index([wardEmail])
@@ -301,7 +313,7 @@ model GuardianWardRegistration {
 }
 
 // =============================================================================
-// 14. CALL_SCHEDULES
+// 14. CALL_SCHEDULES (Legacy - 요일별 개별 레코드)
 // =============================================================================
 model CallSchedule {
   id             String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
@@ -321,6 +333,48 @@ model CallSchedule {
   @@index([dayOfWeek])
   @@index([isActive])
   @@map("call_schedules")
+}
+
+// =============================================================================
+// 14-1. CALL_SLOT_CONFIG (전역 슬롯 설정)
+// =============================================================================
+model CallSlotConfig {
+  id                      Int      @id @default(1)              // 단일 row 보장
+  slotDurationMinutes     Int      @default(10) @map("slot_duration_minutes")
+  maxCallDurationMinutes  Int      @default(8) @map("max_call_duration_minutes")
+  maxCapacityPerSlot      Int      @default(40) @map("max_capacity_per_slot")
+  maxConcurrentCalls      Int      @default(50) @map("max_concurrent_calls")  // 동시 통화 최대 수
+  validMinutes            Int[]    @default([0, 10, 20, 30, 40, 50]) @map("valid_minutes")
+  createdAt               DateTime @default(now()) @map("created_at")
+  updatedAt               DateTime @default(now()) @updatedAt @map("updated_at")
+
+  @@map("call_slot_configs")
+}
+
+// =============================================================================
+// 14-2. CALL_SCHEDULE_GROUPS (iOS 앱용 - 슬롯 기반 스케줄)
+// =============================================================================
+model CallScheduleGroup {
+  id              String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  registrationId  String?  @map("registration_id") @db.Uuid  // 연동 전 (GuardianWardRegistration)
+  wardId          String?  @map("ward_id") @db.Uuid          // 연동 후 (Ward)
+  slotStartHour   Int      @map("slot_start_hour")           // 0~23
+  slotStartMinute Int      @map("slot_start_minute")         // 0, 10, 20, 30, 40, 50
+  weekdays        Int[]                                       // [0,1,2,3,4,5,6] - 0=일, 6=토
+  isEnabled       Boolean  @default(true) @map("is_enabled")
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @default(now()) @updatedAt @map("updated_at")
+
+  // Relations
+  registration GuardianWardRegistration? @relation(fields: [registrationId], references: [id], onDelete: Cascade)
+  ward         Ward?                      @relation("WardCallScheduleGroups", fields: [wardId], references: [id], onDelete: Cascade)
+
+  @@unique([wardId, slotStartHour, slotStartMinute])  // 동일 시간 중복 방지
+  @@index([registrationId])
+  @@index([wardId])
+  @@index([isEnabled])
+  @@index([slotStartHour, slotStartMinute])           // 스케줄러 조회용
+  @@map("call_schedule_groups")
 }
 
 // =============================================================================
@@ -570,4 +624,108 @@ model Transcript {
   @@index([timestamp])
   @@index([speakerId, speakerType])
   @@map("transcripts")
+}
+
+// =============================================================================
+// 25. CONVERSATION_VECTORS_PARENT - RAG Parent storage for full context
+// =============================================================================
+model ConversationVectorParent {
+  id          String                     @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  wardId      String                     @map("ward_id") @db.Uuid
+  callId      String                     @map("call_id") @db.Uuid
+  parentText  String                     @map("parent_text")   // Full parent text for context
+  metadata    Json?                                            // { speaker, topics, sentiment, etc. }
+  createdAt   DateTime                   @default(now()) @map("created_at")
+
+  // Relations
+  children    ConversationVectorChild[]
+
+  @@index([wardId])
+  @@index([callId])
+  @@index([createdAt])
+  @@index([wardId, createdAt(sort: Desc)])
+  @@map("conversation_vectors_parent")
+}
+
+// =============================================================================
+// 26. CONVERSATION_VECTORS_CHILD - RAG Child storage for searchable chunks
+// =============================================================================
+model ConversationVectorChild {
+  id          String                     @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  parentId    String                     @map("parent_id") @db.Uuid
+  wardId      String                     @map("ward_id") @db.Uuid
+  callId      String                     @map("call_id") @db.Uuid
+  childText   String                     @map("child_text")    // Child text chunk for search
+  embedding   Unsupported("vector(1024)")?                     // Bedrock Titan V2 embedding (1024 dimensions)
+  offsetStart Int                        @map("offset_start")  // Start position in parent text
+  offsetEnd   Int                        @map("offset_end")    // End position in parent text
+  metadata    Json?                                            // { speaker, topics, etc. }
+  createdAt   DateTime                   @default(now()) @map("created_at")
+
+  // Relations
+  parent      ConversationVectorParent   @relation(fields: [parentId], references: [id], onDelete: Cascade)
+
+  @@index([parentId])
+  @@index([wardId])
+  @@index([callId])
+  @@index([createdAt])
+  @@index([wardId, createdAt(sort: Desc)])
+  // HNSW index for vector similarity search (created via migration SQL)
+  @@map("conversation_vectors_child")
+}
+
+// =============================================================================
+// 27. CARE_ALERT_EVENTS - Fall/LoudVoice 이벤트 로그
+// =============================================================================
+model CareAlertEvent {
+  id             String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  wardId         String    @map("ward_id") @db.Uuid
+  alertType      String    @map("alert_type")   // device_fall | person_fall | loud_voice
+  severity       String                          // low | medium | high | critical
+  timestamp      DateTime                        // 이벤트 발생 시각 (iOS에서 전송)
+  rawPayload     Json      @map("raw_payload")
+  acknowledged   Boolean   @default(false)
+  acknowledgedAt DateTime? @map("acknowledged_at")
+  acknowledgedBy String?   @map("acknowledged_by") @db.Uuid
+  createdAt      DateTime  @default(now()) @map("created_at")
+
+  // Agent 연동 필드
+  callId         String?   @map("call_id") @db.Uuid      // 통화 연관
+  roomName       String?   @map("room_name")              // LiveKit room name
+  agentResponse  String?   @map("agent_response")         // Agent 응답 메시지
+  source         String    @default("ios")                // 'ios' | 'agent'
+
+  // Relations
+  ward Ward @relation(fields: [wardId], references: [id], onDelete: Cascade)
+
+  @@index([wardId, timestamp(sort: Desc)])
+  @@index([alertType])
+  @@index([severity])
+  @@index([acknowledged])
+  @@index([wardId, alertType, timestamp])  // 중복 체크용 복합 인덱스
+  @@index([callId])                         // 통화별 조회용
+  @@map("care_alert_events")
+}
+
+// =============================================================================
+// 28. EMOTION_SUMMARIES - 감정 10분 집계
+// =============================================================================
+model EmotionSummary {
+  id                  String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  wardId              String   @map("ward_id") @db.Uuid
+  periodStart         DateTime @map("period_start")
+  periodEnd           DateTime @map("period_end")
+  totalSamples        Int      @map("total_samples")
+  emotionDistribution Json     @map("emotion_distribution") // { neutral: 0.45, happy: 0.30, ... }
+  averageConfidence   Decimal  @map("average_confidence") @db.Decimal(4, 3)
+  negativeRatio       Decimal  @map("negative_ratio") @db.Decimal(4, 3)
+  dominantEmotion     String   @map("dominant_emotion")
+  createdAt           DateTime @default(now()) @map("created_at")
+
+  // Relations
+  ward Ward @relation(fields: [wardId], references: [id], onDelete: Cascade)
+
+  @@unique([wardId, periodStart])
+  @@index([wardId, periodStart(sort: Desc)])
+  @@map("emotion_summaries")
 }

@@ -15,6 +15,7 @@ import { DbService } from '../database';
 import { ConfigService } from '../core/config';
 import { CallsService } from '../calls';
 import { LiveKitService } from '../integration/livekit';
+import { EventsService } from '../events/events.service';
 
 @Controller()
 export class RtcController {
@@ -27,6 +28,7 @@ export class RtcController {
     private readonly configService: ConfigService,
     private readonly callsService: CallsService,
     private readonly liveKitService: LiveKitService,
+    private readonly eventsService: EventsService,
   ) {}
 
   private normalizeLivekitUrl(url: string | undefined): string | undefined {
@@ -220,6 +222,46 @@ export class RtcController {
     }
   }
 
+  /**
+   * Get all participants (users) from the database
+   * Returns users whose identity doesn't start with 'admin_' or 'agent-'
+   * This is used to populate the participant sidebar with persistent data
+   */
+  @Get('v1/livekit/participants')
+  async listParticipants(
+    @Headers('authorization') authorization: string | undefined,
+  ) {
+    const config = this.configService.getConfig();
+    const auth = this.authService.getAuthContext(authorization);
+    if (config.authRequired && !auth) {
+      throw new HttpException('Unauthorized', HttpStatus.UNAUTHORIZED);
+    }
+
+    try {
+      const participants = await this.dbService.findParticipants();
+      this.logger.log(`listParticipants count=${participants.length}`);
+      return {
+        participants: participants.map(p => ({
+          id: p.identity,
+          name: p.display_name || p.nickname || p.identity,
+          identity: p.identity,
+          email: p.email,
+          userType: p.user_type,
+          lastSeen: p.updated_at,
+          online: false, // Will be updated by live room data
+        })),
+      };
+    } catch (error) {
+      this.logger.warn(
+        `listParticipants failed error=${(error as Error).message}`,
+      );
+      throw new HttpException(
+        'Failed to query participants',
+        HttpStatus.INTERNAL_SERVER_ERROR,
+      );
+    }
+  }
+
   @Post('v1/livekit/bot')
   async createBotWithAgent(
     @Headers('authorization') authorization: string | undefined,
@@ -319,18 +361,61 @@ export class RtcController {
 
     try {
       await this.liveKitService.muteAgentInRoom(roomName, mute);
-      this.logger.log(
-        `muteAgentInRoom room=${roomName} mute=${mute}`,
-      );
+      this.logger.log(`muteAgentInRoom room=${roomName} mute=${mute}`);
       return { success: true, roomName, mute };
     } catch (error) {
       this.logger.error(
         `muteAgentInRoom failed room=${roomName}: ${(error as Error).message}`,
       );
-      throw new HttpException(
-        'Failed to mute agent',
-        HttpStatus.BAD_GATEWAY,
-      );
+      throw new HttpException('Failed to mute agent', HttpStatus.BAD_GATEWAY);
     }
+  }
+
+  /**
+   * Set danger state for a room
+   * Broadcasts to all connected clients via SSE
+   */
+  @Post('v1/livekit/rooms/:roomName/danger')
+  async setRoomDanger(
+    @Headers('authorization') authorization: string | undefined,
+    @Param('roomName') roomNameParam: string,
+    @Body() body: { isDanger: boolean },
+  ) {
+    // Verify admin auth
+    const authHeader = authorization ?? '';
+    const bearer = authHeader.startsWith('Bearer ')
+      ? authHeader.slice('Bearer '.length)
+      : undefined;
+
+    if (!bearer) {
+      throw new HttpException('Unauthorized', HttpStatus.UNAUTHORIZED);
+    }
+
+    try {
+      const adminPayload = this.authService.verifyAdminAccessToken(bearer);
+      const admin = await this.dbService.findAdminById(adminPayload.sub);
+      if (!admin || !admin.is_active) {
+        throw new HttpException('Unauthorized', HttpStatus.UNAUTHORIZED);
+      }
+    } catch {
+      throw new HttpException('Unauthorized', HttpStatus.UNAUTHORIZED);
+    }
+
+    const roomName = roomNameParam?.trim();
+    if (!roomName) {
+      throw new HttpException('roomName is required', HttpStatus.BAD_REQUEST);
+    }
+
+    const isDanger = body.isDanger ?? false;
+
+    // Emit room-danger event for SSE subscribers
+    this.eventsService.emitRoomEvent({
+      type: 'room-danger',
+      roomName,
+      isDanger,
+    });
+
+    this.logger.log(`setRoomDanger room=${roomName} isDanger=${isDanger}`);
+    return { success: true, roomName, isDanger };
   }
 }

@@ -14,9 +14,6 @@ COPY --from=build /app/dist ./dist
 COPY --from=build /app/node_modules ./node_modules
 COPY --from=build /app/prisma ./prisma
 COPY package*.json ./
-# scripts 디렉토리 생성 및 스크립트 복사
-RUN mkdir -p ./scripts
-COPY --from=build /app/scripts/check-prisma-sync.sh ./scripts/
-RUN chmod +x ./scripts/check-prisma-sync.sh
 EXPOSE 8080
-CMD ["sh", "-c", "./scripts/check-prisma-sync.sh && node dist/main.js"]
+# DB schema는 init-db.sql로 관리되므로 migration 검증 불필요
+CMD ["node", "dist/main.js"]

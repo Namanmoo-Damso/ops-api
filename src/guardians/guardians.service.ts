@@ -21,46 +21,101 @@ export class GuardiansService {
     return { user, guardian };
   }
 
-  async getDashboard(userId: string) {
+  async getDashboard(userId: string, period?: 'today' | 'week' | 'month', wardId?: string) {
     const { guardian } = await this.verifyGuardianAccess(userId);
-    const linkedWard = await this.dbService.findWardByGuardianId(guardian.id);
 
-    if (!linkedWard) {
+    // wardId가 제공되면 해당 어르신 사용, 아니면 첫 번째 연동된 어르신
+    let targetWard: { id: string; user_nickname?: string | null } | null = null;
+    if (wardId) {
+      const ward = await this.dbService.findWardById(wardId);
+      if (ward && ward.guardian_id === guardian.id) {
+        targetWard = ward;
+      } else {
+        throw new HttpException(
+          {
+            success: false,
+            error: {
+              code: 'WARD_NOT_FOUND',
+              message: '어르신을 찾을 수 없습니다.',
+            },
+          },
+          HttpStatus.NOT_FOUND,
+        );
+      }
+    } else {
+      targetWard = (await this.dbService.findWardByGuardianId(guardian.id)) ?? null;
+    }
+
+    if (!targetWard) {
       return {
+        wardId: null,
+        wardName: null,
         statistics: {
           totalCalls: 0,
           weeklyChange: 0,
           averageDuration: 0,
           overallMood: { positive: 0, negative: 0 },
         },
+        aiSummary: '',
         alerts: [],
         recentCalls: [],
       };
     }
 
     this.logger.log(
-      `getDashboard guardianId=${guardian.id} wardId=${linkedWard.id}`,
+      `getDashboard guardianId=${guardian.id} wardId=${targetWard.id} period=${period ?? 'default'}`,
     );
+
+    // 기간에 따른 일수 계산
+    const days = period === 'today' ? 1 : period === 'month' ? 30 : 7;
 
     const [stats, weeklyChange, moodStats, alerts, recentCalls] =
       await Promise.all([
-        this.dbService.getWardCallStats(linkedWard.id),
-        this.dbService.getWardWeeklyCallChange(linkedWard.id),
-        this.dbService.getWardMoodStats(linkedWard.id),
+        this.dbService.getWardCallStats(targetWard.id, days),
+        this.dbService.getWardWeeklyCallChange(targetWard.id),
+        this.dbService.getWardMoodStats(targetWard.id, days),
         this.dbService.getHealthAlerts(guardian.id, 5),
-        this.dbService.getRecentCallSummaries(linkedWard.id, 5),
+        this.dbService.getRecentCallSummaries(targetWard.id, 5),
       ]);
 
+    // aiSummary 생성 (최근 통화 기반)
+    const aiSummary = this.generateAiSummary(recentCalls, targetWard.user_nickname);
+
     return {
+      wardId: targetWard.id,
+      wardName: targetWard.user_nickname ?? null,
       statistics: {
         totalCalls: stats.totalCalls,
         weeklyChange,
         averageDuration: stats.avgDuration,
         overallMood: moodStats,
       },
+      aiSummary,
       alerts,
       recentCalls,
     };
+  }
+
+  private generateAiSummary(
+    recentCalls: Array<{ summary?: string | null; mood?: string | null }>,
+    wardName?: string | null,
+  ): string {
+    if (recentCalls.length === 0) {
+      return wardName
+        ? `${wardName}님과의 최근 통화 기록이 없습니다.`
+        : '최근 통화 기록이 없습니다.';
+    }
+
+    const latestCall = recentCalls[0];
+    const displayName = wardName ?? '어르신';
+
+    if (latestCall.mood === 'positive') {
+      return `보호자님! ${displayName}님이 오늘 컨디션이 아주 좋으세요. ${latestCall.summary ?? ''}`;
+    } else if (latestCall.mood === 'negative') {
+      return `${displayName}님의 컨디션이 좋지 않아 보입니다. 관심이 필요해요. ${latestCall.summary ?? ''}`;
+    }
+
+    return `${displayName}님과 대화를 나눴어요. ${latestCall.summary ?? ''}`;
   }
 
   async getReport(userId: string, period: 'week' | 'month') {
@@ -145,7 +200,35 @@ export class GuardiansService {
     };
   }
 
-  async addWard(userId: string, wardEmail: string, wardPhoneNumber: string) {
+  async addWard(
+    userId: string,
+    wardEmail: string,
+    wardPhoneNumber: string,
+    options?: {
+      wardBasicInfo?: {
+        name?: string;
+        relation?: string;
+        phoneNumber?: string;
+        birthDate?: string;
+        gender?: string;
+        address?: string;
+      };
+      aiCareInfo?: {
+        medicalConditions?: string;
+        medications?: string;
+      };
+      callSchedule?: {
+        isEnabled: boolean;
+        items: Array<{
+          id?: string;
+          slotStartHour: number;
+          slotStartMinute: number;
+          weekdays: number[];
+          isEnabled: boolean;
+        }>;
+      };
+    },
+  ) {
     const { guardian } = await this.verifyGuardianAccess(userId);
     this.logger.log(`addWard guardianId=${guardian.id} wardEmail=${wardEmail}`);
 
@@ -153,7 +236,23 @@ export class GuardiansService {
       guardianId: guardian.id,
       wardEmail,
       wardPhoneNumber,
+      wardName: options?.wardBasicInfo?.name,
+      relation: options?.wardBasicInfo?.relation,
+      birthDate: options?.wardBasicInfo?.birthDate,
+      gender: options?.wardBasicInfo?.gender,
+      address: options?.wardBasicInfo?.address,
+      medicalConditions: options?.aiCareInfo?.medicalConditions,
+      medications: options?.aiCareInfo?.medications,
     });
+
+    // 스케줄 생성 (callSchedule이 있고 enabled인 경우)
+    if (options?.callSchedule?.isEnabled && options.callSchedule.items.length > 0) {
+      await this.dbService.createCallScheduleGroups(
+        registration.id,
+        null,
+        options.callSchedule.items,
+      );
+    }
 
     return {
       id: registration.id,
@@ -271,5 +370,166 @@ export class GuardiansService {
       callComplete: updated.call_complete,
       healthAlert: updated.health_alert,
     };
+  }
+
+  async getSchedules(userId: string, wardId?: string) {
+    const { guardian } = await this.verifyGuardianAccess(userId);
+    this.logger.log(`getSchedules guardianId=${guardian.id} wardId=${wardId ?? 'all'}`);
+
+    const schedules = await this.dbService.getCallScheduleGroups(guardian.id);
+
+    // wardId가 제공된 경우 해당 어르신의 스케줄만 필터링
+    const filteredSchedules = wardId
+      ? schedules.filter(s => s.ward_id === wardId)
+      : schedules;
+
+    return {
+      wardId: wardId ?? null,
+      isEnabled: filteredSchedules.length > 0 && filteredSchedules.some(s => s.is_enabled),
+      items: filteredSchedules.map(s => ({
+        id: s.id,
+        slotStartHour: s.slot_start_hour,
+        slotStartMinute: s.slot_start_minute,
+        weekdays: s.weekdays,
+        isEnabled: s.is_enabled,
+      })),
+    };
+  }
+
+  async getSlotAvailability(userId: string, hour: number, minute: number) {
+    await this.verifyGuardianAccess(userId);
+    return this.dbService.getSlotAvailability(hour, minute);
+  }
+
+  async updateSchedules(
+    userId: string,
+    body: {
+      wardId?: string;
+      isEnabled: boolean;
+      items: Array<{
+        id?: string;
+        slotStartHour: number;
+        slotStartMinute: number;
+        weekdays: number[];
+        isEnabled: boolean;
+      }>;
+    },
+  ) {
+    const { guardian } = await this.verifyGuardianAccess(userId);
+    this.logger.log(`updateSchedules guardianId=${guardian.id} wardId=${body.wardId ?? 'auto'}`);
+
+    // wardId가 제공되면 해당 어르신 사용, 아니면 첫 번째 연동된 어르신
+    let targetWard: { id: string } | null = null;
+    if (body.wardId) {
+      // 제공된 wardId가 이 보호자의 어르신인지 확인
+      const ward = await this.dbService.findWardById(body.wardId);
+      if (ward && ward.guardian_id === guardian.id) {
+        targetWard = { id: ward.id };
+      } else {
+        throw new HttpException(
+          {
+            success: false,
+            error: {
+              code: 'WARD_NOT_FOUND',
+              message: '어르신을 찾을 수 없습니다.',
+            },
+          },
+          HttpStatus.NOT_FOUND,
+        );
+      }
+    } else {
+      targetWard = (await this.dbService.findWardByGuardianId(guardian.id)) ?? null;
+    }
+
+    const slotConfig = await this.dbService.getSlotConfig();
+
+    // 입력값 유효성 검증 (형식 검증만 - 용량 검증은 아래에서 원자적으로 수행)
+    for (const item of body.items) {
+      // 시간 범위 검증
+      if (item.slotStartHour < 0 || item.slotStartHour > 23) {
+        throw new HttpException(
+          {
+            success: false,
+            error: {
+              code: 'INVALID_HOUR',
+              message: `유효하지 않은 시간입니다: ${item.slotStartHour}`,
+            },
+          },
+          HttpStatus.BAD_REQUEST,
+        );
+      }
+
+      // 10분 단위 검증
+      if (!slotConfig.validMinutes.includes(item.slotStartMinute)) {
+        throw new HttpException(
+          {
+            success: false,
+            error: {
+              code: 'INVALID_MINUTE',
+              message: `분은 10분 단위여야 합니다: ${item.slotStartMinute}`,
+              details: { validMinutes: slotConfig.validMinutes },
+            },
+          },
+          HttpStatus.BAD_REQUEST,
+        );
+      }
+
+      // 요일 배열 검증
+      if (
+        !Array.isArray(item.weekdays) ||
+        item.weekdays.length === 0 ||
+        item.weekdays.some(w => w < 0 || w > 6)
+      ) {
+        throw new HttpException(
+          {
+            success: false,
+            error: {
+              code: 'INVALID_WEEKDAYS',
+              message: '유효하지 않은 요일 배열입니다',
+            },
+          },
+          HttpStatus.BAD_REQUEST,
+        );
+      }
+    }
+
+    // 기존 스케줄 삭제
+    await this.dbService.deleteCallScheduleGroupsByGuardian(guardian.id);
+
+    if (body.isEnabled && body.items.length > 0) {
+      // targetWard가 있으면 wardId로, 없으면 registration으로
+      const registration = await this.dbService.findFirstGuardianWardRegistration(guardian.id);
+
+      // SELECT FOR UPDATE를 사용한 원자적 검증 + 삽입
+      // Race condition 방지: 100개 동시 요청이 와도 순차 처리됨
+      const result = await this.dbService.createCallScheduleGroupsWithLock(
+        registration?.id ?? null,
+        targetWard?.id ?? null,
+        body.items,
+        slotConfig.maxCapacityPerSlot,
+      );
+
+      if (!result.success && result.error) {
+        throw new HttpException(
+          {
+            success: false,
+            error: result.error,
+          },
+          HttpStatus.CONFLICT,
+        );
+      }
+    }
+
+    return this.getSchedules(userId, body.wardId);
+  }
+
+  async deleteSchedule(userId: string, scheduleId: string) {
+    const { guardian } = await this.verifyGuardianAccess(userId);
+    this.logger.log(`deleteSchedule guardianId=${guardian.id} scheduleId=${scheduleId}`);
+
+    const deleted = await this.dbService.deleteCallScheduleGroup(scheduleId, guardian.id);
+    if (!deleted) {
+      throw new HttpException('Schedule not found', HttpStatus.NOT_FOUND);
+    }
   }
 }

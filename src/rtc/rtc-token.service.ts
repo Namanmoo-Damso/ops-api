@@ -1,10 +1,11 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, HttpException, HttpStatus } from '@nestjs/common';
 import { randomUUID } from 'node:crypto';
 import { AccessToken, type AccessTokenOptions } from 'livekit-server-sdk';
 import { ConfigService } from '../core/config';
 import { DbService } from '../database';
 import { EventsService } from '../events/events.service';
 import { LiveKitService } from '../integration/livekit/livekit.service';
+import { RagService } from '../ai/rag.service';
 
 type Role = 'host' | 'viewer' | 'observer';
 
@@ -38,7 +39,8 @@ export class RtcTokenService {
     private readonly dbService: DbService,
     private readonly eventsService: EventsService,
     private readonly liveKitService: LiveKitService,
-  ) {}
+    private readonly ragService: RagService,
+  ) { }
 
   /**
    * Create an isolated LiveKit room for a bot participant (identity starting with "bot-")
@@ -59,12 +61,16 @@ export class RtcTokenService {
       `createBotWithAgent room=${roomName} identity=${identity} role=${role}`,
     );
 
-    // Dispatch existing voice agent (agent-*) into the bot room
-    await this.liveKitService.dispatchVoiceAgent(roomName, {
-      identity,
-      name,
-      type: 'bot',
-    });
+    // Dispatch voice agent
+    try {
+      await this.liveKitService.dispatchVoiceAgent(roomName, {
+        identity,
+        name,
+        type: 'bot',
+      });
+    } catch (err) {
+      this.logger.error(`Failed to dispatch voice agent: ${(err as Error).message}`);
+    }
 
     const options: AccessTokenOptions = {
       identity,
@@ -162,13 +168,52 @@ export class RtcTokenService {
         this.logger.warn(
           `issueToken rejected - user not found identity=${identity} (login required)`,
         );
-        throw new Error('로그인이 필요합니다');
+        throw new HttpException('로그인이 필요합니다', HttpStatus.UNAUTHORIZED);
       }
     }
 
     // Create room and add member for iOS users
     // Web admins don't create rooms, they only join existing rooms created by iOS users
     if (isIosUser) {
+      // 용량 체크: 동시 통화 제한 및 중복 통화 방지
+      const [activeCallCount, hasActiveCall, slotConfig] = await Promise.all([
+        this.dbService.getActiveCallCount(),
+        this.dbService.hasActiveCall(user.id),
+        this.dbService.getSlotConfig(),
+      ]);
+
+      if (hasActiveCall) {
+        this.logger.warn(
+          `issueToken rejected - user already in call userId=${user.id}`,
+        );
+        throw new HttpException(
+          {
+            success: false,
+            error: {
+              code: 'CALL_ALREADY_ACTIVE',
+              message: '이미 진행 중인 통화가 있습니다.',
+            },
+          },
+          HttpStatus.CONFLICT,
+        );
+      }
+
+      if (activeCallCount >= slotConfig.maxConcurrentCalls) {
+        this.logger.warn(
+          `issueToken rejected - server at capacity current=${activeCallCount} max=${slotConfig.maxConcurrentCalls}`,
+        );
+        throw new HttpException(
+          {
+            success: false,
+            error: {
+              code: 'SERVER_AT_CAPACITY',
+              message: '현재 서버가 혼잡합니다. 잠시 후 다시 시도해주세요.',
+            },
+          },
+          HttpStatus.SERVICE_UNAVAILABLE,
+        );
+      }
+
       await this.dbService.upsertRoomMember({
         roomName: roomName,
         userId: user.id,
@@ -186,12 +231,63 @@ export class RtcTokenService {
         name,
       });
 
-      // Dispatch voice agent to the room
-      await this.liveKitService.dispatchVoiceAgent(roomName, {
-        userId: user.id,
-        identity,
-        name,
-      });
+      // 🚀 PRE-WARM: Preload weekly context and generate personalized greeting BEFORE agent joins
+      // This runs immediately when user requests a call, parallel with agent dispatch
+      // By the time agent enters and subscribes to Redis, both context and greeting are likely ready
+      const wardId = await this.dbService.findWardByUserId(user.id).then(w => w?.id);
+      if (wardId) {
+        this.logger.log(
+          `🚀 Pre-warming weekly context and greeting for ward=${wardId} room=${roomName}`,
+        );
+        // Fire and forget - don't block token issuance
+        Promise.allSettled([
+          this.ragService.preloadWeeklyContext(wardId),
+          this.ragService.generatePersonalizedGreeting(wardId, 'inbound'),
+        ]).then(results => {
+          const preloadResult = results[0];
+          const greetingResult = results[1];
+
+          if (preloadResult.status === 'rejected') {
+            this.logger.warn(
+              `Pre-warm weekly context failed ward=${wardId}: ${preloadResult.reason?.message || preloadResult.reason}`,
+            );
+          }
+
+          if (greetingResult.status === 'rejected') {
+            this.logger.warn(
+              `Pre-warm greeting failed ward=${wardId}: ${greetingResult.reason?.message || greetingResult.reason}`,
+            );
+            this.ragService
+              .cacheStandardGreeting(wardId, 'inbound')
+              .catch(fallbackError => {
+                this.logger.warn(
+                  `Fallback greeting cache failed ward=${wardId}: ${fallbackError.message}`,
+                );
+              });
+          }
+        });
+      }
+
+      // Dispatch voice agent
+      try {
+        await this.liveKitService.dispatchVoiceAgent(roomName, {
+          userId: user.id,
+          identity,
+          name,
+        });
+
+        // Schedule orphan room cleanup check after 15 seconds
+        // If iOS user doesn't join, room will be cleaned up
+        setTimeout(() => {
+          this.liveKitService.closeRoomIfAdminOnly(roomName);
+        }, 15000);
+      } catch (err) {
+        this.logger.error(`Failed to dispatch voice agent: ${(err as Error).message}`);
+        throw new HttpException(
+          'Voice agent dispatch failed',
+          HttpStatus.SERVICE_UNAVAILABLE,
+        );
+      }
 
       try {
         const call = await this.dbService.createCall({
@@ -253,7 +349,7 @@ export class RtcTokenService {
       hidden: params.role === 'host', // Admin은 다른 참가자에게 안 보임
     });
 
-    return {
+    const result = {
       livekitUrl: config.livekitPublicUrl,
       roomName: roomName,
       token: await accessToken.toJwt(),
@@ -263,6 +359,12 @@ export class RtcTokenService {
       role: params.role,
       callId: callId ?? undefined,
     };
+
+    this.logger.log(
+      `issueToken result: livekitUrl=${result.livekitUrl} roomName=${result.roomName} identity=${result.identity}`,
+    );
+
+    return result;
   }
 
   private async registerDevice(params: {

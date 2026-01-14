@@ -14,14 +14,13 @@ export class TranscriptStore {
   private client: RedisClientType | null = null;
   private connecting: Promise<RedisClientType | null> | null = null;
   private warnedMissingUrl = false;
-
   private async getClient(): Promise<RedisClientType | null> {
     if (!this.redisUrl) {
       if (!this.warnedMissingUrl) {
         this.warnedMissingUrl = true;
-        this.logger.warn('REDIS_URL not set - transcript lookup disabled');
+        this.logger.error('REDIS_URL not set - transcript lookup disabled (required)');
       }
-      return null;
+      throw new Error('REDIS_URL is required for transcript storage');
     }
 
     if (this.client?.isOpen) {
@@ -33,13 +32,26 @@ export class TranscriptStore {
     }
 
     this.client = createClient({ url: this.redisUrl });
+
     this.connecting = this.client
       .connect()
-      .then(() => this.client)
+      .then(() => {
+        // Handle runtime errors after successful connection
+        this.client?.on('error', error => {
+          this.logger.error(
+            `Redis runtime error: ${error.message}`,
+            error.stack,
+          );
+        });
+        return this.client;
+      })
       .catch(error => {
-        this.logger.warn(`Redis connect failed: ${(error as Error).message}`);
-        this.client = null;
-        return null;
+        const err = error as Error;
+        this.logger.error(
+          `Redis connection failed: ${err.message}`,
+          err.stack,
+        );
+        throw new Error(`Redis connection failed for transcript store: ${err.message}`);
       })
       .finally(() => {
         this.connecting = null;
@@ -84,6 +96,51 @@ export class TranscriptStore {
     } catch (error) {
       this.logger.warn(
         `Redis transcript fetch failed callId=${callId} error=${(error as Error).message}`,
+      );
+      return null;
+    }
+  }
+
+  async getTranscriptEntries(
+    callId: string,
+  ): Promise<Array<{
+    speaker: string;
+    text: string;
+    timestamp?: string;
+  }> | null> {
+    if (!callId) return null;
+    const client = await this.getClient();
+    if (!client) return null;
+
+    const key = `call:${callId}:transcripts`;
+    try {
+      const entries = await client.lRange(key, 0, -1);
+      if (!entries.length) return null;
+
+      const results: Array<{
+        speaker: string;
+        text: string;
+        timestamp?: string;
+      }> = [];
+      for (const raw of entries) {
+        try {
+          const parsed = JSON.parse(raw) as TranscriptEntry;
+          if (parsed.speaker && parsed.text) {
+            results.push({
+              speaker: parsed.speaker,
+              text: parsed.text,
+              timestamp: parsed.timestamp,
+            });
+          }
+        } catch {
+          // Ignore malformed transcript entries.
+        }
+      }
+
+      return results.length ? results : null;
+    } catch (error) {
+      this.logger.warn(
+        `Redis transcript entries fetch failed callId=${callId} error=${(error as Error).message}`,
       );
       return null;
     }

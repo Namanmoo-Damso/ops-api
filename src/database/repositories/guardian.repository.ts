@@ -16,14 +16,10 @@ export class GuardianRepository {
 
   async create(params: {
     userId: string;
-    wardEmail: string;
-    wardPhoneNumber: string;
   }): Promise<GuardianRow> {
     const guardian = await this.prisma.guardian.create({
       data: {
         userId: params.userId,
-        wardEmail: params.wardEmail,
-        wardPhoneNumber: params.wardPhoneNumber,
       },
     });
     return toGuardianRow(guardian);
@@ -62,34 +58,31 @@ export class GuardianRepository {
     };
   }
 
-  async findByWardEmail(wardEmail: string): Promise<GuardianRow | undefined> {
+  async findByWardEmail(wardEmail: string): Promise<
+    | (GuardianRow & {
+        registration_id: string;
+        ward_email: string;
+        ward_phone_number: string;
+      })
+    | undefined
+  > {
     const normalizedEmail = wardEmail.toLowerCase().trim();
-    const guardian = await this.prisma.guardian.findFirst({
+    // GuardianWardRegistration에서 wardEmail로 조회
+    const registration = await this.prisma.guardianWardRegistration.findFirst({
       where: { wardEmail: { equals: normalizedEmail, mode: 'insensitive' } },
+      include: { guardian: true },
     });
-    return guardian ? toGuardianRow(guardian) : undefined;
+    if (!registration?.guardian) return undefined;
+    return {
+      ...toGuardianRow(registration.guardian),
+      registration_id: registration.id,
+      ward_email: registration.wardEmail,
+      ward_phone_number: registration.wardPhoneNumber,
+    };
   }
 
   async getWards(guardianId: string) {
-    // Primary ward from guardians table
-    const guardian = await this.prisma.guardian.findUnique({
-      where: { id: guardianId },
-      include: {
-        wards: {
-          include: {
-            user: {
-              select: {
-                id: true,
-                nickname: true,
-                profileImageUrl: true,
-              },
-            },
-          },
-        },
-      },
-    });
-
-    // Additional registrations
+    // 모든 어르신 등록 정보는 GuardianWardRegistration에서 관리
     const registrations = await this.prisma.guardianWardRegistration.findMany({
       where: { guardianId },
       include: {
@@ -105,13 +98,11 @@ export class GuardianRepository {
           },
         },
       },
+      orderBy: { createdAt: 'asc' },
     });
 
     // Collect all ward userIds for batch query
     const wardUserIds: string[] = [];
-    if (guardian?.wards[0]?.userId) {
-      wardUserIds.push(guardian.wards[0].userId);
-    }
     for (const reg of registrations) {
       if (reg.linkedWard?.userId) {
         wardUserIds.push(reg.linkedWard.userId);
@@ -143,28 +134,9 @@ export class GuardianRepository {
       last_call_at: string | null;
     }> = [];
 
-    // Add primary ward
-    if (guardian) {
-      const primaryWard = guardian.wards[0];
-      const lastCallAt = primaryWard?.userId
-        ? (lastCallMap.get(primaryWard.userId)?.toISOString() ?? null)
-        : null;
-
-      results.push({
-        id: guardian.id,
-        ward_email: guardian.wardEmail,
-        ward_phone_number: guardian.wardPhoneNumber,
-        is_primary: true,
-        linked_ward_id: primaryWard?.id ?? null,
-        ward_user_id: primaryWard?.userId ?? null,
-        ward_nickname: primaryWard?.user.nickname ?? null,
-        ward_profile_image_url: primaryWard?.user.profileImageUrl ?? null,
-        last_call_at: lastCallAt,
-      });
-    }
-
-    // Add additional registrations
-    for (const reg of registrations) {
+    // 첫 번째 등록을 primary로 표시
+    for (let i = 0; i < registrations.length; i++) {
+      const reg = registrations[i];
       const lastCallAt = reg.linkedWard?.userId
         ? (lastCallMap.get(reg.linkedWard.userId)?.toISOString() ?? null)
         : null;
@@ -173,7 +145,7 @@ export class GuardianRepository {
         id: reg.id,
         ward_email: reg.wardEmail,
         ward_phone_number: reg.wardPhoneNumber,
-        is_primary: false,
+        is_primary: i === 0, // 첫 번째 등록이 primary
         linked_ward_id: reg.linkedWardId,
         ward_user_id: reg.linkedWard?.userId ?? null,
         ward_nickname: reg.linkedWard?.user.nickname ?? null,
@@ -189,15 +161,41 @@ export class GuardianRepository {
     guardianId: string;
     wardEmail: string;
     wardPhoneNumber: string;
+    wardName?: string;
+    relation?: string;
+    birthDate?: string;
+    gender?: string;
+    address?: string;
+    medicalConditions?: string;
+    medications?: string;
   }): Promise<GuardianWardRegistrationRow> {
     const registration = await this.prisma.guardianWardRegistration.create({
       data: {
         guardianId: params.guardianId,
         wardEmail: params.wardEmail,
         wardPhoneNumber: params.wardPhoneNumber,
+        wardName: params.wardName,
+        relation: params.relation,
+        birthDate: params.birthDate,
+        gender: params.gender,
+        address: params.address,
+        medicalConditions: params.medicalConditions,
+        medications: params.medications,
       },
     });
     return toGuardianWardRegistrationRow(registration);
+  }
+
+  async findFirstWardRegistration(
+    guardianId: string,
+  ): Promise<GuardianWardRegistrationRow | undefined> {
+    const registration = await this.prisma.guardianWardRegistration.findFirst({
+      where: { guardianId },
+      orderBy: { createdAt: 'asc' },
+    });
+    return registration
+      ? toGuardianWardRegistrationRow(registration)
+      : undefined;
   }
 
   async findWardRegistration(
@@ -262,25 +260,6 @@ export class GuardianRepository {
       });
       return result.count > 0;
     });
-  }
-
-  async updatePrimaryWard(params: {
-    guardianId: string;
-    wardEmail: string;
-    wardPhoneNumber: string;
-  }): Promise<GuardianRow | undefined> {
-    try {
-      const guardian = await this.prisma.guardian.update({
-        where: { id: params.guardianId },
-        data: {
-          wardEmail: params.wardEmail,
-          wardPhoneNumber: params.wardPhoneNumber,
-        },
-      });
-      return toGuardianRow(guardian);
-    } catch {
-      return undefined;
-    }
   }
 
   async unlinkPrimaryWard(guardianId: string): Promise<void> {
@@ -378,5 +357,343 @@ export class GuardianRepository {
       call_complete: settings.callComplete,
       health_alert: settings.healthAlert,
     };
+  }
+
+  // ===== Call Slot Config Methods =====
+
+  async getSlotConfig() {
+    const config = await this.prisma.callSlotConfig.findFirst({
+      where: { id: 1 },
+    });
+    return config ?? {
+      id: 1,
+      slotDurationMinutes: 10,
+      maxCallDurationMinutes: 8,
+      maxCapacityPerSlot: 40,
+      maxConcurrentCalls: 50,
+      validMinutes: [0, 10, 20, 30, 40, 50],
+    };
+  }
+
+  /**
+   * 특정 슬롯(hour, minute, weekday)의 현재 예약 수 조회
+   */
+  async getSlotCapacity(
+    hour: number,
+    minute: number,
+    weekday: number,
+    excludeWardId?: string,
+  ): Promise<number> {
+    const count = await this.prisma.callScheduleGroup.count({
+      where: {
+        slotStartHour: hour,
+        slotStartMinute: minute,
+        weekdays: { has: weekday },
+        isEnabled: true,
+        wardId: { not: null },
+        ...(excludeWardId ? { wardId: { not: excludeWardId } } : {}),
+      },
+    });
+    return count;
+  }
+
+  /**
+   * 슬롯 가용성 조회 (모든 요일)
+   */
+  async getSlotAvailability(hour: number, minute: number) {
+    const config = await this.getSlotConfig();
+    const maxCapacity = config.maxCapacityPerSlot;
+
+    // 각 요일별 현재 예약 수 조회
+    const counts = await Promise.all(
+      [0, 1, 2, 3, 4, 5, 6].map(async weekday => {
+        const current = await this.getSlotCapacity(hour, minute, weekday);
+        return {
+          weekday,
+          current,
+          available: Math.max(0, maxCapacity - current),
+        };
+      }),
+    );
+
+    return {
+      slotStartHour: hour,
+      slotStartMinute: minute,
+      maxCapacity,
+      availabilityByWeekday: Object.fromEntries(
+        counts.map(c => [
+          c.weekday,
+          { current: c.current, available: c.available },
+        ]),
+      ),
+    };
+  }
+
+  // ===== Call Schedule Group Methods =====
+
+  async getCallScheduleGroups(guardianId: string) {
+    // 1. Get linked ward
+    const linkedWard = await this.prisma.ward.findFirst({
+      where: { guardianId },
+    });
+
+    // 2. Get registrations
+    const registrations = await this.prisma.guardianWardRegistration.findMany({
+      where: { guardianId },
+      select: { id: true },
+    });
+    const registrationIds = registrations.map(r => r.id);
+
+    // 3. Get schedules for ward or registrations
+    const schedules = await this.prisma.callScheduleGroup.findMany({
+      where: {
+        OR: [
+          ...(linkedWard ? [{ wardId: linkedWard.id }] : []),
+          ...(registrationIds.length > 0
+            ? [{ registrationId: { in: registrationIds } }]
+            : []),
+        ],
+      },
+      orderBy: { createdAt: 'asc' },
+    });
+
+    return schedules.map(s => ({
+      id: s.id,
+      registration_id: s.registrationId,
+      ward_id: s.wardId,
+      slot_start_hour: s.slotStartHour,
+      slot_start_minute: s.slotStartMinute,
+      weekdays: s.weekdays,
+      is_enabled: s.isEnabled,
+      created_at: s.createdAt,
+      updated_at: s.updatedAt,
+    }));
+  }
+
+  async createCallScheduleGroups(
+    registrationId: string | null,
+    wardId: string | null,
+    items: Array<{
+      id?: string;
+      slotStartHour: number;
+      slotStartMinute: number;
+      weekdays: number[];
+      isEnabled: boolean;
+    }>,
+  ) {
+    const data = items.map(item => ({
+      registrationId,
+      wardId,
+      slotStartHour: item.slotStartHour,
+      slotStartMinute: item.slotStartMinute,
+      weekdays: item.weekdays,
+      isEnabled: item.isEnabled,
+    }));
+
+    await this.prisma.callScheduleGroup.createMany({ data });
+  }
+
+  /**
+   * 스케줄 생성 (SELECT FOR UPDATE 동시성 제어)
+   * 트랜잭션 내에서 용량 검증 + 생성을 원자적으로 수행
+   */
+  async createCallScheduleGroupsWithLock(
+    registrationId: string | null,
+    wardId: string | null,
+    items: Array<{
+      slotStartHour: number;
+      slotStartMinute: number;
+      weekdays: number[];
+      isEnabled: boolean;
+    }>,
+    maxCapacity: number,
+  ): Promise<{
+    success: boolean;
+    error?: {
+      code: string;
+      message: string;
+      details: {
+        weekday: number;
+        slotStartHour: number;
+        slotStartMinute: number;
+        currentCount: number;
+        maxCapacity: number;
+      };
+    };
+  }> {
+    const weekdayNames = ['일', '월', '화', '수', '목', '금', '토'];
+
+    return this.prisma.$transaction(async tx => {
+      // 각 item별로 용량 검증 (SELECT FOR UPDATE)
+      for (const item of items) {
+        if (!item.isEnabled) continue;
+
+        // 데드락 방지: 요일을 정렬하여 순서 고정
+        const sortedWeekdays = [...item.weekdays].sort((a, b) => a - b);
+
+        for (const weekday of sortedWeekdays) {
+          // 서브쿼리로 행 잠금 후 카운트 (PostgreSQL에서 aggregate + FOR UPDATE 불가)
+          let result: [{ cnt: bigint }];
+
+          if (wardId) {
+            // 자기 자신(wardId) 제외하고 카운트
+            result = await tx.$queryRaw<[{ cnt: bigint }]>`
+              SELECT COUNT(*) as cnt FROM (
+                SELECT id
+                FROM call_schedule_groups
+                WHERE slot_start_hour = ${item.slotStartHour}
+                  AND slot_start_minute = ${item.slotStartMinute}
+                  AND ${weekday} = ANY(weekdays)
+                  AND is_enabled = TRUE
+                  AND ward_id IS NOT NULL
+                  AND ward_id != ${wardId}::uuid
+                FOR UPDATE
+              ) locked_rows
+            `;
+          } else {
+            // wardId 없으면 전체 카운트
+            result = await tx.$queryRaw<[{ cnt: bigint }]>`
+              SELECT COUNT(*) as cnt FROM (
+                SELECT id
+                FROM call_schedule_groups
+                WHERE slot_start_hour = ${item.slotStartHour}
+                  AND slot_start_minute = ${item.slotStartMinute}
+                  AND ${weekday} = ANY(weekdays)
+                  AND is_enabled = TRUE
+                  AND ward_id IS NOT NULL
+                FOR UPDATE
+              ) locked_rows
+            `;
+          }
+
+          const currentCount = Number(result[0].cnt);
+
+          if (currentCount >= maxCapacity) {
+            // 트랜잭션 롤백 (에러 반환)
+            return {
+              success: false,
+              error: {
+                code: 'SLOT_CAPACITY_EXCEEDED',
+                message: `${weekdayNames[weekday]}요일 ${item.slotStartHour}:${String(item.slotStartMinute).padStart(2, '0')} 슬롯이 가득 찼습니다 (${currentCount}/${maxCapacity})`,
+                details: {
+                  weekday,
+                  slotStartHour: item.slotStartHour,
+                  slotStartMinute: item.slotStartMinute,
+                  currentCount,
+                  maxCapacity,
+                },
+              },
+            };
+          }
+        }
+      }
+
+      // 모든 용량 검증 통과 → INSERT
+      const data = items.map(item => ({
+        registrationId,
+        wardId,
+        slotStartHour: item.slotStartHour,
+        slotStartMinute: item.slotStartMinute,
+        weekdays: item.weekdays,
+        isEnabled: item.isEnabled,
+      }));
+
+      await tx.callScheduleGroup.createMany({ data });
+
+      return { success: true };
+    });
+  }
+
+  async deleteCallScheduleGroupsByGuardian(guardianId: string) {
+    // 1. Get linked ward
+    const linkedWard = await this.prisma.ward.findFirst({
+      where: { guardianId },
+    });
+
+    // 2. Get registrations
+    const registrations = await this.prisma.guardianWardRegistration.findMany({
+      where: { guardianId },
+      select: { id: true },
+    });
+    const registrationIds = registrations.map(r => r.id);
+
+    // 3. Delete schedules
+    await this.prisma.callScheduleGroup.deleteMany({
+      where: {
+        OR: [
+          ...(linkedWard ? [{ wardId: linkedWard.id }] : []),
+          ...(registrationIds.length > 0
+            ? [{ registrationId: { in: registrationIds } }]
+            : []),
+        ],
+      },
+    });
+  }
+
+  async deleteCallScheduleGroup(
+    scheduleId: string,
+    guardianId: string,
+  ): Promise<boolean> {
+    // Verify ownership first
+    const linkedWard = await this.prisma.ward.findFirst({
+      where: { guardianId },
+    });
+
+    const registrations = await this.prisma.guardianWardRegistration.findMany({
+      where: { guardianId },
+      select: { id: true },
+    });
+    const registrationIds = registrations.map(r => r.id);
+
+    const schedule = await this.prisma.callScheduleGroup.findFirst({
+      where: {
+        id: scheduleId,
+        OR: [
+          ...(linkedWard ? [{ wardId: linkedWard.id }] : []),
+          ...(registrationIds.length > 0
+            ? [{ registrationId: { in: registrationIds } }]
+            : []),
+        ],
+      },
+    });
+
+    if (!schedule) return false;
+
+    await this.prisma.callScheduleGroup.delete({
+      where: { id: scheduleId },
+    });
+
+    return true;
+  }
+
+  // ===== Ward Linking Methods =====
+
+  async findPendingRegistrations(
+    guardianId: string,
+  ): Promise<Array<{ id: string; ward_email: string }>> {
+    const registrations = await this.prisma.guardianWardRegistration.findMany({
+      where: {
+        guardianId,
+        linkedWardId: null,
+      },
+      select: {
+        id: true,
+        wardEmail: true,
+      },
+    });
+    return registrations.map((r) => ({
+      id: r.id,
+      ward_email: r.wardEmail,
+    }));
+  }
+
+  async updateRegistrationLinkedWard(
+    registrationId: string,
+    wardId: string,
+  ): Promise<void> {
+    await this.prisma.guardianWardRegistration.update({
+      where: { id: registrationId },
+      data: { linkedWardId: wardId },
+    });
   }
 }

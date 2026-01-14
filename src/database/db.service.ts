@@ -115,6 +115,10 @@ export class DbService implements OnModuleDestroy {
     return this.users.deleteUserRefreshTokens(userId);
   }
 
+  async findParticipants() {
+    return this.users.findParticipants();
+  }
+
   // ============================================================
   // Device methods
   // ============================================================
@@ -128,7 +132,15 @@ export class DbService implements OnModuleDestroy {
     supportsCallKit?: boolean;
   }) {
     // 익명 사용자 생성 차단 - 기존 사용자만 허용
-    const user = await this.findUserByIdentity(params.identity);
+    // NOTE: UUID 형식 판별 후 1번만 DB 호출 (기존: identity → id 순차 검색으로 최대 2번 호출)
+    // 카카오 identity는 "kakao_123456" 형식, userId는 UUID 형식이므로 정규식으로 구분 가능
+    const isUuid =
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
+        params.identity,
+      );
+    const user = isUuid
+      ? await this.findUserById(params.identity)
+      : await this.findUserByIdentity(params.identity);
     if (!user) {
       throw new Error('로그인이 필요합니다');
     }
@@ -259,6 +271,14 @@ export class DbService implements OnModuleDestroy {
     return this.calls.getSummary(callId);
   }
 
+  async getActiveCallCount() {
+    return this.calls.getActiveCallCount();
+  }
+
+  async hasActiveCall(userId: string) {
+    return this.calls.hasActiveCall(userId);
+  }
+
   // ============================================================
   // Guardian methods
   // ============================================================
@@ -286,16 +306,54 @@ export class DbService implements OnModuleDestroy {
     return this.guardians.getWards(guardianId);
   }
 
+  /**
+   * 보호자의 미연동 어르신들을 이메일로 찾아서 연동
+   * @returns 연동된 수
+   */
+  async linkPendingWardsForGuardian(guardianId: string): Promise<number> {
+    // 1. linked_ward_id가 NULL인 registrations 조회
+    const pendingRegistrations =
+      await this.guardians.findPendingRegistrations(guardianId);
+
+    let linkedCount = 0;
+    for (const reg of pendingRegistrations) {
+      // 2. ward_email로 ward 사용자 찾기
+      const wardUser = await this.users.findByEmail(reg.ward_email);
+      if (!wardUser || wardUser.user_type !== 'ward') continue;
+
+      // 3. ward 테이블에서 ward_id 찾기
+      const ward = await this.wards.findByUserId(wardUser.id);
+      if (!ward) continue;
+
+      // 4. linked_ward_id 업데이트
+      await this.guardians.updateRegistrationLinkedWard(reg.id, ward.id);
+      linkedCount++;
+    }
+
+    return linkedCount;
+  }
+
   async createGuardianWardRegistration(params: {
     guardianId: string;
     wardEmail: string;
     wardPhoneNumber: string;
+    wardName?: string;
+    relation?: string;
+    birthDate?: string;
+    gender?: string;
+    address?: string;
+    medicalConditions?: string;
+    medications?: string;
   }) {
     return this.guardians.createWardRegistration(params);
   }
 
   async findGuardianWardRegistration(id: string, guardianId: string) {
     return this.guardians.findWardRegistration(id, guardianId);
+  }
+
+  async findFirstGuardianWardRegistration(guardianId: string) {
+    return this.guardians.findFirstWardRegistration(guardianId);
   }
 
   async updateGuardianWardRegistration(params: {
@@ -309,14 +367,6 @@ export class DbService implements OnModuleDestroy {
 
   async deleteGuardianWardRegistration(id: string, guardianId: string) {
     return this.guardians.deleteWardRegistration(id, guardianId);
-  }
-
-  async updateGuardianPrimaryWard(params: {
-    guardianId: string;
-    wardEmail: string;
-    wardPhoneNumber: string;
-  }) {
-    return this.guardians.updatePrimaryWard(params);
   }
 
   async unlinkPrimaryWard(guardianId: string) {
@@ -354,6 +404,82 @@ export class DbService implements OnModuleDestroy {
   }
 
   // ============================================================
+  // Call Slot Config methods
+  // ============================================================
+  async getSlotConfig() {
+    return this.guardians.getSlotConfig();
+  }
+
+  async getSlotCapacity(
+    hour: number,
+    minute: number,
+    weekday: number,
+    excludeWardId?: string,
+  ) {
+    return this.guardians.getSlotCapacity(hour, minute, weekday, excludeWardId);
+  }
+
+  async getSlotAvailability(hour: number, minute: number) {
+    return this.guardians.getSlotAvailability(hour, minute);
+  }
+
+  // ============================================================
+  // Call Schedule Group methods
+  // ============================================================
+  async getCallScheduleGroups(guardianId: string) {
+    return this.guardians.getCallScheduleGroups(guardianId);
+  }
+
+  async createCallScheduleGroups(
+    registrationId: string | null,
+    wardId: string | null,
+    items: Array<{
+      id?: string;
+      slotStartHour: number;
+      slotStartMinute: number;
+      weekdays: number[];
+      isEnabled: boolean;
+    }>,
+  ) {
+    return this.guardians.createCallScheduleGroups(
+      registrationId,
+      wardId,
+      items,
+    );
+  }
+
+  /**
+   * SELECT FOR UPDATE를 사용하여 슬롯 용량을 원자적으로 검증하고 스케줄 생성
+   * Race condition 방지를 위해 트랜잭션 내에서 잠금 후 INSERT
+   */
+  async createCallScheduleGroupsWithLock(
+    registrationId: string | null,
+    wardId: string | null,
+    items: Array<{
+      slotStartHour: number;
+      slotStartMinute: number;
+      weekdays: number[];
+      isEnabled: boolean;
+    }>,
+    maxCapacity: number,
+  ) {
+    return this.guardians.createCallScheduleGroupsWithLock(
+      registrationId,
+      wardId,
+      items,
+      maxCapacity,
+    );
+  }
+
+  async deleteCallScheduleGroupsByGuardian(guardianId: string) {
+    return this.guardians.deleteCallScheduleGroupsByGuardian(guardianId);
+  }
+
+  async deleteCallScheduleGroup(scheduleId: string, guardianId: string) {
+    return this.guardians.deleteCallScheduleGroup(scheduleId, guardianId);
+  }
+
+  // ============================================================
   // Ward methods
   // ============================================================
   async createWard(params: {
@@ -376,16 +502,16 @@ export class DbService implements OnModuleDestroy {
     return this.wards.findByGuardianId(guardianId);
   }
 
-  async getWardCallStats(wardId: string) {
-    return this.wards.getCallStats(wardId);
+  async getWardCallStats(wardId: string, days?: number) {
+    return this.wards.getCallStats(wardId, days);
   }
 
   async getWardWeeklyCallChange(wardId: string) {
     return this.wards.getWeeklyCallChange(wardId);
   }
 
-  async getWardMoodStats(wardId: string) {
-    return this.wards.getMoodStats(wardId);
+  async getWardMoodStats(wardId: string, days?: number) {
+    return this.wards.getMoodStats(wardId, days);
   }
 
   async getEmotionTrend(wardId: string, days: number) {
@@ -474,6 +600,14 @@ export class DbService implements OnModuleDestroy {
 
   async markReminderSent(scheduleId: string) {
     return this.wards.markReminderSent(scheduleId);
+  }
+
+  async getSchedulesForCurrentSlot(
+    dayOfWeek: number,
+    slotStartHour: number,
+    slotStartMinute: number,
+  ) {
+    return this.wards.getSchedulesForCurrentSlot(dayOfWeek, slotStartHour, slotStartMinute);
   }
 
   async listOrganizationBeneficiaries(params: {
@@ -914,14 +1048,39 @@ export class DbService implements OnModuleDestroy {
 
   /**
    * 보호자 등록 트랜잭션
-   * 사용자 타입 변경 → 보호자 정보 생성을 원자적으로 처리
+   * 사용자 타입 변경 → 보호자 정보 생성 → 어르신 등록 정보 생성을 원자적으로 처리
    */
   async registerGuardianWithTransaction(params: {
     userId: string;
     wardEmail: string;
     wardPhoneNumber: string;
+    wardBasicInfo?: {
+      name?: string;
+      relation?: string;
+      phoneNumber?: string;
+      birthDate?: string;
+      gender?: string;
+      address?: string;
+    };
+    aiCareInfo?: {
+      medicalConditions?: string;
+      medications?: string;
+    };
+    callSchedule?: {
+      isEnabled: boolean;
+      items: Array<{
+        id?: string;
+        slotStartHour: number;
+        slotStartMinute: number;
+        weekdays: number[];
+        isEnabled: boolean;
+      }>;
+    };
   }): Promise<{
     guardian: {
+      id: string;
+    };
+    registration: {
       id: string;
       ward_email: string;
       ward_phone_number: string;
@@ -937,20 +1096,54 @@ export class DbService implements OnModuleDestroy {
         },
       });
 
-      // 2. 보호자 정보 생성
+      // 2. 보호자 정보 생성 (wardEmail, wardPhoneNumber 제거됨)
       const guardian = await tx.guardian.create({
         data: {
           userId: params.userId,
-          wardEmail: params.wardEmail,
-          wardPhoneNumber: params.wardPhoneNumber,
         },
       });
+
+      // 3. 어르신 등록 정보 생성 (GuardianWardRegistration)
+      const registration = await tx.guardianWardRegistration.create({
+        data: {
+          guardianId: guardian.id,
+          wardEmail: params.wardEmail,
+          wardPhoneNumber: params.wardPhoneNumber,
+          wardName: params.wardBasicInfo?.name,
+          relation: params.wardBasicInfo?.relation,
+          birthDate: params.wardBasicInfo?.birthDate,
+          gender: params.wardBasicInfo?.gender,
+          address: params.wardBasicInfo?.address,
+          medicalConditions: params.aiCareInfo?.medicalConditions,
+          medications: params.aiCareInfo?.medications,
+        },
+      });
+
+      // 4. 스케줄 생성 (callSchedule이 있고 enabled인 경우)
+      if (
+        params.callSchedule?.isEnabled &&
+        params.callSchedule.items.length > 0
+      ) {
+        await tx.callScheduleGroup.createMany({
+          data: params.callSchedule.items.map(item => ({
+            registrationId: registration.id,
+            wardId: null,
+            slotStartHour: item.slotStartHour,
+            slotStartMinute: item.slotStartMinute,
+            weekdays: item.weekdays,
+            isEnabled: item.isEnabled,
+          })),
+        });
+      }
 
       return {
         guardian: {
           id: guardian.id,
-          ward_email: guardian.wardEmail,
-          ward_phone_number: guardian.wardPhoneNumber,
+        },
+        registration: {
+          id: registration.id,
+          ward_email: registration.wardEmail,
+          ward_phone_number: registration.wardPhoneNumber,
         },
       };
     });

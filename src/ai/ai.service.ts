@@ -2,6 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { DbService } from '../database';
 import { AiAnalysisProvider } from './ai.interface';
 import { TranscriptStore } from './transcript.store';
+import { RagService } from './rag.service';
 import { AnalyzeCallResult, AiResponse } from './types';
 
 @Injectable()
@@ -12,6 +13,7 @@ export class AiService {
     private readonly dbService: DbService,
     private readonly aiProvider: AiAnalysisProvider,
     private readonly transcriptStore: TranscriptStore,
+    private readonly ragService: RagService,
   ) {}
 
   async analyzeCall(callId: string): Promise<AnalyzeCallResult> {
@@ -83,6 +85,24 @@ export class AiService {
         callInfo.guardian_id,
         analysis,
       );
+    }
+
+    // 5. RAG 벡터 DB 인덱싱 (백그라운드 비동기 처리)
+    // AI 분석과 독립적으로 실행되어 응답 속도 개선
+    if (callInfo.ward_id) {
+      this.transcriptStore.getTranscriptEntries(callId)
+        .then((transcriptEntries) => {
+          if (transcriptEntries && transcriptEntries.length > 0) {
+            return this.ragService.indexConversation(callId, callInfo.ward_id!, transcriptEntries);
+          }
+        })
+        .then(() => {
+          this.logger.log(`RAG indexing completed for callId=${callId}`);
+        })
+        .catch((error) => {
+          // RAG indexing 실패는 전체 분석에 영향 없음
+          this.logger.error(`RAG indexing failed for callId=${callId}: ${error.message}`);
+        });
     }
 
     this.logger.log(

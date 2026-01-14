@@ -147,8 +147,38 @@ export class WardRepository {
       })
     | undefined
   > {
-    const ward = await this.prisma.ward.findFirst({
-      where: { guardianId },
+    // guardian_ward_registrations를 통해 연결된 ward 조회
+    const registration = await this.prisma.guardianWardRegistration.findFirst({
+      where: {
+        guardianId,
+        linkedWardId: { not: null },
+      },
+      select: { linkedWardId: true },
+    });
+
+    if (!registration?.linkedWardId) {
+      // fallback: 기존 방식 (wards.guardian_id로 직접 연결)
+      const ward = await this.prisma.ward.findFirst({
+        where: { guardianId },
+        include: {
+          user: {
+            select: {
+              nickname: true,
+              profileImageUrl: true,
+            },
+          },
+        },
+      });
+      if (!ward) return undefined;
+      return {
+        ...toWardRow(ward),
+        user_nickname: ward.user.nickname,
+        user_profile_image_url: ward.user.profileImageUrl,
+      };
+    }
+
+    const ward = await this.prisma.ward.findUnique({
+      where: { id: registration.linkedWardId },
       include: {
         user: {
           select: {
@@ -166,18 +196,21 @@ export class WardRepository {
     };
   }
 
-  async getCallStats(wardId: string) {
+  async getCallStats(wardId: string, days?: number) {
     const ward = await this.prisma.ward.findUnique({
       where: { id: wardId },
       select: { userId: true },
     });
     if (!ward) return { totalCalls: 0, avgDuration: 0 };
 
+    const cutoff = days ? new Date(Date.now() - days * 24 * 60 * 60 * 1000) : undefined;
+
     const calls = await this.prisma.call.findMany({
       where: {
         calleeUserId: ward.userId,
         state: 'ended',
         answeredAt: { not: null },
+        ...(cutoff && { createdAt: { gte: cutoff } }),
       },
       select: {
         answeredAt: true,
@@ -229,10 +262,16 @@ export class WardRepository {
     return thisWeek - lastWeek;
   }
 
-  async getMoodStats(wardId: string) {
+  async getMoodStats(wardId: string, days?: number) {
+    const cutoff = days ? new Date(Date.now() - days * 24 * 60 * 60 * 1000) : undefined;
+
     const summaries = await this.prisma.callSummary.groupBy({
       by: ['mood'],
-      where: { wardId, mood: { not: null } },
+      where: {
+        wardId,
+        mood: { not: null },
+        ...(cutoff && { createdAt: { gte: cutoff } }),
+      },
       _count: true,
     });
 
@@ -837,6 +876,43 @@ export class WardRepository {
       where: { id: scheduleId },
       data: { reminderSentAt: new Date() },
     });
+  }
+
+  /**
+   * 현재 슬롯에 해당하는 스케줄 조회 (call_schedule_groups 테이블)
+   * 자동 전화 발신용 - 10분 슬롯 기반
+   */
+  async getSchedulesForCurrentSlot(
+    dayOfWeek: number,
+    slotStartHour: number,
+    slotStartMinute: number,
+  ) {
+    const schedules = await this.prisma.callScheduleGroup.findMany({
+      where: {
+        slotStartHour,
+        slotStartMinute,
+        weekdays: { has: dayOfWeek },
+        isEnabled: true,
+        wardId: { not: null },
+      },
+      include: {
+        ward: {
+          include: {
+            user: { select: { id: true, identity: true } },
+          },
+        },
+      },
+    });
+
+    return schedules
+      .filter(s => s.ward !== null)
+      .map(s => ({
+        schedule_id: s.id,
+        ward_id: s.wardId!,
+        ward_user_id: s.ward!.userId,
+        ward_identity: s.ward!.user.identity,
+        ai_persona: s.ward!.aiPersona ?? '다미',
+      }));
   }
 
   async listOrganizationBeneficiaries(params: {

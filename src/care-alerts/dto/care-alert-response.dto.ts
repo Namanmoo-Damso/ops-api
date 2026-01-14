@@ -1,0 +1,58 @@
+import { AlertType, Severity, EmotionType } from '../types/care-alert.types';
+
+// 알림 생성 응답
+export interface CareAlertCreatedResponse {
+  success: boolean;
+  alertType: AlertType;
+  processed: 'buffered' | 'stored' | 'duplicate';
+  alertId?: string;
+}
+
+// 알림 목록 조회 응답
+export interface CareAlertEventResponse {
+  id: string;
+  wardId: string;
+  alertType: AlertType;
+  severity: Severity;
+  timestamp: string;
+  rawPayload: Record<string, unknown>;
+  acknowledged: boolean;
+  acknowledgedAt: string | null;
+  acknowledgedBy: string | null;
+  createdAt: string;
+}
+
+export interface GetAlertsResponse {
+  alerts: CareAlertEventResponse[];
+  total: number;
+}
+
+// 감정 리포트 응답
+export interface EmotionSummaryResponse {
+  id: string;
+  periodStart: string;
+  periodEnd: string;
+  totalSamples: number;
+  emotionDistribution: Record<EmotionType, number>;
+  averageConfidence: number;
+  negativeRatio: number;
+  dominantEmotion: EmotionType;
+}
+
+export interface EmotionReportResponse {
+  date: string;
+  summaries: EmotionSummaryResponse[];
+  dailyStats: {
+    totalSamples: number;
+    dominantEmotion: EmotionType | null;
+    negativeRatio: number;
+    alertCount: number;
+  };
+}
+
+// 알림 확인 응답
+export interface AcknowledgeAlertResponse {
+  success: boolean;
+  alertId: string;
+  acknowledgedAt: string;
+}

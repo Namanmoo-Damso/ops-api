@@ -51,11 +51,16 @@ export class GuardiansController {
   @Get('dashboard')
   async getDashboard(
     @Headers('authorization') authorization: string | undefined,
+    @Query('period') period?: string,
+    @Query('ward_id') wardId?: string,
   ) {
     const payload = this.verifyAuthHeader(authorization);
+    const dashboardPeriod = ['today', 'week', 'month'].includes(period ?? '')
+      ? (period as 'today' | 'week' | 'month')
+      : undefined;
 
     try {
-      return await this.guardiansService.getDashboard(payload.sub);
+      return await this.guardiansService.getDashboard(payload.sub, dashboardPeriod, wardId);
     } catch (error) {
       if ((error as HttpException).getStatus?.()) {
         throw error;
@@ -111,7 +116,33 @@ export class GuardiansController {
   @Post('wards')
   async addWard(
     @Headers('authorization') authorization: string | undefined,
-    @Body() body: { wardEmail?: string; wardPhoneNumber?: string },
+    @Body()
+    body: {
+      wardEmail?: string;
+      wardPhoneNumber?: string;
+      wardBasicInfo?: {
+        name?: string;
+        relation?: string;
+        phoneNumber?: string;
+        birthDate?: string;
+        gender?: string;
+        address?: string;
+      };
+      aiCareInfo?: {
+        medicalConditions?: string;
+        medications?: string;
+      };
+      callSchedule?: {
+        isEnabled: boolean;
+        items: Array<{
+          id?: string;
+          slotStartHour: number;
+          slotStartMinute: number;
+          weekdays: number[];
+          isEnabled: boolean;
+        }>;
+      };
+    },
   ) {
     const payload = this.verifyAuthHeader(authorization);
 
@@ -142,6 +173,11 @@ export class GuardiansController {
         payload.sub,
         wardEmail,
         wardPhoneNumber,
+        {
+          wardBasicInfo: body.wardBasicInfo,
+          aiCareInfo: body.aiCareInfo,
+          callSchedule: body.callSchedule,
+        },
       );
     } catch (error) {
       if ((error as HttpException).getStatus?.()) {
@@ -278,6 +314,117 @@ export class GuardiansController {
       );
       throw new HttpException(
         'Failed to update notification settings',
+        HttpStatus.INTERNAL_SERVER_ERROR,
+      );
+    }
+  }
+
+  @Get('schedules')
+  async getSchedules(
+    @Headers('authorization') authorization: string | undefined,
+    @Query('ward_id') wardId?: string,
+  ) {
+    const payload = this.verifyAuthHeader(authorization);
+
+    try {
+      return await this.guardiansService.getSchedules(payload.sub, wardId);
+    } catch (error) {
+      if ((error as HttpException).getStatus?.()) {
+        throw error;
+      }
+      this.logger.warn(`getSchedules failed error=${(error as Error).message}`);
+      throw new HttpException(
+        'Failed to get schedules',
+        HttpStatus.INTERNAL_SERVER_ERROR,
+      );
+    }
+  }
+
+  @Get('schedules/availability')
+  async getSlotAvailability(
+    @Headers('authorization') authorization: string | undefined,
+    @Query('hour') hour: string,
+    @Query('minute') minute: string,
+  ) {
+    const payload = this.verifyAuthHeader(authorization);
+
+    const hourNum = parseInt(hour, 10);
+    const minuteNum = parseInt(minute, 10);
+
+    if (isNaN(hourNum) || hourNum < 0 || hourNum > 23) {
+      throw new HttpException('Invalid hour parameter', HttpStatus.BAD_REQUEST);
+    }
+    if (isNaN(minuteNum) || ![0, 10, 20, 30, 40, 50].includes(minuteNum)) {
+      throw new HttpException('Invalid minute parameter (must be 0, 10, 20, 30, 40, 50)', HttpStatus.BAD_REQUEST);
+    }
+
+    try {
+      return await this.guardiansService.getSlotAvailability(payload.sub, hourNum, minuteNum);
+    } catch (error) {
+      if ((error as HttpException).getStatus?.()) {
+        throw error;
+      }
+      this.logger.warn(`getSlotAvailability failed error=${(error as Error).message}`);
+      throw new HttpException(
+        'Failed to get slot availability',
+        HttpStatus.INTERNAL_SERVER_ERROR,
+      );
+    }
+  }
+
+  @Put('schedules')
+  async updateSchedules(
+    @Headers('authorization') authorization: string | undefined,
+    @Body()
+    body: {
+      wardId?: string;
+      isEnabled: boolean;
+      items: Array<{
+        id?: string;
+        slotStartHour: number;
+        slotStartMinute: number;
+        weekdays: number[];
+        isEnabled: boolean;
+      }>;
+    },
+  ) {
+    const payload = this.verifyAuthHeader(authorization);
+
+    try {
+      return await this.guardiansService.updateSchedules(payload.sub, body);
+    } catch (error) {
+      if ((error as HttpException).getStatus?.()) {
+        throw error;
+      }
+      this.logger.warn(
+        `updateSchedules failed error=${(error as Error).message}`,
+      );
+      throw new HttpException(
+        'Failed to update schedules',
+        HttpStatus.INTERNAL_SERVER_ERROR,
+      );
+    }
+  }
+
+  @Delete('schedules/:scheduleId')
+  async deleteSchedule(
+    @Headers('authorization') authorization: string | undefined,
+    @Param('scheduleId') scheduleId: string,
+  ) {
+    const payload = this.verifyAuthHeader(authorization);
+
+    try {
+      await this.guardiansService.deleteSchedule(payload.sub, scheduleId);
+      return { success: true, message: '스케줄이 삭제되었습니다.' };
+    } catch (error) {
+      if ((error as HttpException).getStatus?.()) {
+        throw error;
+      }
+      this.logger.warn(
+        `deleteSchedule failed error=${(error as Error).message}`,
+      );
+      throw new HttpException(
+        'Failed to delete schedule',
         HttpStatus.INTERNAL_SERVER_ERROR,
       );
     }

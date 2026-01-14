@@ -19,7 +19,8 @@ jobs:
 
     services:
       postgres:
-        image: postgres:16
+        # Use pgvector-enabled PostgreSQL image
+        image: pgvector/pgvector:pg16
         env:
           POSTGRES_USER: test
           POSTGRES_PASSWORD: test

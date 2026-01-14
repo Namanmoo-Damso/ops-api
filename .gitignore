@@ -5,6 +5,7 @@ dist/
 # Environment
 .env
 .env.*
+*env
 !.env.example
 
 # IDE
@@ -37,3 +38,5 @@ src/generated/
 # python venv
 agents/venv
 agents/voice/__pycache__/
+
+secrets/
