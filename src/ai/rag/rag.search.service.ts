@@ -1,7 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { Prisma } from '@prisma/client';
-import { SearchResult } from './rag.types';
+import { RagMetadata, SearchResult } from './rag.types';
 import { getWindowContext } from './rag.utils';
 
 /**
@@ -16,8 +16,11 @@ import { getWindowContext } from './rag.utils';
 export class RagSearchService {
   private readonly logger = new Logger(RagSearchService.name);
 
+  // Dense Summary + Contextual Header 적용 후 유사도가 높아지므로
+  // threshold를 0.4로 상향 조정 (기존 0.0 → 0.4)
+  // 환경 변수로 미세 조정 가능
   private readonly SIMILARITY_THRESHOLD = parseFloat(
-    process.env.SIMILARITY_THRESHOLD || '0.0',
+    process.env.SIMILARITY_THRESHOLD || '0.4',
   );
 
   private readonly CHILD_SEARCH_MULTIPLIER = (() => {
@@ -64,7 +67,7 @@ export class RagSearchService {
           parent_text: string;
           offset_start: number;
           offset_end: number;
-          metadata: any;
+          metadata: RagMetadata;
           similarity: number;
           created_at: Date;
           call_id: string;

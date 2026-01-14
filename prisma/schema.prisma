@@ -633,8 +633,9 @@ model ConversationVectorParent {
   id          String                     @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   wardId      String                     @map("ward_id") @db.Uuid
   callId      String                     @map("call_id") @db.Uuid
-  parentText  String                     @map("parent_text")   // Full parent text for context
-  metadata    Json?                                            // { speaker, topics, sentiment, etc. }
+  parentText  String                     @map("parent_text")   // Full parent text for context (원본 또는 요약본)
+  summaryText String?                    @map("summary_text")  // LLM이 생성한 고밀도 상세 요약본 (Dense Summary)
+  metadata    Json?                                            // { speaker, topics, keywords, sentiment, etc. }
   createdAt   DateTime                   @default(now()) @map("created_at")
 
   // Relations
@@ -655,11 +656,12 @@ model ConversationVectorChild {
   parentId    String                     @map("parent_id") @db.Uuid
   wardId      String                     @map("ward_id") @db.Uuid
   callId      String                     @map("call_id") @db.Uuid
-  childText   String                     @map("child_text")    // Child text chunk for search
+  childText   String                     @map("child_text")    // 헤더가 포함된 검색용 청크 (header + content)
+  chunkHeader String?                    @map("chunk_header")  // 문맥 헤더 [날짜 | 주제 | 키워드]
   embedding   Unsupported("vector(1024)")?                     // Bedrock Titan V2 embedding (1024 dimensions)
   offsetStart Int                        @map("offset_start")  // Start position in parent text
   offsetEnd   Int                        @map("offset_end")    // End position in parent text
-  metadata    Json?                                            // { speaker, topics, etc. }
+  metadata    Json?                                            // { speaker, topics, keywords, etc. }
   createdAt   DateTime                   @default(now()) @map("created_at")
 
   // Relations

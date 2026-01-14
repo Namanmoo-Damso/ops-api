@@ -3,6 +3,7 @@ import {
   BedrockRuntimeClient,
   InvokeModelCommand,
 } from '@aws-sdk/client-bedrock-runtime';
+import { createBedrockRuntimeClient } from '../bedrock/bedrock-client.factory';
 
 /**
  * RAG Embedding Service
@@ -39,20 +40,8 @@ export class RagEmbeddingService implements OnModuleInit {
 
   async onModuleInit() {
     const awsRegion = process.env.AWS_REGION || 'ap-northeast-2';
-    const awsAccessKeyId = process.env.AWS_ACCESS_KEY_ID;
-    const awsSecretAccessKey = process.env.AWS_SECRET_ACCESS_KEY;
 
-    if (!awsAccessKeyId || !awsSecretAccessKey) {
-      throw new Error('AWS credentials are required for embedding service');
-    }
-
-    this.bedrockClient = new BedrockRuntimeClient({
-      region: awsRegion,
-      credentials: {
-        accessKeyId: awsAccessKeyId,
-        secretAccessKey: awsSecretAccessKey,
-      },
-    });
+    this.bedrockClient = createBedrockRuntimeClient({ region: awsRegion });
 
     this.logger.log(
       `Embedding service initialized: ${this.EMBEDDING_MODEL} (${this.VECTOR_DIMENSIONS}D)`,
@@ -174,25 +163,31 @@ export class RagEmbeddingService implements OnModuleInit {
   /**
    * Check if error is retryable
    */
-  private isRetryableError(error: any): boolean {
+  private isRetryableError(error: unknown): boolean {
+    const err = error as {
+      code?: string;
+      name?: string;
+      $metadata?: { httpStatusCode?: number };
+    };
+
     if (
-      error.code === 'ECONNRESET' ||
-      error.code === 'ETIMEDOUT' ||
-      error.code === 'ENOTFOUND'
+      err.code === 'ECONNRESET' ||
+      err.code === 'ETIMEDOUT' ||
+      err.code === 'ENOTFOUND'
     ) {
       return true;
     }
 
     if (
-      error.name === 'ThrottlingException' ||
-      error.name === 'TooManyRequestsException'
+      err.name === 'ThrottlingException' ||
+      err.name === 'TooManyRequestsException'
     ) {
       return true;
     }
 
     if (
-      error.name === 'ServiceUnavailableException' ||
-      error.$metadata?.httpStatusCode === 503
+      err.name === 'ServiceUnavailableException' ||
+      err.$metadata?.httpStatusCode === 503
     ) {
       return true;
     }
