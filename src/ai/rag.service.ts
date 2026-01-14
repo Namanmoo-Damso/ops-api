@@ -171,28 +171,22 @@ export class RagService implements OnModuleInit {
 
     try {
       // Step 1-2: 요약 + 청크 생성 + 임베딩 (Single LLM Call)
-      const { summaryResult, embeddedChunks } =
+      const summaryResult =
         await this.processor.processWithDenseSummary(transcripts, callDate);
 
       this.logger.log(
         `✅ Dense summary generated: ${summaryResult.metadata.chunkCount} chunks`,
       );
 
-      // 임베딩 실패 체크
-      if (embeddedChunks.length === 0) {
-        this.logger.warn(
-          `⚠️ All embeddings failed for call=${callId}. Falling back to raw indexing.`,
-        );
-        await this.indexWithRawTranscripts(callId, wardId, transcripts);
-        return;
-      }
-
       // Step 3: DB 저장 (트랜잭션)
+      const embeddedChunkBatches = this.processor.embedContextualChunksInBatches(
+        summaryResult.chunks,
+      );
       const parentId = await this.repository.saveWithDenseSummary(
         wardId,
         callId,
         summaryResult,
-        embeddedChunks,
+        embeddedChunkBatches,
         callStartKst,
         transcripts,
       );
@@ -227,41 +221,38 @@ export class RagService implements OnModuleInit {
       `Created ${parentChunks.length} parent chunks for indexing`,
     );
 
-    // Step 2: 각 Parent 청크 처리 (병렬)
-    const indexPromises = parentChunks.map(async parentChunk => {
-      const { parentTextWithDate, embeddedChildren, metadata } =
-        await this.processor.processParentChunk(parentChunk, wardId, callId);
+    // Step 2: 각 Parent 청크 처리 (순차 처리)
+    let successCount = 0;
+    let failureCount = 0;
 
-      if (embeddedChildren.length === 0) {
-        throw new Error('No children generated for parent chunk');
-      }
+    for (const parentChunk of parentChunks) {
+      try {
+        const { parentTextWithDate, embeddedChildren, metadata } =
+          await this.processor.processParentChunk(parentChunk, wardId, callId);
 
-      return this.repository.saveWithRawChunks(
-        wardId,
-        callId,
-        parentTextWithDate,
-        embeddedChildren,
-        metadata,
-      );
-    });
+        if (embeddedChildren.length === 0) {
+          throw new Error('No children generated for parent chunk');
+        }
 
-    const results = await Promise.allSettled(indexPromises);
-
-    // 결과 분석
-    const failures = results.filter(r => r.status === 'rejected');
-    const successCount = results.length - failures.length;
-
-    if (failures.length > 0) {
-      this.logger.warn(
-        `⚠️ Indexed ${successCount}/${parentChunks.length} parent chunks for call=${callId}. ${failures.length} failed.`,
-      );
-
-      for (const failure of failures) {
-        const reason = (failure as PromiseRejectedResult).reason;
-        const message =
-          reason instanceof Error ? reason.message : String(reason);
+        await this.repository.saveWithRawChunks(
+          wardId,
+          callId,
+          parentTextWithDate,
+          embeddedChildren,
+          metadata,
+        );
+        successCount += 1;
+      } catch (error) {
+        failureCount += 1;
+        const message = error instanceof Error ? error.message : String(error);
         this.logger.error(`Parent chunk failed: ${message}`);
       }
+    }
+
+    if (failureCount > 0) {
+      this.logger.warn(
+        `⚠️ Indexed ${successCount}/${parentChunks.length} parent chunks for call=${callId}. ${failureCount} failed.`,
+      );
 
       if (successCount === 0) {
         throw new Error(

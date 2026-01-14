@@ -3,6 +3,7 @@ import {
   BedrockRuntimeClient,
   InvokeModelCommand,
 } from '@aws-sdk/client-bedrock-runtime';
+import { RagConfig } from './rag.config';
 import {
   TranscriptLine,
   ContextualChunk,
@@ -28,66 +29,17 @@ export class RagSummaryService implements OnModuleInit {
   private readonly logger = new Logger(RagSummaryService.name);
   private bedrockClient: BedrockRuntimeClient | null = null;
 
-  // LLM 설정
-  private readonly LLM_MODEL =
-    process.env.BEDROCK_SUMMARY_MODEL ||
-    process.env.BEDROCK_MODEL ||
-    'anthropic.claude-3-5-sonnet-20241022-v2:0';
-  private readonly MAX_TOKENS = parseInt(
-    process.env.SUMMARY_MAX_TOKENS || '4000',
-    10,
-  );
-
-  // 청킹 설정
-  private readonly TARGET_CHUNK_SIZE = parseInt(
-    process.env.RAG_CONTEXTUAL_CHUNK_SIZE || '150',
-    10,
-  );
-  private readonly MAX_CHUNK_SIZE = parseInt(
-    process.env.RAG_CONTEXTUAL_CHUNK_MAX || '200',
-    10,
-  );
-
-  // Token Limit 대응
-  private readonly MAX_INPUT_CHARS = parseInt(
-    process.env.RAG_MAX_INPUT_CHARS || '15000',
-    10,
-  );
-
-  // 재시도 설정
-  private readonly MAX_RETRIES = parseInt(
-    process.env.BEDROCK_MAX_RETRIES || '3',
-    10,
-  );
-  private readonly RETRY_DELAY = parseInt(
-    process.env.BEDROCK_RETRY_DELAY_MS || '1000',
-    10,
-  );
-
-  private readonly DEBUG_LOGS = process.env.RAG_DEBUG_LOGS === 'true';
+  constructor(private readonly config: RagConfig) {}
 
   async onModuleInit() {
     const awsRegion = process.env.AWS_REGION || 'ap-northeast-2';
-    const awsAccessKeyId = process.env.AWS_ACCESS_KEY_ID;
-    const awsSecretAccessKey = process.env.AWS_SECRET_ACCESS_KEY;
-
-    if (!awsAccessKeyId || !awsSecretAccessKey) {
-      this.logger.warn(
-        'AWS credentials not provided - summary service will use fallback mode',
-      );
-      return;
-    }
 
     this.bedrockClient = new BedrockRuntimeClient({
       region: awsRegion,
-      credentials: {
-        accessKeyId: awsAccessKeyId,
-        secretAccessKey: awsSecretAccessKey,
-      },
     });
 
     this.logger.log(
-      `Summary service initialized: ${this.LLM_MODEL} (chunk size: ${this.TARGET_CHUNK_SIZE}-${this.MAX_CHUNK_SIZE})`,
+      `Summary service initialized: ${this.config.summaryModel} (chunk size: ${this.config.contextualChunkSize}-${this.config.contextualChunkMax}, timeout: ${this.config.summaryRequestTimeoutMs}ms)`,
     );
   }
 
@@ -114,9 +66,9 @@ export class RagSummaryService implements OnModuleInit {
     );
 
     // Token Limit 체크: 너무 긴 대화는 분할 처리
-    if (originalLength > this.MAX_INPUT_CHARS) {
+    if (originalLength > this.config.maxInputChars) {
       this.logger.warn(
-        `Input too long (${originalLength} > ${this.MAX_INPUT_CHARS}), splitting into segments`,
+        `Input too long (${originalLength} > ${this.config.maxInputChars}), splitting into segments`,
       );
       return this.generateSummaryForLongConversation(transcripts, callDate);
     }
@@ -217,16 +169,18 @@ export class RagSummaryService implements OnModuleInit {
 
     let lastError: Error | null = null;
 
-    for (let attempt = 0; attempt < this.MAX_RETRIES; attempt++) {
+    for (let attempt = 0; attempt < this.config.bedrockMaxRetries; attempt++) {
       try {
         const response = await this.callClaude(systemPrompt, userPrompt);
         return this.parseResponse(response, callDate);
       } catch (error) {
         lastError = error;
-        if (attempt < this.MAX_RETRIES - 1) {
-          const delay = this.RETRY_DELAY * Math.pow(2, attempt);
+        if (attempt < this.config.bedrockMaxRetries - 1) {
+          const delay =
+            this.config.bedrockRetryDelayMs *
+            Math.pow(this.config.bedrockRetryBackoffFactor, attempt);
           this.logger.warn(
-            `LLM call failed (attempt ${attempt + 1}/${this.MAX_RETRIES}): ${error.message}. Retrying in ${delay}ms`,
+            `LLM call failed (attempt ${attempt + 1}/${this.config.bedrockMaxRetries}): ${error.message}. Retrying in ${delay}ms`,
           );
           await this.sleep(delay);
         }
@@ -243,9 +197,13 @@ export class RagSummaryService implements OnModuleInit {
     systemPrompt: string,
     userPrompt: string,
   ): Promise<string> {
+    if (!this.bedrockClient) {
+      throw new Error('Bedrock client not initialized');
+    }
+
     const requestBody = {
       anthropic_version: 'bedrock-2023-05-31',
-      max_tokens: this.MAX_TOKENS,
+      max_tokens: this.config.summaryMaxTokens,
       system: systemPrompt,
       messages: [
         {
@@ -256,20 +214,35 @@ export class RagSummaryService implements OnModuleInit {
     };
 
     const command = new InvokeModelCommand({
-      modelId: this.LLM_MODEL,
+      modelId: this.config.summaryModel,
       body: JSON.stringify(requestBody),
       contentType: 'application/json',
       accept: 'application/json',
     });
 
-    const response = await this.bedrockClient!.send(command);
-    const responseBody = JSON.parse(new TextDecoder().decode(response.body));
+    const timeoutMs = this.config.summaryRequestTimeoutMs;
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
 
-    if (!responseBody.content || !responseBody.content[0]?.text) {
-      throw new Error('Invalid response from Claude');
+    try {
+      const response = await this.bedrockClient.send(command, {
+        abortSignal: controller.signal,
+      });
+      const responseBody = JSON.parse(new TextDecoder().decode(response.body));
+
+      if (!responseBody.content || !responseBody.content[0]?.text) {
+        throw new Error('Invalid response from Claude');
+      }
+
+      return responseBody.content[0].text;
+    } catch (error) {
+      if (error?.name === 'AbortError') {
+        throw new Error(`LLM request timed out after ${timeoutMs}ms`);
+      }
+      throw error;
+    } finally {
+      clearTimeout(timeoutId);
     }
-
-    return responseBody.content[0].text;
   }
 
   /**
@@ -441,7 +414,10 @@ JSON 형식으로만 응답해.`;
     let currentPos = 0;
 
     while (currentPos < text.length) {
-      let endPos = Math.min(currentPos + this.MAX_CHUNK_SIZE, text.length);
+      let endPos = Math.min(
+        currentPos + this.config.contextualChunkMax,
+        text.length,
+      );
 
       // 문장 경계 찾기
       if (endPos < text.length) {
@@ -587,7 +563,7 @@ JSON 형식으로만 응답해.`;
       const lineLength = `[${transcript.speaker}]: ${transcript.text}`.length;
 
       if (
-        currentLength + lineLength > this.MAX_INPUT_CHARS &&
+        currentLength + lineLength > this.config.maxInputChars &&
         currentSegment.length > 0
       ) {
         segments.push(currentSegment);
@@ -628,7 +604,7 @@ JSON 형식으로만 응답해.`;
   }
 
   private debug(message: string): void {
-    if (this.DEBUG_LOGS) {
+    if (this.config.debugLogs) {
       this.logger.debug(message);
     }
   }

@@ -45,19 +45,15 @@ export class RagProcessor {
    *
    * Flow:
    * 1. LLM으로 요약 + 청크 생성 (Single Call)
-   * 2. 각 청크 임베딩 생성 (배치 처리)
    *
    * @param transcripts 원본 스크립트 배열
    * @param callDate 통화 날짜 (YYYY-MM-DD)
-   * @returns 요약 결과 + 임베딩된 청크 배열
+   * @returns 요약 결과
    */
   async processWithDenseSummary(
     transcripts: TranscriptLine[],
     callDate: string,
-  ): Promise<{
-    summaryResult: DenseSummaryResult;
-    embeddedChunks: EmbeddedChunk[];
-  }> {
+  ): Promise<DenseSummaryResult> {
     this.debug(`🚀 Starting Dense Summary processing: ${transcripts.length} lines`);
 
     // Step 1: LLM으로 요약 + 청크 생성
@@ -75,26 +71,21 @@ export class RagProcessor {
       throw new Error('No chunks generated from summary');
     }
 
-    // Step 2: 각 청크 임베딩 생성 (헤더 포함 텍스트)
-    const embeddedChunks = await this.embedContextualChunks(summaryResult.chunks);
-
-    this.debug(`✅ Embedded ${embeddedChunks.length} contextual chunks`);
-
-    return { summaryResult, embeddedChunks };
+    return summaryResult;
   }
 
   /**
-   * 문맥 청크 배열에 임베딩 생성 (배치 처리)
+   * 문맥 청크 배열에 임베딩 생성 (배치 처리, 스트리밍)
    */
-  private async embedContextualChunks(
+  async *embedContextualChunksInBatches(
     chunks: DenseSummaryResult['chunks'],
-  ): Promise<EmbeddedChunk[]> {
-    const embeddedChunks: EmbeddedChunk[] = [];
+  ): AsyncGenerator<EmbeddedChunk[]> {
     const BATCH_SIZE = this.config.embeddingBatchSize;
 
     for (let batchStart = 0; batchStart < chunks.length; batchStart += BATCH_SIZE) {
       const batchEnd = Math.min(batchStart + BATCH_SIZE, chunks.length);
       const batch = chunks.slice(batchStart, batchEnd);
+      const embeddedBatch: EmbeddedChunk[] = [];
 
       for (let i = 0; i < batch.length; i++) {
         const chunk = batch[i];
@@ -103,7 +94,7 @@ export class RagProcessor {
           const embedding = await this.embeddingService.generateEmbedding(
             chunk.fullText,
           );
-          embeddedChunks.push({
+          embeddedBatch.push({
             chunk,
             embeddingStr: JSON.stringify(embedding),
             index: batchStart + i,
@@ -114,9 +105,11 @@ export class RagProcessor {
           );
         }
       }
-    }
 
-    return embeddedChunks;
+      if (embeddedBatch.length > 0) {
+        yield embeddedBatch;
+      }
+    }
   }
 
   // ==========================================================================

@@ -23,6 +23,7 @@ export class RagConfig implements OnModuleInit {
   readonly llmModel: string;
   readonly summaryModel: string;
   readonly summaryMaxTokens: number;
+  readonly summaryRequestTimeoutMs: number;
 
   // ==========================================================================
   // 임베딩 설정
@@ -96,6 +97,11 @@ export class RagConfig implements OnModuleInit {
       process.env.SUMMARY_MAX_TOKENS,
       4000,
       'SUMMARY_MAX_TOKENS',
+    );
+    this.summaryRequestTimeoutMs = this.parseIntSafe(
+      process.env.BEDROCK_SUMMARY_TIMEOUT_MS,
+      30000,
+      'BEDROCK_SUMMARY_TIMEOUT_MS',
     );
 
     // 임베딩 설정
@@ -223,6 +229,9 @@ export class RagConfig implements OnModuleInit {
     this.logger.log(`[LLM] Model: ${this.llmModel}`);
     this.logger.log(`[LLM] Summary Model: ${this.summaryModel}`);
     this.logger.log(`[LLM] Summary Max Tokens: ${this.summaryMaxTokens}`);
+    this.logger.log(
+      `[LLM] Summary Timeout: ${this.summaryRequestTimeoutMs}ms`,
+    );
 
     // 임베딩 설정 로그
     this.logger.log(`[Embedding] Model: ${this.embeddingModel}`);

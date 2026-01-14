@@ -39,19 +39,9 @@ export class RagEmbeddingService implements OnModuleInit {
 
   async onModuleInit() {
     const awsRegion = process.env.AWS_REGION || 'ap-northeast-2';
-    const awsAccessKeyId = process.env.AWS_ACCESS_KEY_ID;
-    const awsSecretAccessKey = process.env.AWS_SECRET_ACCESS_KEY;
-
-    if (!awsAccessKeyId || !awsSecretAccessKey) {
-      throw new Error('AWS credentials are required for embedding service');
-    }
 
     this.bedrockClient = new BedrockRuntimeClient({
       region: awsRegion,
-      credentials: {
-        accessKeyId: awsAccessKeyId,
-        secretAccessKey: awsSecretAccessKey,
-      },
     });
 
     this.logger.log(

@@ -30,7 +30,7 @@ export class RagRepository {
    * @param wardId 어르신 ID
    * @param callId 통화 ID
    * @param summaryResult LLM 요약 결과
-   * @param embeddedChunks 임베딩된 청크 배열
+   * @param embeddedChunkBatches 임베딩된 청크 배치 스트림
    * @param callStartKst 통화 시작 시간 (KST)
    * @param transcripts 원본 스크립트 (백업용)
    * @returns 생성된 Parent ID
@@ -39,7 +39,7 @@ export class RagRepository {
     wardId: string,
     callId: string,
     summaryResult: DenseSummaryResult,
-    embeddedChunks: EmbeddedChunk[],
+    embeddedChunkBatches: AsyncIterable<EmbeddedChunk[]>,
     callStartKst: Date,
     transcripts: TranscriptLine[],
   ): Promise<string> {
@@ -67,6 +67,7 @@ export class RagRepository {
     };
 
     let parentId: string | null = null;
+    let insertedChildren = 0;
 
     await this.prisma.$transaction(async tx => {
       const parentMetadataStr = JSON.stringify(parentMetadata);
@@ -94,14 +95,12 @@ export class RagRepository {
       }
 
       // Children 삽입 (배치 처리)
-      const BATCH_SIZE = 50;
-      for (
-        let batchStart = 0;
-        batchStart < embeddedChunks.length;
-        batchStart += BATCH_SIZE
-      ) {
-        const batchEnd = Math.min(batchStart + BATCH_SIZE, embeddedChunks.length);
-        const batch = embeddedChunks.slice(batchStart, batchEnd);
+      for await (const batch of embeddedChunkBatches) {
+        if (batch.length === 0) {
+          continue;
+        }
+
+        insertedChildren += batch.length;
 
         const values = batch.map(row => {
           const childMetadata = {
@@ -139,10 +138,14 @@ export class RagRepository {
           `,
         );
       }
+
+      if (insertedChildren === 0) {
+        throw new Error('No embedded chunks to save');
+      }
     });
 
     this.logger.debug(
-      `✅ Saved Dense Summary: parentId=${parentId}, ${embeddedChunks.length} children`,
+      `✅ Saved Dense Summary: parentId=${parentId}, ${insertedChildren} children`,
     );
 
     return parentId!;
