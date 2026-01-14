@@ -15,9 +15,11 @@
 // 검색 관련 타입
 // =============================================================================
 
+export type RagMetadata = Record<string, unknown>;
+
 export interface SearchResult {
   text: string;
-  metadata: any;
+  metadata: RagMetadata;
   similarity: number;
   createdAt: string;
   callId: string;

@@ -1,7 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { Prisma } from '@prisma/client';
-import { SearchResult } from './rag.types';
+import { RagMetadata, SearchResult } from './rag.types';
 import { getWindowContext } from './rag.utils';
 
 /**
@@ -67,7 +67,7 @@ export class RagSearchService {
           parent_text: string;
           offset_start: number;
           offset_end: number;
-          metadata: any;
+          metadata: RagMetadata;
           similarity: number;
           created_at: Date;
           call_id: string;

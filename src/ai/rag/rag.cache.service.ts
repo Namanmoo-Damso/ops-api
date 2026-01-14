@@ -2,7 +2,7 @@ import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { Prisma } from '@prisma/client';
 import { createClient, type RedisClientType } from 'redis';
-import { SearchResult, ContextResult } from './rag.types';
+import { ContextResult, RagMetadata, SearchResult } from './rag.types';
 import { cosineSimilarity } from './rag.utils';
 
 /**
@@ -80,7 +80,7 @@ export class RagCacheService implements OnModuleInit {
           child_text: string;
           chunk_header: string | null;
           embedding: string;
-          metadata: any;
+          metadata: RagMetadata;
           created_at: Date;
           call_id: string;
           parent_id: string;
@@ -166,7 +166,7 @@ export class RagCacheService implements OnModuleInit {
       chunk_text?: string;
       chunk_header?: string | null;
       embedding: string;
-      metadata: any;
+      metadata: RagMetadata;
       created_at: string;
       call_id: string;
       parent_id?: string;
@@ -175,7 +175,7 @@ export class RagCacheService implements OnModuleInit {
       chunk_text?: string;
       chunk_header?: string | null;
       embedding: string;
-      metadata: any;
+      metadata: RagMetadata;
       created_at: string;
       call_id: string;
       parent_id?: string;
@@ -270,13 +270,13 @@ export class RagCacheService implements OnModuleInit {
             chunk_text?: string;
             chunk_header?: string | null;
             created_at: string;
-            metadata?: any;
+            metadata?: RagMetadata;
           }> = cached.vectors as Array<{
             child_text?: string;
             chunk_text?: string;
             chunk_header?: string | null;
             created_at: string;
-            metadata?: any;
+            metadata?: RagMetadata;
           }>;
 
           return vectors

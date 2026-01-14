@@ -3,6 +3,7 @@ import {
   BedrockRuntimeClient,
   InvokeModelCommand,
 } from '@aws-sdk/client-bedrock-runtime';
+import { createBedrockRuntimeClient } from '../bedrock/bedrock-client.factory';
 import { RagConfig } from './rag.config';
 import {
   TranscriptLine,
@@ -34,8 +35,9 @@ export class RagSummaryService implements OnModuleInit {
   async onModuleInit() {
     const awsRegion = process.env.AWS_REGION || 'ap-northeast-2';
 
-    this.bedrockClient = new BedrockRuntimeClient({
+    this.bedrockClient = createBedrockRuntimeClient({
       region: awsRegion,
+      requestTimeoutMs: this.config.summaryRequestTimeoutMs,
     });
 
     this.logger.log(
@@ -228,7 +230,12 @@ export class RagSummaryService implements OnModuleInit {
       const response = await this.bedrockClient.send(command, {
         abortSignal: controller.signal,
       });
-      const responseBody = JSON.parse(new TextDecoder().decode(response.body));
+      type BedrockClaudeResponse = {
+        content?: Array<{ text?: string }>;
+      };
+      const responseBody = JSON.parse(
+        new TextDecoder().decode(response.body),
+      ) as BedrockClaudeResponse;
 
       if (!responseBody.content || !responseBody.content[0]?.text) {
         throw new Error('Invalid response from Claude');
@@ -348,16 +355,22 @@ JSON 형식으로만 응답해.`;
         }
       }
 
-      const parsed = JSON.parse(jsonStr);
+      type LlmChunk = { header?: string; content?: string };
+      type LlmResponse = {
+        summary?: string;
+        chunks?: LlmChunk[];
+        topics?: string[];
+        keywords?: string[];
+      };
+
+      const parsed = JSON.parse(jsonStr) as LlmResponse;
 
       // 청크 배열 변환
-      const chunks: ContextualChunk[] = (parsed.chunks || []).map(
-        (chunk: any) => ({
-          header: chunk.header || `[${callDate} | 기타 | 대화]`,
-          content: chunk.content || '',
-          fullText: `${chunk.header || ''} ${chunk.content || ''}`.trim(),
-        }),
-      );
+      const chunks: ContextualChunk[] = (parsed.chunks || []).map(chunk => ({
+        header: chunk.header || `[${callDate} | 기타 | 대화]`,
+        content: chunk.content || '',
+        fullText: `${chunk.header || ''} ${chunk.content || ''}`.trim(),
+      }));
 
       return {
         summaryText: parsed.summary || '',
