@@ -7,6 +7,7 @@ import {
   HttpStatus,
   Param,
   ParseUUIDPipe,
+  Post,
   Put,
   Query,
   UseGuards,
@@ -20,11 +21,13 @@ import {
   IsInt,
   IsOptional,
   IsString,
+  IsUUID,
   Max,
   Min,
 } from 'class-validator';
 import { Transform, Type } from 'class-transformer';
 import { DbService } from '../../database';
+import { StaffService } from '../staff/staff.service';
 import {
   AdminOrganizationGuard,
   CurrentAdmin,
@@ -148,6 +151,12 @@ interface BeneficiaryDetailResponse {
   };
 }
 
+class ReassignStaffDto {
+  @IsOptional()
+  @IsUUID()
+  staffId?: string | null;
+}
+
 @Controller('v1/admin/beneficiaries')
 @UseGuards(AdminOrganizationGuard)
 @UsePipes(
@@ -157,7 +166,10 @@ interface BeneficiaryDetailResponse {
   }),
 )
 export class BeneficiariesController {
-  constructor(private readonly dbService: DbService) {}
+  constructor(
+    private readonly dbService: DbService,
+    private readonly staffService: StaffService,
+  ) {}
 
   @Get()
   async list(
@@ -307,6 +319,35 @@ export class BeneficiariesController {
     }
 
     return { data: updated };
+  }
+
+  @Post(':id/reassign')
+  async reassignStaff(
+    @CurrentAdmin() admin: { organization_id?: string },
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @Body() body: ReassignStaffDto,
+  ): Promise<{ success: boolean; message: string }> {
+    const organizationId = this.getOrganizationId(admin);
+
+    const result = await this.staffService.reassignWard(
+      organizationId,
+      id,
+      body.staffId ?? null,
+    );
+
+    if (!result.success) {
+      throw new HttpException(
+        '대상자 또는 직원을 찾을 수 없습니다.',
+        HttpStatus.NOT_FOUND,
+      );
+    }
+
+    return {
+      success: true,
+      message: body.staffId
+        ? '담당자가 변경되었습니다.'
+        : '담당자가 해제되었습니다.',
+    };
   }
 
   private getOrganizationId(admin: { organization_id?: string }): string {

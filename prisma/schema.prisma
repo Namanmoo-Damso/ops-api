@@ -556,19 +556,11 @@ model Admin {
   lastLoginAt    DateTime? @map("last_login_at")
   createdAt      DateTime  @default(now()) @map("created_at")
   updatedAt      DateTime  @default(now()) @updatedAt @map("updated_at")
-  // Staff scheduling fields
-  team           String?                       // '방문 1팀' | '방문 2팀' | '방문 3팀'
-  jobTitle       String?   @map("job_title")   // '사회복지사' | '팀장'
-  phoneNumber    String?   @map("phone_number")
-  maxCapacity    Int       @default(20) @map("max_capacity")
-
   // Relations
   organization           Organization?        @relation(fields: [organizationId], references: [id], onDelete: SetNull)
   permissions            AdminPermission[]
   refreshTokens          AdminRefreshToken[]
   uploadedWards          OrganizationWard[]
-  wardAssignments        WardAssignment[]     @relation("AdminAssignments")
-  assignedByAssignments  WardAssignment[]     @relation("AssignedByAdmin")
   bulletins              Bulletin[]
 
   @@unique([provider, providerId])
@@ -744,29 +736,49 @@ model EmotionSummary {
 }
 
 // =============================================================================
-// 28. WARD_ASSIGNMENTS - 직원-대상자 배정
+// 28. STAFF - 직원 (단순 배정용, 인증 없음)
+// =============================================================================
+model Staff {
+  id             String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organizationId String   @map("organization_id") @db.Uuid
+  name           String
+  email          String?
+  phoneNumber    String?  @map("phone_number")
+  team           String?  // '방문 1팀' | '방문 2팀' | '방문 3팀'
+  jobTitle       String?  @map("job_title") // '사회복지사' | '팀장'
+  isActive       Boolean  @default(true) @map("is_active")
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @default(now()) @updatedAt @map("updated_at")
+
+  // Relations
+  wardAssignments WardAssignment[]
+
+  @@index([organizationId])
+  @@index([organizationId, isActive])
+  @@map("staff")
+}
+
+// =============================================================================
+// 29. WARD_ASSIGNMENTS - 직원-대상자 배정
 // =============================================================================
 model WardAssignment {
   id                 String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  adminId            String   @map("admin_id") @db.Uuid
+  staffId            String   @map("staff_id") @db.Uuid
   organizationWardId String   @map("organization_ward_id") @db.Uuid
   assignedAt         DateTime @default(now()) @map("assigned_at")
-  assignedById       String?  @map("assigned_by") @db.Uuid
   isActive           Boolean  @default(true) @map("is_active")
   notes              String?
   createdAt          DateTime @default(now()) @map("created_at")
   updatedAt          DateTime @default(now()) @updatedAt @map("updated_at")
 
   // Relations
-  admin            Admin            @relation("AdminAssignments", fields: [adminId], references: [id], onDelete: Cascade)
+  staff            Staff            @relation(fields: [staffId], references: [id], onDelete: Cascade)
   organizationWard OrganizationWard @relation(fields: [organizationWardId], references: [id], onDelete: Cascade)
-  assignedBy       Admin?           @relation("AssignedByAdmin", fields: [assignedById], references: [id], onDelete: SetNull)
 
-  @@unique([adminId, organizationWardId])
-  @@index([adminId])
+  @@unique([staffId, organizationWardId])
+  @@index([staffId])
   @@index([organizationWardId])
-  @@index([adminId, isActive])
-  @@index([assignedById])
+  @@index([staffId, isActive])
   @@map("ward_assignments")
 }
 

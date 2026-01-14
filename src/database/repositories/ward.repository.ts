@@ -618,6 +618,15 @@ export class WardRepository {
           },
         },
         detail: { select: { notes: true } },
+        wardAssignments: {
+          where: { isActive: true },
+          take: 1,
+          include: {
+            staff: {
+              select: { id: true, name: true },
+            },
+          },
+        },
       },
     });
 
@@ -654,6 +663,7 @@ export class WardRepository {
         ? (lastCallMap.get(userId)?.toISOString() ?? null)
         : null;
       const totalCalls = userId ? (countMap.get(userId) ?? 0).toString() : '0';
+      const assignedStaff = ow.wardAssignments[0]?.staff ?? null;
 
       return {
         id: ow.id,
@@ -665,12 +675,15 @@ export class WardRepository {
         birth_date: ow.birthDate?.toISOString().split('T')[0] ?? null,
         address: ow.address,
         notes: ow.detail?.notes ?? null,
+        gender: ow.gender ?? null,
         is_registered: ow.isRegistered,
         ward_id: ow.wardId,
         created_at: ow.createdAt.toISOString(),
         last_call_at: lastCallAt,
         total_calls: totalCalls,
         last_mood: ow.ward?.callSummaries[0]?.mood ?? null,
+        assigned_staff_id: assignedStaff?.id ?? null,
+        assigned_staff_name: assignedStaff?.name ?? null,
       };
     });
   }

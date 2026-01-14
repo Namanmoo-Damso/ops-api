@@ -25,7 +25,6 @@ interface SeedStaff {
   phoneNumber: string;
   team: string;
   jobTitle: string;
-  maxCapacity: number;
 }
 
 const SEED_ORGANIZATION_NAME = '담소 관제센터';
@@ -38,7 +37,6 @@ const SEED_STAFF: SeedStaff[] = [
     phoneNumber: '010-1234-5678',
     team: '방문 1팀',
     jobTitle: '팀장',
-    maxCapacity: 25,
   },
   {
     email: 'staff2@damso.kr',
@@ -46,7 +44,6 @@ const SEED_STAFF: SeedStaff[] = [
     phoneNumber: '010-2345-6789',
     team: '방문 1팀',
     jobTitle: '사회복지사',
-    maxCapacity: 20,
   },
   {
     email: 'staff3@damso.kr',
@@ -54,7 +51,6 @@ const SEED_STAFF: SeedStaff[] = [
     phoneNumber: '010-3456-7890',
     team: '방문 2팀',
     jobTitle: '팀장',
-    maxCapacity: 25,
   },
   {
     email: 'staff4@damso.kr',
@@ -62,7 +58,6 @@ const SEED_STAFF: SeedStaff[] = [
     phoneNumber: '010-4567-8901',
     team: '방문 2팀',
     jobTitle: '사회복지사',
-    maxCapacity: 20,
   },
 ];
 
@@ -299,30 +294,26 @@ export class SeedService implements OnModuleInit {
     const staffMembers: Array<{ id: string; name: string }> = [];
 
     for (const staff of SEED_STAFF) {
-      let admin = await this.prisma.admin.findFirst({
-        where: { email: staff.email },
+      let staffRecord = await this.prisma.staff.findFirst({
+        where: { organizationId, email: staff.email },
       });
 
-      if (!admin) {
-        admin = await this.prisma.admin.create({
+      if (!staffRecord) {
+        staffRecord = await this.prisma.staff.create({
           data: {
-            email: staff.email,
-            name: staff.name,
-            provider: 'seed',
-            providerId: `seed_${staff.email}`,
-            role: staff.jobTitle === '팀장' ? 'org_admin' : 'viewer',
             organizationId,
-            isActive: true,
+            name: staff.name,
+            email: staff.email,
+            phoneNumber: staff.phoneNumber,
             team: staff.team,
             jobTitle: staff.jobTitle,
-            phoneNumber: staff.phoneNumber,
-            maxCapacity: staff.maxCapacity,
+            isActive: true,
           },
         });
         this.logger.log(`직원 생성: ${staff.name} (${staff.team})`);
       }
 
-      staffMembers.push({ id: admin.id, name: admin.name ?? staff.name });
+      staffMembers.push({ id: staffRecord.id, name: staffRecord.name });
     }
 
     return staffMembers;
@@ -454,7 +445,7 @@ export class SeedService implements OnModuleInit {
       // Check if assignment exists
       const exists = await this.prisma.wardAssignment.findFirst({
         where: {
-          adminId: staff.id,
+          staffId: staff.id,
           organizationWardId: ward.orgWardId,
         },
       });
@@ -462,7 +453,7 @@ export class SeedService implements OnModuleInit {
       if (!exists) {
         await this.prisma.wardAssignment.create({
           data: {
-            adminId: staff.id,
+            staffId: staff.id,
             organizationWardId: ward.orgWardId,
             isActive: true,
           },
@@ -586,13 +577,23 @@ export class SeedService implements OnModuleInit {
 
   private async seedBulletins(
     organizationId: string,
-    staffMembers: Array<{ id: string; name: string }>,
+    _staffMembers: Array<{ id: string; name: string }>,
   ) {
     const exists = await this.prisma.bulletin.findFirst({
       where: { organizationId },
     });
 
     if (exists) return;
+
+    // Find any admin in this organization to use as author
+    const admin = await this.prisma.admin.findFirst({
+      where: { organizationId },
+    });
+
+    if (!admin) {
+      this.logger.warn('No admin found for bulletins, skipping');
+      return;
+    }
 
     const bulletins = [
       {
@@ -616,13 +617,12 @@ export class SeedService implements OnModuleInit {
     ];
 
     for (let i = 0; i < bulletins.length; i++) {
-      const authorIndex = i % staffMembers.length;
       await this.prisma.bulletin.create({
         data: {
           organizationId,
           title: bulletins[i].title,
           content: bulletins[i].content,
-          authorId: staffMembers[authorIndex].id,
+          authorId: admin.id,
           isPinned: bulletins[i].isPinned,
           createdAt: new Date(Date.now() - i * 24 * 60 * 60 * 1000), // Stagger by days
         },

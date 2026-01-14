@@ -19,11 +19,7 @@ import { validateSync } from 'class-validator';
 import { DbService } from '../../database';
 import { CurrentAdmin } from '../../common';
 import { AdminOrganizationGuard } from '../../common/guards/admin-organization.guard';
-import {
-  BulkUploadWardsDto,
-  CreateWardDto,
-  MatchCsvHeadersDto,
-} from './dto';
+import { BulkUploadWardsDto, CreateWardDto, MatchCsvHeadersDto } from './dto';
 import { CsvHeaderMatcherService } from './csv-header-matcher.service';
 
 @Controller('v1/admin')
@@ -44,7 +40,10 @@ export class WardsManagementController {
 
   private validateWardInput(payload: Partial<CreateWardDto>) {
     const dto = plainToInstance(CreateWardDto, payload);
-    const errors = validateSync(dto, { whitelist: true, forbidUnknownValues: true });
+    const errors = validateSync(dto, {
+      whitelist: true,
+      forbidUnknownValues: true,
+    });
 
     if (errors.length > 0) {
       const constraints = errors[0].constraints;
@@ -105,7 +104,8 @@ export class WardsManagementController {
   @Post('wards/bulk-upload')
   @UseInterceptors(FileInterceptor('file'))
   async bulkUploadWards(
-    @CurrentAdmin() admin: { sub: string; role?: string; organization_id?: string },
+    @CurrentAdmin()
+    admin: { sub: string; role?: string; organization_id?: string },
     @UploadedFile() file: Express.Multer.File,
     @Body() body: BulkUploadWardsDto,
   ) {
@@ -264,12 +264,15 @@ export class WardsManagementController {
         birthDate: w.birth_date,
         address: w.address,
         notes: w.notes,
+        gender: w.gender,
         isRegistered: w.is_registered,
         wardId: w.ward_id,
         createdAt: w.created_at,
         lastCallAt: w.last_call_at,
         totalCalls: parseInt(w.total_calls || '0', 10),
         lastMood: w.last_mood,
+        assignedStaffId: w.assigned_staff_id,
+        assignedStaffName: w.assigned_staff_name,
       })),
       stats,
     };

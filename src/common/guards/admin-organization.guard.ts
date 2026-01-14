@@ -54,11 +54,16 @@ export class AdminOrganizationGuard implements CanActivate {
       throw new ForbiddenException('해당 조직에 대한 권한이 없습니다.');
     }
 
+    // Set admin info with both snake_case and camelCase for compatibility
     request.admin = {
       ...payload,
+      id: admin.id,
       organization_id: admin.organization_id,
+      organizationId: admin.organization_id, // camelCase alias
       is_active: admin.is_active,
     };
+    // Also set organizationId at request level for controllers using req.organizationId
+    request.organizationId = admin.organization_id;
 
     return true;
   }

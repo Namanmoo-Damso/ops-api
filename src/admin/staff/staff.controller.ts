@@ -37,8 +37,8 @@ export class StaffController {
   @Get()
   async listStaff(@Request() req: any, @Query() query: ListStaffQueryDto) {
     const organizationId = req.organizationId;
-    const page = query.page ?? 1;
-    const pageSize = query.pageSize ?? 20;
+    const page = Number(query.page) || 1;
+    const pageSize = Number(query.pageSize) || 20;
 
     const result = await this.staffService.listStaff({
       organizationId,
@@ -81,6 +81,17 @@ export class StaffController {
   }
 
   /**
+   * GET /v1/admin/staff/unassigned-wards
+   * Get list of wards without active staff assignment
+   */
+  @Get('unassigned-wards')
+  async getUnassignedWards(@Request() req: any) {
+    const organizationId = req.organizationId;
+    const wards = await this.staffService.getUnassignedWards(organizationId);
+    return { data: wards };
+  }
+
+  /**
    * GET /v1/admin/staff/:id
    * Get detailed information about a specific staff member
    */
@@ -115,7 +126,6 @@ export class StaffController {
         phoneNumber: dto.phoneNumber,
         team: dto.team,
         jobTitle: dto.jobTitle,
-        maxCapacity: dto.maxCapacity,
       });
 
       return {
@@ -211,15 +221,13 @@ export class StaffController {
     @Body() dto: AssignWardDto,
   ) {
     const organizationId = req.organizationId;
-    const assignedById = req.admin?.id;
 
-    const result = await this.staffService.assignWard({
+    const result = await this.staffService.assignWard(
       organizationId,
       staffId,
-      organizationWardId: dto.organizationWardId,
-      assignedById,
-      notes: dto.notes,
-    });
+      dto.organizationWardId,
+      dto.notes,
+    );
 
     if (!result) {
       throw new HttpException(

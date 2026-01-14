@@ -3,21 +3,18 @@ import { PrismaService } from '../../prisma';
 
 export interface StaffListItem {
   id: string;
-  email: string;
-  name: string | null;
+  name: string;
+  email: string | null;
   phoneNumber: string | null;
   team: string | null;
   jobTitle: string | null;
-  maxCapacity: number;
   isActive: boolean;
   currentAssigned: number;
   createdAt: string;
 }
 
 export interface StaffDetail extends StaffListItem {
-  role: string;
-  organizationId: string | null;
-  lastLoginAt: string | null;
+  organizationId: string;
   updatedAt: string;
 }
 
@@ -25,7 +22,6 @@ export interface StaffAssignment {
   id: string;
   organizationWardId: string;
   wardName: string;
-  wardEmail: string;
   wardPhoneNumber: string;
   assignedAt: string;
   isActive: boolean;
@@ -71,8 +67,8 @@ export class StaffService {
       where.team = team;
     }
 
-    const [admins, total] = await Promise.all([
-      this.prisma.admin.findMany({
+    const [staff, total] = await Promise.all([
+      this.prisma.staff.findMany({
         where,
         skip,
         take: pageSize,
@@ -84,20 +80,19 @@ export class StaffService {
           },
         },
       }),
-      this.prisma.admin.count({ where }),
+      this.prisma.staff.count({ where }),
     ]);
 
-    const data: StaffListItem[] = admins.map(admin => ({
-      id: admin.id,
-      email: admin.email,
-      name: admin.name,
-      phoneNumber: admin.phoneNumber,
-      team: admin.team,
-      jobTitle: admin.jobTitle,
-      maxCapacity: admin.maxCapacity,
-      isActive: admin.isActive,
-      currentAssigned: admin.wardAssignments.length,
-      createdAt: admin.createdAt.toISOString(),
+    const data: StaffListItem[] = staff.map(s => ({
+      id: s.id,
+      name: s.name,
+      email: s.email,
+      phoneNumber: s.phoneNumber,
+      team: s.team,
+      jobTitle: s.jobTitle,
+      isActive: s.isActive,
+      currentAssigned: s.wardAssignments.length,
+      createdAt: s.createdAt.toISOString(),
     }));
 
     return { data, total };
@@ -107,7 +102,7 @@ export class StaffService {
     organizationId: string,
     staffId: string,
   ): Promise<StaffDetail | null> {
-    const admin = await this.prisma.admin.findFirst({
+    const staff = await this.prisma.staff.findFirst({
       where: {
         id: staffId,
         organizationId,
@@ -120,52 +115,44 @@ export class StaffService {
       },
     });
 
-    if (!admin) return null;
+    if (!staff) return null;
 
     return {
-      id: admin.id,
-      email: admin.email,
-      name: admin.name,
-      phoneNumber: admin.phoneNumber,
-      team: admin.team,
-      jobTitle: admin.jobTitle,
-      maxCapacity: admin.maxCapacity,
-      isActive: admin.isActive,
-      role: admin.role,
-      organizationId: admin.organizationId,
-      currentAssigned: admin.wardAssignments.length,
-      lastLoginAt: admin.lastLoginAt?.toISOString() ?? null,
-      createdAt: admin.createdAt.toISOString(),
-      updatedAt: admin.updatedAt.toISOString(),
+      id: staff.id,
+      name: staff.name,
+      email: staff.email,
+      phoneNumber: staff.phoneNumber,
+      team: staff.team,
+      jobTitle: staff.jobTitle,
+      isActive: staff.isActive,
+      organizationId: staff.organizationId,
+      currentAssigned: staff.wardAssignments.length,
+      createdAt: staff.createdAt.toISOString(),
+      updatedAt: staff.updatedAt.toISOString(),
     };
   }
 
   async createStaff(params: {
     organizationId: string;
-    email: string;
     name: string;
+    email?: string;
     phoneNumber?: string;
     team?: string;
     jobTitle?: string;
-    maxCapacity?: number;
   }): Promise<{ id: string }> {
-    const admin = await this.prisma.admin.create({
+    const staff = await this.prisma.staff.create({
       data: {
-        email: params.email,
-        name: params.name,
-        provider: 'manual',
-        providerId: `manual_${params.email}`,
-        role: 'viewer',
         organizationId: params.organizationId,
-        isActive: true,
+        name: params.name,
+        email: params.email,
         phoneNumber: params.phoneNumber,
         team: params.team,
         jobTitle: params.jobTitle,
-        maxCapacity: params.maxCapacity ?? 20,
+        isActive: true,
       },
     });
 
-    return { id: admin.id };
+    return { id: staff.id };
   }
 
   async updateStaff(
@@ -176,24 +163,22 @@ export class StaffService {
       phoneNumber?: string;
       team?: string;
       jobTitle?: string;
-      maxCapacity?: number;
       isActive?: boolean;
     },
   ): Promise<boolean> {
-    const admin = await this.prisma.admin.findFirst({
+    const staff = await this.prisma.staff.findFirst({
       where: { id: staffId, organizationId },
     });
 
-    if (!admin) return false;
+    if (!staff) return false;
 
-    await this.prisma.admin.update({
+    await this.prisma.staff.update({
       where: { id: staffId },
       data: {
         name: data.name,
         phoneNumber: data.phoneNumber,
         team: data.team,
         jobTitle: data.jobTitle,
-        maxCapacity: data.maxCapacity,
         isActive: data.isActive,
       },
     });
@@ -202,21 +187,21 @@ export class StaffService {
   }
 
   async deleteStaff(organizationId: string, staffId: string): Promise<boolean> {
-    const admin = await this.prisma.admin.findFirst({
+    const staff = await this.prisma.staff.findFirst({
       where: { id: staffId, organizationId },
     });
 
-    if (!admin) return false;
+    if (!staff) return false;
 
     // Soft delete - just deactivate
-    await this.prisma.admin.update({
+    await this.prisma.staff.update({
       where: { id: staffId },
       data: { isActive: false },
     });
 
     // Deactivate all assignments
     await this.prisma.wardAssignment.updateMany({
-      where: { adminId: staffId },
+      where: { staffId: staffId },
       data: { isActive: false },
     });
 
@@ -228,13 +213,13 @@ export class StaffService {
     staffId: string,
     activeOnly: boolean = true,
   ): Promise<StaffAssignment[]> {
-    const admin = await this.prisma.admin.findFirst({
+    const staff = await this.prisma.staff.findFirst({
       where: { id: staffId, organizationId },
     });
 
-    if (!admin) return [];
+    if (!staff) return [];
 
-    const whereClause: any = { adminId: staffId };
+    const whereClause: any = { staffId: staffId };
     if (activeOnly) {
       whereClause.isActive = true;
     }
@@ -246,7 +231,6 @@ export class StaffService {
           select: {
             id: true,
             name: true,
-            email: true,
             phoneNumber: true,
           },
         },
@@ -258,7 +242,6 @@ export class StaffService {
       id: a.id,
       organizationWardId: a.organizationWardId,
       wardName: a.organizationWard.name,
-      wardEmail: a.organizationWard.email,
       wardPhoneNumber: a.organizationWard.phoneNumber,
       assignedAt: a.assignedAt.toISOString(),
       isActive: a.isActive,
@@ -266,34 +249,27 @@ export class StaffService {
     }));
   }
 
-  async assignWard(params: {
-    organizationId: string;
-    staffId: string;
-    organizationWardId: string;
-    assignedById?: string;
-    notes?: string;
-  }): Promise<{ id: string } | null> {
+  async assignWard(
+    organizationId: string,
+    staffId: string,
+    organizationWardId: string,
+    notes?: string,
+  ): Promise<{ id: string } | null> {
     // Verify staff belongs to organization
-    const admin = await this.prisma.admin.findFirst({
-      where: { id: params.staffId, organizationId: params.organizationId },
+    const staff = await this.prisma.staff.findFirst({
+      where: { id: staffId, organizationId },
     });
-    if (!admin) return null;
+    if (!staff) return null;
 
     // Verify ward belongs to organization
     const ward = await this.prisma.organizationWard.findFirst({
-      where: {
-        id: params.organizationWardId,
-        organizationId: params.organizationId,
-      },
+      where: { id: organizationWardId, organizationId },
     });
     if (!ward) return null;
 
-    // Check if assignment already exists
+    // Check if assignment exists
     const existing = await this.prisma.wardAssignment.findFirst({
-      where: {
-        adminId: params.staffId,
-        organizationWardId: params.organizationWardId,
-      },
+      where: { staffId, organizationWardId },
     });
 
     if (existing) {
@@ -301,18 +277,18 @@ export class StaffService {
       if (!existing.isActive) {
         await this.prisma.wardAssignment.update({
           where: { id: existing.id },
-          data: { isActive: true, notes: params.notes },
+          data: { isActive: true, notes },
         });
       }
       return { id: existing.id };
     }
 
+    // Create new assignment
     const assignment = await this.prisma.wardAssignment.create({
       data: {
-        adminId: params.staffId,
-        organizationWardId: params.organizationWardId,
-        assignedById: params.assignedById,
-        notes: params.notes,
+        staffId,
+        organizationWardId,
+        notes,
         isActive: true,
       },
     });
@@ -325,13 +301,13 @@ export class StaffService {
     staffId: string,
     assignmentId: string,
   ): Promise<boolean> {
-    const admin = await this.prisma.admin.findFirst({
+    const staff = await this.prisma.staff.findFirst({
       where: { id: staffId, organizationId },
     });
-    if (!admin) return false;
+    if (!staff) return false;
 
     const assignment = await this.prisma.wardAssignment.findFirst({
-      where: { id: assignmentId, adminId: staffId },
+      where: { id: assignmentId, staffId },
     });
     if (!assignment) return false;
 
@@ -343,55 +319,147 @@ export class StaffService {
     return true;
   }
 
-  async getStaffStats(organizationId: string): Promise<StaffStats> {
-    const [staffStats, unassignedCount] = await Promise.all([
-      this.prisma.admin.findMany({
-        where: { organizationId },
-        include: {
-          wardAssignments: {
-            where: { isActive: true },
-            select: { id: true },
-          },
-        },
-      }),
-      this.prisma.organizationWard.count({
-        where: {
-          organizationId,
-          wardAssignments: { none: {} },
-        },
-      }),
-    ]);
+  /**
+   * Reassign a beneficiary to a different staff member.
+   * This deactivates the current assignment (if any) and creates a new one.
+   * If newStaffId is null, only unassigns the current staff.
+   */
+  async reassignWard(
+    organizationId: string,
+    organizationWardId: string,
+    newStaffId: string | null,
+  ): Promise<{ success: boolean; assignmentId?: string }> {
+    // Verify ward belongs to organization
+    const ward = await this.prisma.organizationWard.findFirst({
+      where: { id: organizationWardId, organizationId },
+    });
+    if (!ward) return { success: false };
 
-    const totalStaff = staffStats.length;
-    const activeStaff = staffStats.filter(s => s.isActive).length;
-    const totalAssigned = staffStats.reduce(
-      (sum, s) => sum + s.wardAssignments.length,
-      0,
-    );
-    const avgAssigned = activeStaff > 0 ? totalAssigned / activeStaff : 0;
+    // Deactivate any existing active assignments for this ward
+    await this.prisma.wardAssignment.updateMany({
+      where: { organizationWardId, isActive: true },
+      data: { isActive: false },
+    });
+
+    // If newStaffId is null, we're just unassigning
+    if (!newStaffId) {
+      return { success: true };
+    }
+
+    // Verify new staff belongs to organization
+    const newStaff = await this.prisma.staff.findFirst({
+      where: { id: newStaffId, organizationId },
+    });
+    if (!newStaff) return { success: false };
+
+    // Create new assignment
+    const assignment = await this.prisma.wardAssignment.create({
+      data: {
+        staffId: newStaffId,
+        organizationWardId,
+        isActive: true,
+      },
+    });
+
+    return { success: true, assignmentId: assignment.id };
+  }
+
+  async getStaffStats(organizationId: string): Promise<StaffStats> {
+    const [totalStaff, activeStaff, totalAssigned, unassignedWards] =
+      await Promise.all([
+        this.prisma.staff.count({ where: { organizationId } }),
+        this.prisma.staff.count({ where: { organizationId, isActive: true } }),
+        this.prisma.wardAssignment.count({
+          where: {
+            staff: { organizationId },
+            isActive: true,
+          },
+        }),
+        this.prisma.organizationWard.count({
+          where: {
+            organizationId,
+            wardAssignments: { none: { isActive: true } },
+          },
+        }),
+      ]);
 
     return {
       totalStaff,
       activeStaff,
       totalAssigned,
-      avgAssigned: Math.round(avgAssigned * 10) / 10,
-      unassignedWards: unassignedCount,
+      avgAssigned:
+        activeStaff > 0 ? Math.round(totalAssigned / activeStaff) : 0,
+      unassignedWards,
     };
   }
 
   async getTeams(organizationId: string): Promise<string[]> {
-    const result = await this.prisma.admin.findMany({
-      where: {
-        organizationId,
-        team: { not: null },
-      },
+    const staff = await this.prisma.staff.findMany({
+      where: { organizationId, team: { not: null } },
       select: { team: true },
       distinct: ['team'],
     });
 
-    return result
-      .map(r => r.team)
-      .filter((t): t is string => t !== null)
-      .sort();
+    return staff.map(s => s.team!).filter(Boolean);
+  }
+
+  /**
+   * Create default staff from admin when organization is first accessed
+   */
+  async ensureDefaultStaff(
+    organizationId: string,
+    adminId: string,
+  ): Promise<void> {
+    // Check if any staff exists
+    const existingStaff = await this.prisma.staff.findFirst({
+      where: { organizationId },
+    });
+
+    if (existingStaff) return;
+
+    // Get admin info
+    const admin = await this.prisma.admin.findUnique({
+      where: { id: adminId },
+    });
+
+    if (!admin) return;
+
+    // Create staff from admin
+    await this.prisma.staff.create({
+      data: {
+        organizationId,
+        name: admin.name || '관리자',
+        email: admin.email,
+        isActive: true,
+      },
+    });
+
+    this.logger.log(`Created default staff for organization ${organizationId}`);
+  }
+
+  /**
+   * Get list of unassigned wards (wards without active staff assignments)
+   */
+  async getUnassignedWards(
+    organizationId: string,
+  ): Promise<{ id: string; name: string; phoneNumber: string }[]> {
+    const wards = await this.prisma.organizationWard.findMany({
+      where: {
+        organizationId,
+        wardAssignments: { none: { isActive: true } },
+      },
+      select: {
+        id: true,
+        name: true,
+        phoneNumber: true,
+      },
+      orderBy: { name: 'asc' },
+    });
+
+    return wards.map(w => ({
+      id: w.id,
+      name: w.name,
+      phoneNumber: w.phoneNumber,
+    }));
   }
 }

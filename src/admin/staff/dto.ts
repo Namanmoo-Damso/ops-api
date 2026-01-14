@@ -33,8 +33,9 @@ export class ListStaffQueryDto {
 }
 
 export class CreateStaffDto {
+  @IsOptional()
   @IsEmail()
-  email: string;
+  email?: string;
 
   @IsString()
   name: string;
@@ -50,13 +51,6 @@ export class CreateStaffDto {
   @IsOptional()
   @IsString()
   jobTitle?: string;
-
-  @IsOptional()
-  @Type(() => Number)
-  @IsInt()
-  @Min(1)
-  @Max(100)
-  maxCapacity?: number;
 }
 
 export class UpdateStaffDto {
@@ -75,13 +69,6 @@ export class UpdateStaffDto {
   @IsOptional()
   @IsString()
   jobTitle?: string;
-
-  @IsOptional()
-  @Type(() => Number)
-  @IsInt()
-  @Min(1)
-  @Max(100)
-  maxCapacity?: number;
 
   @IsOptional()
   @Transform(({ value }) => value === 'true' || value === true)
