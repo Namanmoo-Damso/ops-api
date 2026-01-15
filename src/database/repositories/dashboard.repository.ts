@@ -352,6 +352,150 @@ export class DashboardRepository {
   }
 
   /**
+   * Get care alert statistics for the organization
+   * Returns detected alerts count, responded count, and response rate
+   * @param period - 'today' | 'week' | 'month' | 'all' (default: 'today')
+   */
+  async getCareAlertStats(
+    organizationId?: string,
+    period: 'today' | 'week' | 'month' | 'all' = 'today',
+  ) {
+    const now = new Date();
+    let start: Date;
+
+    switch (period) {
+      case 'today':
+        start = new Date(now.setHours(0, 0, 0, 0));
+        break;
+      case 'week':
+        start = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+        break;
+      case 'month':
+        start = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+        break;
+      case 'all':
+        start = new Date(0); // Beginning of time
+        break;
+    }
+
+    const whereClause = organizationId
+      ? Prisma.sql`AND w.organization_id = ${organizationId}::uuid`
+      : Prisma.empty;
+
+    const result = await this.prisma.$queryRaw<
+      Array<{
+        total_detected: bigint;
+        total_responded: bigint;
+      }>
+    >`
+      SELECT
+        count(*) as total_detected,
+        count(*) FILTER (WHERE cae.acknowledged = true) as total_responded
+      FROM care_alert_events cae
+      JOIN wards w ON cae.ward_id = w.id
+      WHERE cae.timestamp >= ${start}
+        AND cae.alert_type != 'emotion'
+        ${whereClause}
+    `;
+
+    const row = result[0];
+    const detected = Number(row.total_detected);
+    const responded = Number(row.total_responded);
+
+    return {
+      detected,
+      responded,
+      responseRate:
+        detected > 0 ? Math.round((responded / detected) * 100) : 100,
+    };
+  }
+
+  /**
+   * Get care alert logs for emergency dashboard
+   * Returns recent care alerts with ward info (real-time, most recent first)
+   * @param hoursBack - How many hours back to look (default: 24)
+   */
+  async getCareAlertLogs(
+    organizationId?: string,
+    options?: {
+      limit?: number;
+      hoursBack?: number;
+    },
+  ) {
+    const limit = options?.limit || 50;
+    const hoursBack = options?.hoursBack || 24;
+    const since = new Date(Date.now() - hoursBack * 60 * 60 * 1000);
+
+    const whereClause = organizationId
+      ? Prisma.sql`AND w.organization_id = ${organizationId}::uuid`
+      : Prisma.empty;
+
+    const result = await this.prisma.$queryRaw<
+      Array<{
+        id: string;
+        ward_id: string;
+        ward_name: string;
+        alert_type: string;
+        severity: string;
+        timestamp: Date;
+        acknowledged: boolean;
+        acknowledged_at: Date | null;
+        room_name: string | null;
+      }>
+    >`
+      SELECT
+        cae.id,
+        cae.ward_id,
+        COALESCE(u.nickname, u.display_name, '알 수 없음') as ward_name,
+        cae.alert_type,
+        cae.severity,
+        cae.timestamp,
+        cae.acknowledged,
+        cae.acknowledged_at,
+        cae.room_name
+      FROM care_alert_events cae
+      JOIN wards w ON cae.ward_id = w.id
+      JOIN users u ON w.user_id = u.id
+      WHERE cae.timestamp >= ${since}
+        AND cae.alert_type != 'emotion'
+        ${whereClause}
+      ORDER BY cae.timestamp DESC
+      LIMIT ${limit}
+    `;
+
+    const countResult = await this.prisma.$queryRaw<Array<{ total: bigint }>>`
+      SELECT count(*) as total
+      FROM care_alert_events cae
+      JOIN wards w ON cae.ward_id = w.id
+      WHERE cae.timestamp >= ${since}
+        AND cae.alert_type != 'emotion'
+        ${whereClause}
+    `;
+
+    const alertTypeLabels: Record<string, string> = {
+      device_fall: '기기 낙상',
+      person_fall: '낙상 감지',
+      loud_voice: '이상 발화',
+    };
+
+    return {
+      logs: result.map(r => ({
+        id: r.id,
+        wardId: r.ward_id,
+        wardName: r.ward_name,
+        type: alertTypeLabels[r.alert_type] || r.alert_type,
+        alertType: r.alert_type,
+        severity: r.severity,
+        timestamp: r.timestamp,
+        status: r.acknowledged ? 'resolved' : 'pending',
+        acknowledgedAt: r.acknowledged_at,
+        roomName: r.room_name,
+      })),
+      total: Number(countResult[0].total),
+    };
+  }
+
+  /**
    * Get hourly call distribution for operations timeline
    * Returns scheduled, actual, and incoming call counts per hour
    */

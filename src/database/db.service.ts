@@ -981,6 +981,23 @@ export class DbService implements OnModuleDestroy {
     return this.dashboard.getHourlyCallDistribution(date);
   }
 
+  async getCareAlertStats(
+    organizationId?: string,
+    period: 'today' | 'week' | 'month' | 'all' = 'today',
+  ) {
+    return this.dashboard.getCareAlertStats(organizationId, period);
+  }
+
+  async getCareAlertLogs(
+    organizationId?: string,
+    options?: {
+      limit?: number;
+      hoursBack?: number;
+    },
+  ) {
+    return this.dashboard.getCareAlertLogs(organizationId, options);
+  }
+
   // ============================================================
   // Transactional methods (Issue #60)
   // ============================================================

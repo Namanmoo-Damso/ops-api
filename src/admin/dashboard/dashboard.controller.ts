@@ -141,4 +141,72 @@ export class DashboardController {
       );
     }
   }
+
+  /**
+   * Get care alert logs for emergency dashboard
+   * Returns recent care alerts detected during calls
+   */
+  @Get('care-alerts')
+  async getCareAlerts(
+    @Query('limit') limitParam?: string,
+    @Query('hoursBack') hoursBackParam?: string,
+  ) {
+    const limit = limitParam ? parseInt(limitParam, 10) : 50;
+    const hoursBack = hoursBackParam ? parseInt(hoursBackParam, 10) : 24;
+
+    this.logger.log(
+      `getCareAlerts called limit=${limit} hoursBack=${hoursBack}`,
+    );
+
+    try {
+      const result = await this.dbService.getCareAlertLogs(undefined, {
+        limit,
+        hoursBack,
+      });
+
+      return {
+        ...result,
+        fetchedAt: new Date().toISOString(),
+      };
+    } catch (error) {
+      this.logger.warn(
+        `getCareAlerts failed error=${(error as Error).message}`,
+      );
+      throw new HttpException(
+        'Failed to fetch care alerts',
+        HttpStatus.INTERNAL_SERVER_ERROR,
+      );
+    }
+  }
+
+  /**
+   * Get care alert statistics
+   * Returns detected vs responded count for a given period
+   */
+  @Get('care-alert-stats')
+  async getCareAlertStats(
+    @Query('period') periodParam?: 'today' | 'week' | 'month' | 'all',
+  ) {
+    const period = periodParam || 'today';
+
+    this.logger.log(`getCareAlertStats called period=${period}`);
+
+    try {
+      const stats = await this.dbService.getCareAlertStats(undefined, period);
+
+      return {
+        ...stats,
+        period,
+        fetchedAt: new Date().toISOString(),
+      };
+    } catch (error) {
+      this.logger.warn(
+        `getCareAlertStats failed error=${(error as Error).message}`,
+      );
+      throw new HttpException(
+        'Failed to fetch care alert stats',
+        HttpStatus.INTERNAL_SERVER_ERROR,
+      );
+    }
+  }
 }
