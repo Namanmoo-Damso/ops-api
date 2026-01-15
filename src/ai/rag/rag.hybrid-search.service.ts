@@ -70,13 +70,14 @@ export class RagHybridSearchService {
       // Step 1: 한글 쿼리 처리 (조사 제거 + 핵심어 추출)
       const keywordClassification =
         this.koreanQueryProcessor.extractKeywords(query);
-      const ftsQuery = this.koreanQueryProcessor.buildFtsQuery(
+      const ftsTokens = keywordClassification.all;
+      const ftsQueryPreview = this.koreanQueryProcessor.buildFtsQuery(
         keywordClassification,
       );
 
       this.debug(
         `Korean query processed: primary=[${keywordClassification.primary.join(', ')}], ` +
-          `secondary=[${keywordClassification.secondary.join(', ')}], ftsQuery="${ftsQuery}"`,
+          `secondary=[${keywordClassification.secondary.join(', ')}], ftsQuery="${ftsQueryPreview}"`,
       );
 
       // Step 2: 병렬 검색 실행 (더 많은 후보 수집)
@@ -103,13 +104,13 @@ export class RagHybridSearchService {
 
       // FTS 검색: 처리된 쿼리 사용
       const ftsSearch =
-        ftsQuery.length > 0
+        ftsTokens.length > 0
           ? this.runSearchWithTimeout(
               'fts',
               () =>
                 this.searchRepository.searchFullText(
                   wardId,
-                  ftsQuery,
+                  ftsTokens,
                   expandedLimit,
                 ),
               this.FTS_SEARCH_TIMEOUT_MS,

@@ -3,6 +3,11 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { Prisma } from '@prisma/client';
 import { RagMetadata, SearchResult } from './rag.types';
 import { getWindowContext, isValidEmbedding } from './rag.utils';
+import {
+  FTS_MAX_TOKENS,
+  FTS_MAX_TOKEN_LENGTH,
+  FTS_UNSAFE_CHARS,
+} from './rag.search.constants';
 
 /**
  * RAG Search Repository
@@ -32,15 +37,9 @@ export class RagSearchRepository {
 
   private readonly DEBUG_LOGS = process.env.RAG_DEBUG_LOGS === 'true';
 
-  private readonly MAX_FTS_TOKENS = (() => {
-    const value = parseInt(process.env.RAG_FTS_MAX_TOKENS || '8', 10);
-    return Number.isFinite(value) && value > 0 ? value : 8;
-  })();
-  private readonly MAX_FTS_TOKEN_LENGTH = (() => {
-    const value = parseInt(process.env.RAG_FTS_MAX_TOKEN_LENGTH || '32', 10);
-    return Number.isFinite(value) && value > 0 ? value : 32;
-  })();
-  private readonly FTS_UNSAFE_CHARS = /[^a-zA-Z0-9가-힣_]+/g;
+  private readonly MAX_FTS_TOKENS = FTS_MAX_TOKENS;
+  private readonly MAX_FTS_TOKEN_LENGTH = FTS_MAX_TOKEN_LENGTH;
+  private readonly FTS_UNSAFE_CHARS = FTS_UNSAFE_CHARS;
 
   constructor(private readonly prisma: PrismaService) {}
 
@@ -187,29 +186,29 @@ export class RagSearchRepository {
    * - child_text: weight 'C' (0.2)
    *
    * @param wardId 어르신 ID
-   * @param keywords 검색 키워드 (공백으로 구분)
+   * @param keywords 검색 키워드 토큰 배열 (사전 정제됨)
    * @param limit 반환할 최대 결과 수
    */
   async searchFullText(
     wardId: string,
-    keywords: string,
+    keywords: string[],
     limit: number,
   ): Promise<SearchResult[]> {
     try {
-      if (!keywords || keywords.trim().length === 0) {
+      if (!keywords || keywords.length === 0) {
         this.debug('Empty keywords - skipping FTS');
         return [];
       }
 
       // Sanitize user input to avoid tsquery parsing issues
-      const tokens = this.sanitizeKeywords(keywords);
+      const tokens = this.normalizeTokens(keywords);
       if (tokens.length === 0) {
         this.debug('No valid keywords after sanitization - skipping FTS');
         return [];
       }
 
       this.debug(
-        `FTS search: ward=${wardId.substring(0, 8)}..., keywords="${keywords}", limit=${limit}`,
+        `FTS search: ward=${wardId.substring(0, 8)}..., keywords="${tokens.join(' ')}", limit=${limit}`,
       );
 
       // 한글 복합어 지원을 위해 prefix 검색 사용
@@ -312,13 +311,12 @@ export class RagSearchRepository {
     }
   }
 
-  private sanitizeKeywords(keywords: string): string[] {
-    const tokens = keywords
-      .split(/\s+/)
+  private normalizeTokens(tokens: string[]): string[] {
+    const normalized = tokens
       .map(token => token.replace(this.FTS_UNSAFE_CHARS, '').trim())
       .filter(token => token.length > 0)
       .map(token => token.slice(0, this.MAX_FTS_TOKEN_LENGTH));
 
-    return tokens.slice(0, this.MAX_FTS_TOKENS);
+    return normalized.slice(0, this.MAX_FTS_TOKENS);
   }
 }

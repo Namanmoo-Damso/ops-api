@@ -8,6 +8,11 @@
  */
 
 import { Injectable, Logger } from '@nestjs/common';
+import {
+  FTS_MAX_TOKENS,
+  FTS_MAX_TOKEN_LENGTH,
+  FTS_UNSAFE_CHARS,
+} from './rag.search.constants';
 
 /**
  * 키워드 분류 결과
@@ -102,6 +107,13 @@ export class KoreanQueryProcessor {
     return result;
   }
 
+  private sanitizeToken(token: string): string {
+    if (!token) return '';
+    const sanitized = token.replace(FTS_UNSAFE_CHARS, '').trim();
+    if (!sanitized) return '';
+    return sanitized.slice(0, FTS_MAX_TOKEN_LENGTH);
+  }
+
   /**
    * 쿼리에서 키워드 추출 및 분류
    *
@@ -120,6 +132,7 @@ export class KoreanQueryProcessor {
     // Step 2: 조사 제거 및 불용어 필터링
     const cleanedTokens = tokens
       .map(token => this.removeJosa(token))
+      .map(token => this.sanitizeToken(token))
       .filter(token => token.length >= 2)
       .filter(token => !this.STOPWORDS.has(token));
 
@@ -135,11 +148,14 @@ export class KoreanQueryProcessor {
       (a, b) => b.length - a.length,
     );
 
-    // Step 5: 핵심어 선정 (가장 긴 단어 최대 2개)
-    const primary = sortedByLength.slice(0, 2);
+    // Step 5: 최대 토큰 수 제한
+    const limitedTokens = sortedByLength.slice(0, FTS_MAX_TOKENS);
 
-    // Step 6: 나머지는 확장 키워드
-    const secondary = sortedByLength.slice(2);
+    // Step 6: 핵심어 선정 (가장 긴 단어 최대 2개)
+    const primary = limitedTokens.slice(0, 2);
+
+    // Step 7: 나머지는 확장 키워드
+    const secondary = limitedTokens.slice(2);
 
     this.logger.debug(
       `Extracted keywords: primary=[${primary.join(', ')}], secondary=[${secondary.join(', ')}]`,
@@ -148,7 +164,7 @@ export class KoreanQueryProcessor {
     return {
       primary,
       secondary,
-      all: uniqueTokens,
+      all: limitedTokens,
     };
   }
 
@@ -165,13 +181,23 @@ export class KoreanQueryProcessor {
     }
 
     // 모든 키워드에 :* 추가 (prefix 검색)
-    const primaryTerms = keywords.primary.map(k => `${k}:*`);
-    const secondaryTerms = keywords.secondary.map(k => `${k}:*`);
+    const primaryTerms = keywords.primary.filter(Boolean).map(k => `${k}:*`);
+    const secondaryTerms = keywords.secondary
+      .filter(Boolean)
+      .map(k => `${k}:*`);
 
     // 핵심어만 있는 경우
-    if (secondaryTerms.length === 0) {
+    if (secondaryTerms.length === 0 && primaryTerms.length > 0) {
       // 핵심어들을 OR로 연결 (하나라도 포함되면 매칭)
       return primaryTerms.join(' | ');
+    }
+
+    if (primaryTerms.length === 0 && secondaryTerms.length === 0) {
+      return '';
+    }
+
+    if (primaryTerms.length === 0) {
+      return secondaryTerms.join(' | ');
     }
 
     // 핵심어 + 확장어가 있는 경우

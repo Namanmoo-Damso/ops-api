@@ -133,20 +133,29 @@ export class RagRankFusionService {
 
     if (missedKeywordMatches.length > 0 && topResults.length === limit) {
       // limit 밖에 키워드 매칭 결과가 있으면, 가장 낮은 점수 결과와 교체
-      const lowestScoringNonMatch = [...topResults]
-        .reverse()
-        .find(r => !r.hasKeywordMatch);
-
-      if (lowestScoringNonMatch) {
-        const indexToReplace = topResults.indexOf(lowestScoringNonMatch);
-        if (indexToReplace !== -1) {
-          this.logger.log(
-            `Swapping non-keyword result with keyword-matched result`,
-          );
-          topResults[indexToReplace] = missedKeywordMatches[0];
+      let indexToReplace = -1;
+      for (let i = topResults.length - 1; i >= 0; i--) {
+        if (!topResults[i].hasKeywordMatch) {
+          indexToReplace = i;
+          break;
         }
       }
+
+      if (indexToReplace !== -1) {
+        this.logger.log(
+          `Swapping non-keyword result with keyword-matched result`,
+        );
+        topResults[indexToReplace] = missedKeywordMatches[0];
+      }
     }
+
+    // Step 7: 부스팅 및 교체 반영 후 재정렬
+    topResults.sort((a, b) => {
+      if (a.hasKeywordMatch !== b.hasKeywordMatch) {
+        return a.hasKeywordMatch ? -1 : 1;
+      }
+      return b.rrfScore - a.rrfScore;
+    });
 
     if (this.DEBUG_LOGS && topResults.length > 0) {
       this.logger.debug(
@@ -157,7 +166,7 @@ export class RagRankFusionService {
       );
     }
 
-    // Step 7: SearchResult 반환 (RRF 점수를 similarity에 저장)
+    // Step 8: SearchResult 반환 (RRF 점수를 similarity에 저장)
     return topResults.map(scored => ({
       ...scored.result,
       similarity: scored.rrfScore, // RRF 점수를 similarity 필드에 저장

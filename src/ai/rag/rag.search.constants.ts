@@ -60,3 +60,24 @@ export const VECTOR_SEARCH_TIMEOUT_MS = parseInt(
   process.env.RAG_VECTOR_SEARCH_TIMEOUT_MS || '2000',
   10,
 );
+
+/**
+ * FTS 토큰 최대 개수
+ */
+export const FTS_MAX_TOKENS = parseInt(
+  process.env.RAG_FTS_MAX_TOKENS || '8',
+  10,
+);
+
+/**
+ * FTS 토큰 최대 길이
+ */
+export const FTS_MAX_TOKEN_LENGTH = parseInt(
+  process.env.RAG_FTS_MAX_TOKEN_LENGTH || '32',
+  10,
+);
+
+/**
+ * FTS 토큰에서 허용되지 않는 문자 제거용 정규식
+ */
+export const FTS_UNSAFE_CHARS = /[^a-zA-Z0-9가-힣_]+/g;
