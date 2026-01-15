@@ -19,6 +19,7 @@ import { RagSummaryService } from './rag/rag.summary.service';
 import { RagSearchRepository } from './rag/rag.search.repository';
 import { RagRankFusionService } from './rag/rag.rank-fusion.service';
 import { RagHybridSearchService } from './rag/rag.hybrid-search.service';
+import { KoreanQueryProcessor } from './rag/rag.korean-query.processor';
 
 // AI Providers
 import { OpenAiProvider } from './providers/openai.provider';
@@ -73,6 +74,7 @@ import { DEFAULT_AI_INSTRUCTION, AI_RESPONSE_SCHEMA } from './ai.constants';
     RagSearchRepository,
     RagRankFusionService,
     RagHybridSearchService,
+    KoreanQueryProcessor,
 
     // AI Analysis Provider (Factory)
     {

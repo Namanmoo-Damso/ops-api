@@ -8,6 +8,7 @@ import { SearchResult } from './rag.types';
  * - 벡터 검색과 FTS 결과를 결합
  * - RRF 공식: score = Σ 1/(k + rank)
  * - Zero-Result 처리: 벡터 검색 결과가 없을 때 FTS 추천 제공
+ * - 키워드 매칭 부스팅: 핵심 키워드 포함 결과 우선 배치
  */
 @Injectable()
 export class RagRankFusionService {
@@ -17,6 +18,11 @@ export class RagRankFusionService {
   // k가 클수록 순위 차이가 덜 중요해짐
   private readonly RRF_K = parseInt(process.env.RRF_K || '60', 10);
 
+  // 키워드 매칭 부스트 배수
+  private readonly KEYWORD_MATCH_BOOST = parseFloat(
+    process.env.RAG_KEYWORD_MATCH_BOOST || '1.5',
+  );
+
   private readonly DEBUG_LOGS = process.env.RAG_DEBUG_LOGS === 'true';
 
   /**
@@ -25,15 +31,17 @@ export class RagRankFusionService {
    * @param vectorResults 벡터 검색 결과
    * @param ftsResults Full-Text Search 결과
    * @param limit 최종 반환할 결과 수
+   * @param queryKeywords 쿼리 핵심 키워드 (선택적, 부스팅용)
    * @returns RRF 점수로 정렬된 결과
    */
   fuseResults(
     vectorResults: SearchResult[],
     ftsResults: SearchResult[],
     limit: number,
+    queryKeywords?: string[],
   ): SearchResult[] {
     this.debug(
-      `Fusing results: vector=${vectorResults.length}, fts=${ftsResults.length}`,
+      `Fusing results: vector=${vectorResults.length}, fts=${ftsResults.length}, keywords=${queryKeywords?.join(', ') || 'none'}`,
     );
 
     // Zero-Result 처리
@@ -42,11 +50,12 @@ export class RagRankFusionService {
       return [];
     }
 
+    // Vector 결과가 없을 때: FTS 결과 중 키워드 매칭 우선
     if (vectorResults.length === 0) {
       this.logger.log(
-        `Zero vector results - returning top ${limit} FTS recommendations`,
+        `Zero vector results - returning top ${limit} FTS with keyword prioritization`,
       );
-      return ftsResults.slice(0, limit);
+      return this.prioritizeByKeywords(ftsResults, limit, queryKeywords);
     }
 
     if (ftsResults.length === 0) {
@@ -74,6 +83,7 @@ export class RagRankFusionService {
       rrfScore: number;
       vectorRank?: number;
       ftsRank?: number;
+      hasKeywordMatch: boolean;
     }> = [];
 
     // 결과를 ID로 빠르게 조회하기 위한 Map
@@ -86,20 +96,28 @@ export class RagRankFusionService {
       const ftsRank = ftsRanks.get(id);
 
       // RRF 공식: score = 1/(k + vectorRank) + 1/(k + ftsRank)
-      const rrfScore =
+      let rrfScore =
         (vectorRank ? 1 / (this.RRF_K + vectorRank) : 0) +
         (ftsRank ? 1 / (this.RRF_K + ftsRank) : 0);
 
       const result = resultMap.get(id);
-      if (result) {
-        scoredResults.push({
-          id,
-          result,
-          rrfScore,
-          vectorRank,
-          ftsRank,
-        });
+      if (!result) continue;
+
+      // 키워드 매칭 부스팅
+      const hasKeywordMatch = this.hasKeywordMatch(result, queryKeywords);
+      if (hasKeywordMatch) {
+        rrfScore *= this.KEYWORD_MATCH_BOOST;
+        this.debug(`Boosted score for result with keyword match: ${id}`);
       }
+
+      scoredResults.push({
+        id,
+        result,
+        rrfScore,
+        vectorRank,
+        ftsRank,
+        hasKeywordMatch,
+      });
     }
 
     // Step 4: RRF 점수로 정렬
@@ -108,15 +126,47 @@ export class RagRankFusionService {
     // Step 5: 상위 N개 선택
     const topResults = scoredResults.slice(0, limit);
 
+    // Step 6: 키워드 매칭 결과가 limit에 밀려났는지 확인
+    const missedKeywordMatches = scoredResults
+      .slice(limit)
+      .filter(r => r.hasKeywordMatch);
+
+    if (missedKeywordMatches.length > 0 && topResults.length === limit) {
+      // limit 밖에 키워드 매칭 결과가 있으면, 가장 낮은 점수 결과와 교체
+      let indexToReplace = -1;
+      for (let i = topResults.length - 1; i >= 0; i--) {
+        if (!topResults[i].hasKeywordMatch) {
+          indexToReplace = i;
+          break;
+        }
+      }
+
+      if (indexToReplace !== -1) {
+        this.logger.log(
+          `Swapping non-keyword result with keyword-matched result`,
+        );
+        topResults[indexToReplace] = missedKeywordMatches[0];
+      }
+    }
+
+    // Step 7: 부스팅 및 교체 반영 후 재정렬
+    topResults.sort((a, b) => {
+      if (a.hasKeywordMatch !== b.hasKeywordMatch) {
+        return a.hasKeywordMatch ? -1 : 1;
+      }
+      return b.rrfScore - a.rrfScore;
+    });
+
     if (this.DEBUG_LOGS && topResults.length > 0) {
       this.logger.debug(
         `Top result: rrfScore=${topResults[0].rrfScore.toFixed(4)}, ` +
           `vectorRank=${topResults[0].vectorRank || 'N/A'}, ` +
-          `ftsRank=${topResults[0].ftsRank || 'N/A'}`,
+          `ftsRank=${topResults[0].ftsRank || 'N/A'}, ` +
+          `keywordMatch=${topResults[0].hasKeywordMatch}`,
       );
     }
 
-    // Step 6: SearchResult 반환 (RRF 점수를 similarity에 저장)
+    // Step 8: SearchResult 반환 (RRF 점수를 similarity에 저장)
     return topResults.map(scored => ({
       ...scored.result,
       similarity: scored.rrfScore, // RRF 점수를 similarity 필드에 저장
@@ -125,8 +175,82 @@ export class RagRankFusionService {
         rrfScore: scored.rrfScore,
         vectorRank: scored.vectorRank,
         ftsRank: scored.ftsRank,
+        hasKeywordMatch: scored.hasKeywordMatch,
       },
     }));
+  }
+
+  /**
+   * 키워드 기준 우선순위 정렬
+   * Vector 결과가 없을 때 FTS 결과 중 핵심 키워드 포함 결과를 우선 배치
+   */
+  private prioritizeByKeywords(
+    results: SearchResult[],
+    limit: number,
+    queryKeywords?: string[],
+  ): SearchResult[] {
+    if (!queryKeywords || queryKeywords.length === 0 || results.length === 0) {
+      return results.slice(0, limit).map(r => ({
+        ...r,
+        metadata: {
+          ...r.metadata,
+          isRecommendation: true,
+        },
+      }));
+    }
+
+    // 키워드 매칭 여부로 분류
+    const withKeyword: SearchResult[] = [];
+    const withoutKeyword: SearchResult[] = [];
+
+    for (const result of results) {
+      if (this.hasKeywordMatch(result, queryKeywords)) {
+        withKeyword.push(result);
+      } else {
+        withoutKeyword.push(result);
+      }
+    }
+
+    this.logger.log(
+      `Keyword prioritization: ${withKeyword.length} matched, ${withoutKeyword.length} unmatched`,
+    );
+
+    // 키워드 매칭 결과 우선 + 나머지
+    const prioritized = [...withKeyword, ...withoutKeyword].slice(0, limit);
+
+    return prioritized.map((r, idx) => ({
+      ...r,
+      metadata: {
+        ...r.metadata,
+        isRecommendation: true,
+        hasKeywordMatch: idx < withKeyword.length,
+      },
+    }));
+  }
+
+  /**
+   * 결과에 핵심 키워드가 포함되어 있는지 확인
+   */
+  private hasKeywordMatch(
+    result: SearchResult,
+    queryKeywords?: string[],
+  ): boolean {
+    if (!queryKeywords || queryKeywords.length === 0) {
+      return false;
+    }
+
+    // 검색 대상: text, childText, chunk_header
+    const searchableText = [
+      result.text || '',
+      result.childText || '',
+      result.metadata?.chunk_header || '',
+    ]
+      .join(' ')
+      .toLowerCase();
+
+    return queryKeywords.some(keyword =>
+      searchableText.includes(keyword.toLowerCase()),
+    );
   }
 
   /**
