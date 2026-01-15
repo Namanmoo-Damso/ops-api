@@ -1,6 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { RagSearchRepository } from './rag.search.repository';
 import { RagRankFusionService } from './rag.rank-fusion.service';
+import { KoreanQueryProcessor } from './rag.korean-query.processor';
 import { SearchResult } from './rag.types';
 import { isValidEmbedding } from './rag.utils';
 
@@ -9,8 +10,8 @@ import { isValidEmbedding } from './rag.utils';
  *
  * 벡터 검색과 Full-Text Search를 병렬로 실행하고 RRF로 결합하는 오케스트레이션 레이어:
  * - Promise.all로 두 검색을 병렬 실행
- * - 키워드 추출 및 전처리
- * - RRF 알고리즘으로 최종 결과 생성
+ * - 한글 조사 제거 및 핵심어 추출
+ * - RRF 알고리즘으로 최종 결과 생성 (키워드 부스팅 포함)
  */
 @Injectable()
 export class RagHybridSearchService {
@@ -43,6 +44,7 @@ export class RagHybridSearchService {
   constructor(
     private readonly searchRepository: RagSearchRepository,
     private readonly rankFusionService: RagRankFusionService,
+    private readonly koreanQueryProcessor: KoreanQueryProcessor,
   ) {}
 
   /**
@@ -65,9 +67,17 @@ export class RagHybridSearchService {
         `Hybrid search: ward=${wardId.substring(0, 8)}..., query="${query}", limit=${limit}`,
       );
 
-      // Step 1: 키워드 추출
-      const keywords = this.extractKeywords(query);
-      this.debug(`Extracted keywords: "${keywords}"`);
+      // Step 1: 한글 쿼리 처리 (조사 제거 + 핵심어 추출)
+      const keywordClassification =
+        this.koreanQueryProcessor.extractKeywords(query);
+      const ftsQuery = this.koreanQueryProcessor.buildFtsQuery(
+        keywordClassification,
+      );
+
+      this.debug(
+        `Korean query processed: primary=[${keywordClassification.primary.join(', ')}], ` +
+          `secondary=[${keywordClassification.secondary.join(', ')}], ftsQuery="${ftsQuery}"`,
+      );
 
       // Step 2: 병렬 검색 실행 (더 많은 후보 수집)
       const expandedLimit = limit * this.SEARCH_EXPANSION_FACTOR;
@@ -91,19 +101,21 @@ export class RagHybridSearchService {
         this.logger.warn('Invalid embedding detected - skipping vector search');
       }
 
-      const ftsSearch = keywords
-        ? this.runSearchWithTimeout(
-            'fts',
-            () =>
-              this.searchRepository.searchFullText(
-                wardId,
-                keywords,
-                expandedLimit,
-              ),
-            this.FTS_SEARCH_TIMEOUT_MS,
-            [],
-          )
-        : Promise.resolve([]);
+      // FTS 검색: 처리된 쿼리 사용
+      const ftsSearch =
+        ftsQuery.length > 0
+          ? this.runSearchWithTimeout(
+              'fts',
+              () =>
+                this.searchRepository.searchFullText(
+                  wardId,
+                  ftsQuery,
+                  expandedLimit,
+                ),
+              this.FTS_SEARCH_TIMEOUT_MS,
+              [],
+            )
+          : Promise.resolve([]);
 
       const [vectorResults, ftsResults] = await Promise.all([
         vectorSearch,
@@ -114,11 +126,12 @@ export class RagHybridSearchService {
         `Search completed: vector=${vectorResults.length}, fts=${ftsResults.length}`,
       );
 
-      // Step 3: RRF 적용하여 결과 결합
+      // Step 3: RRF 적용하여 결과 결합 (핵심 키워드 전달)
       const fusedResults = this.rankFusionService.fuseResults(
         vectorResults,
         ftsResults,
         limit,
+        keywordClassification.primary, // 핵심 키워드 전달하여 부스팅
       );
 
       this.logger.log(`Hybrid search returned ${fusedResults.length} results`);
@@ -128,23 +141,6 @@ export class RagHybridSearchService {
       this.logger.error(`Hybrid search failed: ${error.message}`, error.stack);
       throw error;
     }
-  }
-
-  /**
-   * 사용자 쿼리에서 검색 키워드 추출
-   *
-   * @param query 사용자 쿼리
-   * @returns 검색 키워드 (trim 처리)
-   */
-  private extractKeywords(query: string): string {
-    if (!query || query.trim().length === 0) {
-      return '';
-    }
-
-    const normalized = query.trim();
-    this.debug(`Extracted keywords from "${query}" -> "${normalized}"`);
-
-    return normalized;
   }
 
   private debug(message: string): void {

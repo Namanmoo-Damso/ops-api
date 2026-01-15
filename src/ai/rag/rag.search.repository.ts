@@ -243,14 +243,25 @@ export class RagSearchRepository {
             c.offset_start,
             c.offset_end,
             c.metadata,
-            ts_rank(COALESCE(c.fts_tokens, ''::tsvector), query) AS rank_score,
+            -- setweight: chunk_header(A)=1.0, child_text(B)=0.4 가중치
+            -- ts_rank_cd: Cover Density 기반 정밀 랭킹 (normalization=32)
+            ts_rank_cd(
+              setweight(to_tsvector('simple', COALESCE(c.chunk_header, '')), 'A') ||
+              setweight(COALESCE(c.fts_tokens, ''::tsvector), 'B'),
+              query,
+              32
+            ) AS rank_score,
             c.created_at,
             c.call_id
           FROM conversation_vectors_child c
           INNER JOIN conversation_vectors_parent p ON c.parent_id = p.id,
           to_tsquery('simple', ${prefixKeywords}) query
           WHERE c.ward_id = ${wardId}::uuid
-            AND COALESCE(c.fts_tokens, ''::tsvector) @@ query
+            AND (
+              -- chunk_header 또는 fts_tokens 중 하나라도 매칭
+              to_tsvector('simple', COALESCE(c.chunk_header, '')) @@ query
+              OR COALESCE(c.fts_tokens, ''::tsvector) @@ query
+            )
           ORDER BY rank_score DESC
           LIMIT ${limit}
         `,

@@ -177,7 +177,7 @@ export class RagConfig implements OnModuleInit {
     );
     this.similarityThreshold = this.parseFloatSafe(
       process.env.SIMILARITY_THRESHOLD,
-      0.4,
+      0.3,
       'SIMILARITY_THRESHOLD',
     );
     this.childSearchMultiplier = this.parseIntSafe(
@@ -229,9 +229,7 @@ export class RagConfig implements OnModuleInit {
     this.logger.log(`[LLM] Model: ${this.llmModel}`);
     this.logger.log(`[LLM] Summary Model: ${this.summaryModel}`);
     this.logger.log(`[LLM] Summary Max Tokens: ${this.summaryMaxTokens}`);
-    this.logger.log(
-      `[LLM] Summary Timeout: ${this.summaryRequestTimeoutMs}ms`,
-    );
+    this.logger.log(`[LLM] Summary Timeout: ${this.summaryRequestTimeoutMs}ms`);
 
     // 임베딩 설정 로그
     this.logger.log(`[Embedding] Model: ${this.embeddingModel}`);
@@ -252,9 +250,13 @@ export class RagConfig implements OnModuleInit {
 
     // 검색 설정 로그
     this.logger.log(`[Search] Limit: ${this.searchLimit}`);
-    this.logger.log(`[Search] Similarity Threshold: ${this.similarityThreshold}`);
+    this.logger.log(
+      `[Search] Similarity Threshold: ${this.similarityThreshold}`,
+    );
     this.logger.log(`[Search] Child Multiplier: ${this.childSearchMultiplier}`);
-    this.logger.log(`[Search] Window Context: ${this.windowContextChars} chars`);
+    this.logger.log(
+      `[Search] Window Context: ${this.windowContextChars} chars`,
+    );
 
     // 캐시 설정 로그
     this.logger.log(`[Cache] Redis TTL: ${this.redisCacheTtl}s`);
