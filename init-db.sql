@@ -423,6 +423,13 @@ CREATE TABLE "conversation_vectors_child" (
     "offset_end" INTEGER NOT NULL,
     "metadata" JSONB,                              -- { chunkIndex, header, contentLength, keywords, etc. }
     "created_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    -- Full-Text Search: Generated Column for hybrid search (Vector + FTS)
+    -- chunk_header gets weight 'A' (highest priority for dates/relations)
+    -- child_text gets weight 'C' (normal content)
+    "fts_tokens" tsvector GENERATED ALWAYS AS (
+        setweight(to_tsvector('simple', COALESCE("chunk_header", '')), 'A') ||
+        setweight(to_tsvector('simple', COALESCE("child_text", '')), 'C')
+    ) STORED,
 
     CONSTRAINT "conversation_vectors_child_pkey" PRIMARY KEY ("id")
 );
@@ -613,6 +620,8 @@ CREATE INDEX "conversation_vectors_child_created_at_idx" ON "conversation_vector
 CREATE INDEX "conversation_vectors_child_ward_id_created_at_idx" ON "conversation_vectors_child"("ward_id", "created_at" DESC);
 -- HNSW index for fast vector similarity search (m=16, ef_construction=64)
 CREATE INDEX "conversation_vectors_child_embedding_idx" ON "conversation_vectors_child" USING hnsw (embedding vector_cosine_ops) WITH (m = 16, ef_construction = 64);
+-- GIN index for Full-Text Search (hybrid search support)
+CREATE INDEX "conversation_vectors_child_fts_tokens_idx" ON "conversation_vectors_child" USING GIN ("fts_tokens");
 
 -- Care alert events indexes
 CREATE INDEX "care_alert_events_ward_id_timestamp_idx" ON "care_alert_events"("ward_id", "timestamp" DESC);

@@ -51,6 +51,19 @@ export function cosineSimilarity(a: number[], b: number[]): number {
 }
 
 /**
+ * Validate embedding vector (non-empty, finite numbers).
+ */
+export function isValidEmbedding(
+  embedding: number[] | null | undefined,
+): embedding is number[] {
+  if (!embedding || !Array.isArray(embedding) || embedding.length === 0) {
+    return false;
+  }
+
+  return embedding.every(value => Number.isFinite(value));
+}
+
+/**
  * Child chunk configuration
  */
 export interface ChildChunk {
