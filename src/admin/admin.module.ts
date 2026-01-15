@@ -5,6 +5,7 @@ import { AdminAuthController } from './auth/admin-auth.controller';
 import { AdminAuthService } from './auth/admin-auth.service';
 import { DashboardController } from './dashboard/dashboard.controller';
 import { WardsManagementController } from './wards-management/wards-management.controller';
+import { WardsManagementService } from './wards-management/wards-management.service';
 import { LocationsController } from './locations/locations.controller';
 import { EmergenciesController } from './emergencies/emergencies.controller';
 import { BeneficiariesController } from './beneficiaries/beneficiaries.controller';
@@ -39,10 +40,17 @@ import { CsvHeaderMatcherService } from './wards-management/csv-header-matcher.s
     CallsService,
     AdminOrganizationGuard,
     CsvHeaderMatcherService,
+    WardsManagementService,
     StaffService,
     SettingsService,
     BulletinsService,
   ],
-  exports: [AdminAuthService, StaffService, SettingsService, BulletinsService],
+  exports: [
+    AdminAuthService,
+    StaffService,
+    SettingsService,
+    BulletinsService,
+    WardsManagementService,
+  ],
 })
 export class AdminModule {}

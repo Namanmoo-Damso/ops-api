@@ -677,8 +677,11 @@ export class WardRepository {
         name: ow.name,
         birth_date: ow.birthDate?.toISOString().split('T')[0] ?? null,
         address: ow.address,
-        notes: ow.notes ?? null,
         gender: ow.gender ?? null,
+        diseases: ow.diseases,
+        medication: ow.medication ?? null,
+        emergency_contact: ow.emergencyContact ?? null,
+        notes: ow.notes ?? null,
         is_registered: ow.isRegistered,
         ward_id: ow.wardId,
         created_at: ow.createdAt.toISOString(),
@@ -758,6 +761,10 @@ export class WardRepository {
       name: string;
       birth_date: string | null;
       address: string | null;
+      gender: string | null;
+      diseases: string[];
+      medication: string | null;
+      emergency_contact: string | null;
       notes: string | null;
       is_registered: boolean;
       ward_id: string | null;
@@ -783,6 +790,10 @@ export class WardRepository {
         name: ow.name,
         birth_date: ow.birthDate?.toISOString().split('T')[0] ?? null,
         address: ow.address,
+        gender: ow.gender ?? null,
+        diseases: ow.diseases,
+        medication: ow.medication ?? null,
+        emergency_contact: ow.emergencyContact ?? null,
         notes: ow.notes ?? null,
         is_registered: ow.isRegistered,
         ward_id: ow.wardId,
@@ -1036,10 +1047,10 @@ export class WardRepository {
   }): Promise<BeneficiaryListResult> {
     const { organizationId, search, riskOnly = false, page, pageSize } = params;
 
-    // 연동 완료된(isRegistered=true) 대상자만 전체 대상자 관리에 노출
+    // List all beneficiaries (both registered and pending) for this organization.
+    // SECURITY: organizationId check is crucial here.
     const where: Prisma.OrganizationWardWhereInput = {
       organizationId,
-      isRegistered: true,
     };
     const q = search?.trim();
     if (q) {
@@ -1111,7 +1122,6 @@ export class WardRepository {
       where: {
         id: params.beneficiaryId,
         organizationId: params.organizationId,
-        isRegistered: true,
       },
       select: {
         id: true,
@@ -1135,7 +1145,6 @@ export class WardRepository {
       where: {
         id: params.beneficiaryId,
         organizationId: params.organizationId,
-        isRegistered: true,
       },
     });
     return result.count > 0;
@@ -1150,7 +1159,6 @@ export class WardRepository {
       where: {
         id: params.beneficiaryId,
         organizationId: params.organizationId,
-        isRegistered: true,
       },
     });
     if (!existing) return null;
@@ -1215,7 +1223,6 @@ export class WardRepository {
       where: {
         id: beneficiaryId,
         organizationId,
-        isRegistered: true,
       },
       include: beneficiaryDetailInclude,
     });
