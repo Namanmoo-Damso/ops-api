@@ -273,7 +273,18 @@ export class CallRepository {
 
     // Voice Agent 통화: caller가 ward(어르신), callee가 AI agent
     // 일반 통화: callee가 ward(어르신)
-    const wardId = call.caller?.ward?.id ?? call.callee?.ward?.id ?? null;
+    // callerUserId가 없으면 calleeUserId로부터 wardId 조회
+    let wardId = call.caller?.ward?.id ?? call.callee?.ward?.id ?? null;
+    
+    // If neither caller nor callee has ward info, try to find ward by calleeUserId
+    if (!wardId && call.calleeUserId) {
+      const ward = await this.prisma.ward.findUnique({
+        where: { userId: call.calleeUserId },
+        select: { id: true },
+      });
+      wardId = ward?.id ?? null;
+    }
+    
     const guardianId =
       call.caller?.ward?.guardianId ?? call.callee?.ward?.guardianId ?? null;
 
