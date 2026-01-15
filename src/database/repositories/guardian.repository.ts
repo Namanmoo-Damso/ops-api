@@ -14,9 +14,7 @@ import {
 export class GuardianRepository {
   constructor(private readonly prisma: PrismaService) {}
 
-  async create(params: {
-    userId: string;
-  }): Promise<GuardianRow> {
+  async create(params: { userId: string }): Promise<GuardianRow> {
     const guardian = await this.prisma.guardian.create({
       data: {
         userId: params.userId,
@@ -365,14 +363,16 @@ export class GuardianRepository {
     const config = await this.prisma.callSlotConfig.findFirst({
       where: { id: 1 },
     });
-    return config ?? {
-      id: 1,
-      slotDurationMinutes: 10,
-      maxCallDurationMinutes: 8,
-      maxCapacityPerSlot: 40,
-      maxConcurrentCalls: 50,
-      validMinutes: [0, 10, 20, 30, 40, 50],
-    };
+    return (
+      config ?? {
+        id: 1,
+        slotDurationMinutes: 10,
+        maxCallDurationMinutes: 8,
+        maxCapacityPerSlot: 40,
+        maxConcurrentCalls: 50,
+        validMinutes: [0, 10, 20, 30, 40, 50],
+      }
+    );
   }
 
   /**
@@ -681,7 +681,7 @@ export class GuardianRepository {
         wardEmail: true,
       },
     });
-    return registrations.map((r) => ({
+    return registrations.map(r => ({
       id: r.id,
       ward_email: r.wardEmail,
     }));

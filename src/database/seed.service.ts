@@ -349,14 +349,10 @@ export class SeedService implements OnModuleInit {
               birthDate: seedWard.birthDate,
               address: seedWard.address,
               gender: seedWard.gender,
+              diseases: seedWard.diseases ?? [],
+              notes: seedWard.notes ?? null,
               isRegistered: false, // 미연동 상태
               wardId: null,
-              detail: {
-                create: {
-                  diseases: seedWard.diseases ?? [],
-                  notes: seedWard.notes ?? null,
-                },
-              },
             },
           });
           this.logger.log(`대상자 등록 (미연동): ${seedWard.name}`);
@@ -431,14 +427,10 @@ export class SeedService implements OnModuleInit {
             birthDate: seedWard.birthDate,
             address: seedWard.address,
             gender: seedWard.gender,
+            diseases: seedWard.diseases ?? [],
+            notes: seedWard.notes ?? null,
             isRegistered: true,
             wardId: ward.id,
-            detail: {
-              create: {
-                diseases: seedWard.diseases ?? [],
-                notes: seedWard.notes ?? null,
-              },
-            },
           },
         });
         orgWardId = newOrgWard.id;

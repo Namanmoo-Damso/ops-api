@@ -159,7 +159,9 @@ export function toCareAlertEventRow(event: CareAlertEvent): CareAlertEventRow {
   };
 }
 
-export function toEmotionSummaryRow(summary: EmotionSummary): EmotionSummaryRow {
+export function toEmotionSummaryRow(
+  summary: EmotionSummary,
+): EmotionSummaryRow {
   return {
     id: summary.id,
     ward_id: summary.wardId,

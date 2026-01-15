@@ -28,7 +28,9 @@ export class CsvHeaderMatcherService {
       this.logger.log('Bedrock client initialized for CSV header matching');
     } else {
       this.client = null;
-      this.logger.warn('AWS credentials not set, LLM-based matching will not be available');
+      this.logger.warn(
+        'AWS credentials not set, LLM-based matching will not be available',
+      );
     }
   }
 
@@ -102,7 +104,14 @@ JSON만 반환하고 다른 텍스트는 포함하지 마세요.`;
       const rawMapping = JSON.parse(jsonMatch[0]);
 
       // 허용된 필드명만 필터링
-      const allowedFields = ['name', 'email', 'phone_number', 'birth_date', 'address', 'notes'];
+      const allowedFields = [
+        'name',
+        'email',
+        'phone_number',
+        'birth_date',
+        'address',
+        'notes',
+      ];
       const mapping: HeaderMapping = {};
 
       for (const [key, value] of Object.entries(rawMapping)) {
@@ -113,11 +122,15 @@ JSON만 반환하고 다른 텍스트는 포함하지 마세요.`;
         }
       }
 
-      this.logger.log(`LLM matched ${Object.keys(mapping).length} headers (validated)`);
+      this.logger.log(
+        `LLM matched ${Object.keys(mapping).length} headers (validated)`,
+      );
 
       return mapping;
     } catch (error) {
-      this.logger.error(`LLM header matching failed: ${(error as Error).message}`);
+      this.logger.error(
+        `LLM header matching failed: ${(error as Error).message}`,
+      );
       return {};
     }
   }

@@ -569,6 +569,10 @@ export class DbService implements OnModuleDestroy {
     birthDate: string | null;
     address: string | null;
     uploadedByAdminId?: string;
+    gender?: string;
+    diseases?: string[];
+    medication?: string;
+    emergencyContact?: string;
     notes?: string;
   }) {
     return this.wards.createOrganizationWard(params);
