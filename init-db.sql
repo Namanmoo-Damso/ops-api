@@ -240,6 +240,16 @@ CREATE TABLE "call_schedule_groups" (
     CONSTRAINT "call_schedule_groups_pkey" PRIMARY KEY ("id")
 );
 
+-- [Migration Reference] If you need to migrate existing data from the removed organization_ward_details table:
+-- INSERT INTO "organization_wards" (id, diseases, medication, emergency_contact, notes)
+-- SELECT organization_ward_id, diseases, medication, guardian, notes
+-- FROM "organization_ward_details"
+-- ON CONFLICT (id) DO UPDATE SET
+--   diseases = EXCLUDED.diseases,
+--   medication = EXCLUDED.medication,
+--   emergency_contact = EXCLUDED.emergency_contact,
+--   notes = EXCLUDED.notes;
+
 -- CreateTable: organization_wards (consolidated - includes fields from organization_ward_details)
 CREATE TABLE "organization_wards" (
     "id" UUID NOT NULL DEFAULT gen_random_uuid(),
