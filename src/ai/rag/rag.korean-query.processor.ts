@@ -14,6 +14,10 @@ import {
   FTS_UNSAFE_CHARS,
 } from './rag.search.constants';
 
+const MIN_TOKEN_LENGTH = 2;
+const MIN_STRIPPED_LENGTH = 1;
+const MAX_PRIMARY_TERMS = 2;
+
 /**
  * 키워드 분류 결과
  */
@@ -34,28 +38,8 @@ export class KoreanQueryProcessor {
    * 한글 조사 패턴
    * - 주격/목적격/부사격 조사 등
    */
-  private readonly JOSA_PATTERNS = [
-    // 주격 조사
-    /[은는이가]$/,
-    // 목적격 조사
-    /[을를]$/,
-    // 부사격 조사
-    /에서?$/,
-    /으?로$/,
-    /[와과]$/,
-    /[도만]$/,
-    // 관형격 조사
-    /의$/,
-    // 접속 조사
-    /랑$/,
-    /하고$/,
-    // 보조사
-    /까지$/,
-    /부터$/,
-    /마다$/,
-    /처럼$/,
-    /같이$/,
-  ];
+  private readonly JOSA_PATTERN =
+    /(에게서|한테서|으로부터|로부터|에서|에게|한테|께서|께|으로|로|에|까지|부터|마다|처럼|같이|하고|랑|와|과|은|는|이|가|을|를|도|만|의)$/;
 
   /**
    * 불용어 목록 (검색에서 제외할 단어)
@@ -68,7 +52,14 @@ export class KoreanQueryProcessor {
     '언제',
     '어디',
     '누가',
+    '누구',
     '무엇',
+    '무슨',
+    '어떤',
+    '어느',
+    '얼마',
+    '얼마나',
+    '몇',
     '했',
     '했는지',
     '했어',
@@ -82,29 +73,47 @@ export class KoreanQueryProcessor {
     '것',
     '거',
     '때',
+    '그리고',
+    '또는',
+    '또한',
+    '하지만',
+    '그러나',
+    '그래서',
+    '그러면',
+    '그러니까',
+    '그래도',
+    '혹은',
+    '에서',
+    '에게',
+    '에게서',
+    '한테',
+    '한테서',
+    '께',
+    '께서',
+    '으로',
+    '로',
+    '로부터',
+    '으로부터',
+    '까지',
+    '부터',
+    '마다',
+    '처럼',
+    '같이',
+    '보다',
+    '밖에',
   ]);
 
   /**
    * 조사 제거
    */
   removeJosa(word: string): string {
-    if (!word || word.length < 2) return word;
+    if (!word || word.length < MIN_TOKEN_LENGTH) return word;
 
-    let result = word;
-
-    for (const pattern of this.JOSA_PATTERNS) {
-      const match = result.match(pattern);
-      if (match) {
-        // 조사 제거 후 최소 1글자 이상이어야 함
-        const stripped = result.replace(pattern, '');
-        if (stripped.length >= 1) {
-          result = stripped;
-          break; // 하나의 조사만 제거
-        }
-      }
+    const stripped = word.replace(this.JOSA_PATTERN, '');
+    if (stripped.length >= MIN_STRIPPED_LENGTH && stripped !== word) {
+      return stripped;
     }
-
-    return result;
+    return word;
   }
 
   private sanitizeToken(token: string): string {
@@ -133,7 +142,7 @@ export class KoreanQueryProcessor {
     const cleanedTokens = tokens
       .map(token => this.removeJosa(token))
       .map(token => this.sanitizeToken(token))
-      .filter(token => token.length >= 2)
+      .filter(token => token.length >= MIN_TOKEN_LENGTH)
       .filter(token => !this.STOPWORDS.has(token));
 
     if (cleanedTokens.length === 0) {
@@ -152,10 +161,10 @@ export class KoreanQueryProcessor {
     const limitedTokens = sortedByLength.slice(0, FTS_MAX_TOKENS);
 
     // Step 6: 핵심어 선정 (가장 긴 단어 최대 2개)
-    const primary = limitedTokens.slice(0, 2);
+    const primary = limitedTokens.slice(0, MAX_PRIMARY_TERMS);
 
     // Step 7: 나머지는 확장 키워드
-    const secondary = limitedTokens.slice(2);
+    const secondary = limitedTokens.slice(MAX_PRIMARY_TERMS);
 
     this.logger.debug(
       `Extracted keywords: primary=[${primary.join(', ')}], secondary=[${secondary.join(', ')}]`,
