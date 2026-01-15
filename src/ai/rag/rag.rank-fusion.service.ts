@@ -1,6 +1,9 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { SearchResult } from './rag.types';
 
+const METADATA_HAS_KEYWORD_MATCH = 'hasKeywordMatch';
+const METADATA_IS_RECOMMENDATION = 'isRecommendation';
+
 /**
  * Rank Fusion Service
  *
@@ -64,8 +67,8 @@ export class RagRankFusionService {
         ...result,
         metadata: {
           ...result.metadata,
-          hasKeywordMatch: false,
-          isRecommendation: false,
+          [METADATA_HAS_KEYWORD_MATCH]: false,
+          [METADATA_IS_RECOMMENDATION]: false,
         },
       }));
     }
@@ -182,8 +185,8 @@ export class RagRankFusionService {
         rrfScore: scored.rrfScore,
         vectorRank: scored.vectorRank,
         ftsRank: scored.ftsRank,
-        hasKeywordMatch: scored.hasKeywordMatch,
-        isRecommendation: false,
+        [METADATA_HAS_KEYWORD_MATCH]: scored.hasKeywordMatch,
+        [METADATA_IS_RECOMMENDATION]: false,
       },
     }));
   }
@@ -202,8 +205,8 @@ export class RagRankFusionService {
         ...r,
         metadata: {
           ...r.metadata,
-          isRecommendation: true,
-          hasKeywordMatch: false,
+          [METADATA_IS_RECOMMENDATION]: true,
+          [METADATA_HAS_KEYWORD_MATCH]: false,
         },
       }));
     }
@@ -231,8 +234,8 @@ export class RagRankFusionService {
       ...r,
       metadata: {
         ...r.metadata,
-        isRecommendation: true,
-        hasKeywordMatch: idx < withKeyword.length,
+        [METADATA_IS_RECOMMENDATION]: true,
+        [METADATA_HAS_KEYWORD_MATCH]: idx < withKeyword.length,
       },
     }));
   }
@@ -282,8 +285,8 @@ export class RagRankFusionService {
       ...r,
       metadata: {
         ...r.metadata,
-        isRecommendation: true, // 추천 결과임을 표시
-        hasKeywordMatch: false,
+        [METADATA_IS_RECOMMENDATION]: true, // 추천 결과임을 표시
+        [METADATA_HAS_KEYWORD_MATCH]: false,
       },
     }));
   }
