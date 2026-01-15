@@ -36,7 +36,7 @@ export class WardsManagementController {
   constructor(
     private readonly dbService: DbService,
     private readonly csvHeaderMatcher: CsvHeaderMatcherService,
-  ) {}
+  ) { }
 
   private validateWardInput(payload: Partial<CreateWardDto>) {
     const dto = plainToInstance(CreateWardDto, payload);
@@ -101,7 +101,7 @@ export class WardsManagementController {
       gender: created.gender,
       diseases: created.diseases,
       medication: created.medication,
-      emergencyContact: created.emergency_contact,
+      guardian: created.emergency_contact, // Standardized as guardian
       notes: created.notes,
       isRegistered: created.is_registered,
       wardId: created.ward_id,
@@ -118,6 +118,9 @@ export class WardsManagementController {
     @Body() body: BulkUploadWardsDto,
   ) {
     const organizationId = body.organizationId;
+    const headerMapping = body.headerMapping
+      ? (JSON.parse(body.headerMapping) as Record<string, string>)
+      : null;
 
     if (!file) {
       throw new HttpException('file is required', HttpStatus.BAD_REQUEST);
@@ -137,7 +140,7 @@ export class WardsManagementController {
     }
 
     this.logger.log(
-      `bulkUploadWards organizationId=${organizationId} adminId=${admin.sub} fileSize=${file.size}`,
+      `bulkUploadWards organizationId=${organizationId} adminId=${admin.sub} fileSize=${file.size} hasMapping=${!!headerMapping}`,
     );
 
     try {
@@ -145,14 +148,7 @@ export class WardsManagementController {
         columns: true,
         skip_empty_lines: true,
         trim: true,
-      }) as Array<{
-        email?: string;
-        phone_number?: string;
-        name?: string;
-        birth_date?: string;
-        address?: string;
-        notes?: string;
-      }>;
+      }) as Array<Record<string, string>>;
 
       const results = {
         total: records.length,
@@ -165,12 +161,22 @@ export class WardsManagementController {
       for (let i = 0; i < records.length; i++) {
         const record = records[i];
         const row = i + 2;
-        const email = record.email?.trim() ?? '';
-        const phoneNumber = record.phone_number?.trim() ?? '';
-        const name = record.name?.trim() ?? '';
-        const birthDate = record.birth_date?.trim() || null;
-        const address = record.address?.trim() || null;
-        const notes = record.notes?.trim() || undefined;
+
+        // Extract fields using header mapping if available
+        const getField = (fieldName: string) => {
+          if (!headerMapping) return record[fieldName];
+          const actualHeader = Object.keys(headerMapping).find(
+            key => headerMapping[key] === fieldName,
+          );
+          return actualHeader ? record[actualHeader] : record[fieldName];
+        };
+
+        const email = getField('email')?.trim() ?? '';
+        const phoneNumber = getField('phone_number')?.trim() ?? '';
+        const name = getField('name')?.trim() ?? '';
+        const birthDate = getField('birth_date')?.trim() || null;
+        const address = getField('address')?.trim() || null;
+        const notes = getField('notes')?.trim() || undefined;
 
         try {
           this.validateWardInput({
@@ -180,6 +186,14 @@ export class WardsManagementController {
             name,
             birth_date: birthDate ?? undefined,
             address: address ?? undefined,
+            gender: getField('gender')?.trim() || undefined,
+            diseases:
+              getField('diseases')
+                ?.split(',')
+                .map((s: string) => s.trim())
+                .filter(Boolean) || undefined,
+            medication: getField('medication')?.trim() || undefined,
+            emergency_contact: getField('emergency_contact')?.trim() || undefined,
             notes,
           });
 
@@ -199,6 +213,13 @@ export class WardsManagementController {
             name,
             birthDate,
             address,
+            gender: getField('gender')?.trim() || undefined,
+            diseases: getField('diseases')
+              ?.split(',')
+              .map((s: string) => s.trim())
+              .filter(Boolean),
+            medication: getField('medication')?.trim() || undefined,
+            emergencyContact: getField('emergency_contact')?.trim() || undefined,
             uploadedByAdminId: admin.sub,
             notes,
           });
@@ -273,6 +294,9 @@ export class WardsManagementController {
         address: w.address,
         notes: w.notes,
         gender: w.gender,
+        diseases: w.diseases,
+        medication: w.medication,
+        guardian: w.emergency_contact, // Map to guardian for frontend
         isRegistered: w.is_registered,
         wardId: w.ward_id,
         createdAt: w.created_at,
