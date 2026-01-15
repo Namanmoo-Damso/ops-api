@@ -33,7 +33,7 @@ import {
  * - RagProcessor: 요약 생성 + 청킹 + 임베딩 로직
  * - RagRepository: DB CRUD (Parent-Child 트랜잭션)
  * - RagEmbeddingService: Bedrock Titan 임베딩 생성
- * - RagSearchService: PGVector 검색
+ * - RagSearchService: 하이브리드 검색 (Vector + FTS + RRF)
  * - RagCacheService: Redis 캐시 관리
  * - RagMetricsService: 성능 메트릭 추적
  *
@@ -171,17 +171,18 @@ export class RagService implements OnModuleInit {
 
     try {
       // Step 1-2: 요약 + 청크 생성 + 임베딩 (Single LLM Call)
-      const summaryResult =
-        await this.processor.processWithDenseSummary(transcripts, callDate);
+      const summaryResult = await this.processor.processWithDenseSummary(
+        transcripts,
+        callDate,
+      );
 
       this.logger.log(
         `✅ Dense summary generated: ${summaryResult.metadata.chunkCount} chunks`,
       );
 
       // Step 3: DB 저장 (트랜잭션)
-      const embeddedChunkBatches = this.processor.embedContextualChunksInBatches(
-        summaryResult.chunks,
-      );
+      const embeddedChunkBatches =
+        this.processor.embedContextualChunksInBatches(summaryResult.chunks);
       const parentId = await this.repository.saveWithDenseSummary(
         wardId,
         callId,
@@ -192,7 +193,7 @@ export class RagService implements OnModuleInit {
       );
 
       this.logger.log(
-        `✅ Dense Summary indexing complete: call=${callId}, parentId=${parentId}, ${embeddedChunks.length} chunks`,
+        `✅ Dense Summary indexing complete: call=${callId}, parentId=${parentId}, ${summaryResult.metadata.chunkCount} chunks`,
       );
     } catch (error) {
       this.logger.error(
@@ -275,7 +276,10 @@ export class RagService implements OnModuleInit {
    *
    * Hybrid 검색:
    * 1. Redis 캐시 확인 (Fast Path)
-   * 2. PGVector 검색 (Slow Path - Fallback)
+   * 2. Hybrid Search (Slow Path - Fallback)
+   *    - Vector Search (pgvector)
+   *    - Full-Text Search (PostgreSQL FTS)
+   *    - RRF (Reciprocal Rank Fusion)
    */
   async searchSimilar(
     wardId: string,
@@ -321,11 +325,13 @@ export class RagService implements OnModuleInit {
       this.logger.warn(`⚠️ Redis cache MISS - falling back to PGVector`);
 
       // 🔍 PGVector 검색 (Slow Path)
+      // 하이브리드 검색: Vector + FTS + RRF
       const pgStartTime = Date.now();
       const pgResults = await this.searchService.searchPGVector(
         wardId,
         queryEmbedding,
         searchLimit,
+        query, // FTS를 위한 쿼리 전달
       );
       const pgSearchTime = Date.now() - pgStartTime;
       this.metricsService.recordPgvectorSearch(pgSearchTime);
@@ -336,10 +342,7 @@ export class RagService implements OnModuleInit {
 
       return pgResults;
     } catch (error) {
-      this.logger.error(
-        `❌ RAG search failed: ${error.message}`,
-        error.stack,
-      );
+      this.logger.error(`❌ RAG search failed: ${error.message}`, error.stack);
       throw error;
     }
   }
@@ -435,9 +438,7 @@ export class RagService implements OnModuleInit {
 
       this.logger.log(`Fallback greeting cached/published for ward=${wardId}`);
     } catch (error) {
-      this.logger.warn(
-        `Failed to cache fallback greeting: ${error.message}`,
-      );
+      this.logger.warn(`Failed to cache fallback greeting: ${error.message}`);
     }
   }
 

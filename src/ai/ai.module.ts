@@ -15,6 +15,11 @@ import { RagCacheService } from './rag/rag.cache.service';
 import { RagMetricsService } from './rag/rag.metrics.service';
 import { RagSummaryService } from './rag/rag.summary.service';
 
+// Hybrid Search 서비스들
+import { RagSearchRepository } from './rag/rag.search.repository';
+import { RagRankFusionService } from './rag/rag.rank-fusion.service';
+import { RagHybridSearchService } from './rag/rag.hybrid-search.service';
+
 // AI Providers
 import { OpenAiProvider } from './providers/openai.provider';
 import { BedrockProvider } from './providers/bedrock.provider';
@@ -33,9 +38,14 @@ import { DEFAULT_AI_INSTRUCTION, AI_RESPONSE_SCHEMA } from './ai.constants';
  * - RagRepository: DB CRUD (Parent-Child 트랜잭션)
  * - RagSummaryService: LLM 기반 고밀도 요약 생성
  * - RagEmbeddingService: Bedrock Titan 임베딩 생성
- * - RagSearchService: PGVector 검색
+ * - RagSearchService: 하이브리드 검색 (Vector + FTS + RRF)
  * - RagCacheService: Redis 캐시 관리
  * - RagMetricsService: 성능 메트릭 추적
+ *
+ * Hybrid Search 아키텍처:
+ * - RagSearchRepository: Vector 및 FTS 쿼리 실행
+ * - RagRankFusionService: RRF 알고리즘 구현
+ * - RagHybridSearchService: 병렬 검색 오케스트레이션
  *
  * @Global() 데코레이터로 전역 모듈로 등록
  */
@@ -58,6 +68,11 @@ import { DEFAULT_AI_INSTRUCTION, AI_RESPONSE_SCHEMA } from './ai.constants';
     RagCacheService,
     RagMetricsService,
     RagSummaryService,
+
+    // Hybrid Search 서비스 (Vector + FTS + RRF)
+    RagSearchRepository,
+    RagRankFusionService,
+    RagHybridSearchService,
 
     // AI Analysis Provider (Factory)
     {

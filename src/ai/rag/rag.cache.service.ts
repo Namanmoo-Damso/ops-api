@@ -27,7 +27,6 @@ export class RagCacheService implements OnModuleInit {
     10,
   );
   private readonly VECTOR_CACHE_VERSION = 'v2';
-  private readonly LEGACY_VECTOR_CACHE_VERSION = 'v1';
   private readonly GREETING_CACHE_VERSION = 'v1';
 
   constructor(private readonly prisma: PrismaService) {}
@@ -357,13 +356,6 @@ export class RagCacheService implements OnModuleInit {
   }
 
   /**
-   * Get legacy Redis vectors cache key (pre parent-child)
-   */
-  getLegacyRedisVectorsKey(wardId: string): string {
-    return `rag:${this.LEGACY_VECTOR_CACHE_VERSION}:ward:${wardId}:vectors`;
-  }
-
-  /**
    * Get greeting cache key
    */
   getGreetingCacheKey(wardId: string): string {
@@ -377,9 +369,12 @@ export class RagCacheService implements OnModuleInit {
     return this.redisClient;
   }
 
+  /**
+   * Get cached vectors from Redis (internal use)
+   */
   private async getCachedVectors(
     wardId: string,
-  ): Promise<{ key: string; vectors: unknown[] } | null> {
+  ): Promise<{ key: string; vectors: any[] } | null> {
     if (!this.redisClient) {
       return null;
     }
@@ -387,6 +382,7 @@ export class RagCacheService implements OnModuleInit {
     const primaryKey = this.getRedisVectorsKey(wardId);
     this.logger.debug(`Checking cache key: ${primaryKey}`);
     const primary = await this.redisClient.get(primaryKey);
+
     if (primary) {
       try {
         return { key: primaryKey, vectors: JSON.parse(primary) };
@@ -398,22 +394,7 @@ export class RagCacheService implements OnModuleInit {
       }
     }
 
-    const legacyKey = this.getLegacyRedisVectorsKey(wardId);
-    const legacy = await this.redisClient.get(legacyKey);
-    if (!legacy) {
-      this.logger.debug(`Cache key not found: ${primaryKey}`);
-      return null;
-    }
-
-    this.logger.warn(`Legacy cache key hit: ${legacyKey}`);
-
-    try {
-      return { key: legacyKey, vectors: JSON.parse(legacy) };
-    } catch (error) {
-      this.logger.warn(
-        `Failed to parse cached vectors for key=${legacyKey}: ${error.message}`,
-      );
-      return null;
-    }
+    this.logger.debug(`Cache key not found: ${primaryKey}`);
+    return null;
   }
 }
