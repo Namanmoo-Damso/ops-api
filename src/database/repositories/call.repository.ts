@@ -10,7 +10,7 @@ import { toCallRow, toCallSummaryRow } from '../prisma-mappers';
 
 @Injectable()
 export class CallRepository {
-  constructor(private readonly prisma: PrismaService) { }
+  constructor(private readonly prisma: PrismaService) {}
 
   async findRinging(
     calleeIdentity: string,
@@ -85,8 +85,8 @@ export class CallRepository {
       const duration =
         s.call.answeredAt && s.call.endedAt
           ? Math.round(
-            (s.call.endedAt.getTime() - s.call.answeredAt.getTime()) / 60000,
-          )
+              (s.call.endedAt.getTime() - s.call.answeredAt.getTime()) / 60000,
+            )
           : 0;
       return {
         id: s.id,
@@ -150,13 +150,13 @@ export class CallRepository {
     const recentCalls =
       wardUserIds.length > 0
         ? await this.prisma.call.groupBy({
-          by: ['calleeUserId'],
-          where: {
-            calleeUserId: { in: wardUserIds },
-            state: 'ended',
-            createdAt: { gt: cutoff },
-          },
-        })
+            by: ['calleeUserId'],
+            where: {
+              calleeUserId: { in: wardUserIds },
+              state: 'ended',
+              createdAt: { gt: cutoff },
+            },
+          })
         : [];
     const hasRecentCallSet = new Set(recentCalls.map(c => c.calleeUserId));
 
@@ -275,7 +275,7 @@ export class CallRepository {
     // 일반 통화: callee가 ward(어르신)
     // callerUserId가 없으면 calleeUserId로부터 wardId 조회
     let wardId = call.caller?.ward?.id ?? call.callee?.ward?.id ?? null;
-    
+
     // If neither caller nor callee has ward info, try to find ward by calleeUserId
     if (!wardId && call.calleeUserId) {
       const ward = await this.prisma.ward.findUnique({
@@ -284,7 +284,7 @@ export class CallRepository {
       });
       wardId = ward?.id ?? null;
     }
-    
+
     const guardianId =
       call.caller?.ward?.guardianId ?? call.callee?.ward?.guardianId ?? null;
 
@@ -373,7 +373,7 @@ export class CallRepository {
     const count = await this.prisma.call.count({
       where: {
         OR: [{ callerUserId: userId }, { calleeUserId: userId }],
-        state: 'answered',  // ringing이 아닌 answered만 체크
+        state: 'answered', // ringing이 아닌 answered만 체크
         endedAt: null,
         // 예약 통화 수락 시, 해당 room의 ringing call은 "중복 통화"로 간주하지 않음
         // (이 로직은 ringing 체크가 아니므로 사실상 불필요하지만, 명시성을 위해 유지)

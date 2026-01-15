@@ -332,13 +332,13 @@ export class SeedService implements OnModuleInit {
     for (const seedWard of SEED_WARDS) {
       // 실제 팀원 계정은 연동하지 않음 (앱에서 직접 가입해야 함)
       const isRealTeammate = !seedWard.email.endsWith('@example.com');
-      
+
       if (isRealTeammate) {
         // 실제 팀원은 OrganizationWard만 생성 (wardId 없이)
         const existingOrgWard = await this.prisma.organizationWard.findFirst({
           where: { organizationId, email: seedWard.email },
         });
-        
+
         if (!existingOrgWard) {
           await this.prisma.organizationWard.create({
             data: {
@@ -502,7 +502,12 @@ export class SeedService implements OnModuleInit {
   }
 
   private async generateCallLogs(
-    wardRecords: Array<{ wardId: string; userId: string; name: string; email: string }>,
+    wardRecords: Array<{
+      wardId: string;
+      userId: string;
+      name: string;
+      email: string;
+    }>,
   ) {
     this.logger.log('통화 로그 생성...');
 
@@ -511,7 +516,7 @@ export class SeedService implements OnModuleInit {
 
     // Only generate mock calls for fake users (@example.com), skip real teammates
     const mockWards = wardRecords.filter(w => w.email.endsWith('@example.com'));
-    
+
     if (mockWards.length === 0) {
       this.logger.log('목 대상자가 없음, 통화 로그 생성 스킵');
       return;
