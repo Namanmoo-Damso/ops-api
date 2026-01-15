@@ -225,7 +225,11 @@ export class CallRepository {
       include: {
         callee: {
           include: {
-            ward: true,
+            ward: {
+              include: {
+                wardCurrentLocation: true,
+              },
+            },
           },
         },
       },
@@ -233,9 +237,13 @@ export class CallRepository {
 
     if (!call) return undefined;
 
+    const currentLocation = call.callee?.ward?.wardCurrentLocation;
+
     return {
       call_id: call.callId,
       ward_id: call.callee?.ward?.id ?? null,
+      latitude: currentLocation?.latitude?.toString() ?? null,
+      longitude: currentLocation?.longitude?.toString() ?? null,
     };
   }
 

@@ -180,6 +180,8 @@ export class CallsController {
       roomName,
       callId: context.call_id,
       wardId: context.ward_id,
+      latitude: context.latitude,
+      longitude: context.longitude,
     };
   }
 
