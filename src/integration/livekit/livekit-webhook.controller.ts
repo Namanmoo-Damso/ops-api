@@ -74,6 +74,35 @@ export class LiveKitWebhookController {
             identity: participant.identity,
             name: participant.name || participant.identity,
           });
+
+          // Mark call as answered when a non-agent/non-admin participant joins
+          // This sets answeredAt timestamp for usage statistics
+          const identity = participant.identity;
+          const isAgent =
+            identity?.startsWith('agent-') || identity === 'damso-agent';
+          const isAdmin = identity?.startsWith('admin-');
+
+          if (!isAgent && !isAdmin) {
+            setImmediate(async () => {
+              try {
+                const callContext =
+                  await this.dbService.getCallContextByRoomName(room.name);
+                if (callContext?.call_id) {
+                  await this.dbService.updateCallState(
+                    callContext.call_id,
+                    'answered',
+                  );
+                  this.logger.log(
+                    `Call marked as answered callId=${callContext.call_id} room=${room.name} identity=${identity}`,
+                  );
+                }
+              } catch (error) {
+                this.logger.warn(
+                  `Failed to mark call as answered room=${room.name}: ${(error as Error).message}`,
+                );
+              }
+            });
+          }
         }
       }
 
@@ -116,8 +145,9 @@ export class LiveKitWebhookController {
           // Trigger call analysis for the room
           setImmediate(async () => {
             try {
-              const callContext =
-                await this.dbService.getCallContextByRoomName(room.name);
+              const callContext = await this.dbService.getCallContextByRoomName(
+                room.name,
+              );
               if (callContext?.call_id) {
                 this.logger.log(
                   `Triggering call analysis for room=${room.name} callId=${callContext.call_id}`,

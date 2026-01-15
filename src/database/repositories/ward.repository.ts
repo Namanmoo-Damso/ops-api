@@ -203,7 +203,9 @@ export class WardRepository {
     });
     if (!ward) return { totalCalls: 0, avgDuration: 0 };
 
-    const cutoff = days ? new Date(Date.now() - days * 24 * 60 * 60 * 1000) : undefined;
+    const cutoff = days
+      ? new Date(Date.now() - days * 24 * 60 * 60 * 1000)
+      : undefined;
 
     const calls = await this.prisma.call.findMany({
       where: {
@@ -263,7 +265,9 @@ export class WardRepository {
   }
 
   async getMoodStats(wardId: string, days?: number) {
-    const cutoff = days ? new Date(Date.now() - days * 24 * 60 * 60 * 1000) : undefined;
+    const cutoff = days
+      ? new Date(Date.now() - days * 24 * 60 * 60 * 1000)
+      : undefined;
 
     const summaries = await this.prisma.callSummary.groupBy({
       by: ['mood'],
@@ -614,6 +618,15 @@ export class WardRepository {
           },
         },
         detail: { select: { notes: true } },
+        wardAssignments: {
+          where: { isActive: true },
+          take: 1,
+          include: {
+            staff: {
+              select: { id: true, name: true },
+            },
+          },
+        },
       },
     });
 
@@ -650,6 +663,7 @@ export class WardRepository {
         ? (lastCallMap.get(userId)?.toISOString() ?? null)
         : null;
       const totalCalls = userId ? (countMap.get(userId) ?? 0).toString() : '0';
+      const assignedStaff = ow.wardAssignments[0]?.staff ?? null;
 
       return {
         id: ow.id,
@@ -661,12 +675,15 @@ export class WardRepository {
         birth_date: ow.birthDate?.toISOString().split('T')[0] ?? null,
         address: ow.address,
         notes: ow.detail?.notes ?? null,
+        gender: ow.gender ?? null,
         is_registered: ow.isRegistered,
         ward_id: ow.wardId,
         created_at: ow.createdAt.toISOString(),
         last_call_at: lastCallAt,
         total_calls: totalCalls,
         last_mood: ow.ward?.callSummaries[0]?.mood ?? null,
+        assigned_staff_id: assignedStaff?.id ?? null,
+        assigned_staff_name: assignedStaff?.name ?? null,
       };
     });
   }
@@ -816,6 +833,99 @@ export class WardRepository {
     }
 
     return { total, registered, pending, positiveMood, negativeMood };
+  }
+
+  /**
+   * Get usage stats for a specific beneficiary (organization ward)
+   * Returns call statistics and dates with calls for the given period
+   */
+  async getBeneficiaryUsageStats(params: {
+    organizationId: string;
+    beneficiaryId: string;
+    startDate: string;
+    endDate: string;
+  }): Promise<{
+    totalCalls: number;
+    totalDurationMinutes: number;
+    averageDurationMinutes: number;
+    callDates: string[];
+  } | null> {
+    // First, get the organization ward and check if it's registered
+    const orgWard = await this.prisma.organizationWard.findFirst({
+      where: {
+        id: params.beneficiaryId,
+        organizationId: params.organizationId,
+      },
+      select: {
+        wardId: true,
+        ward: {
+          select: { userId: true },
+        },
+      },
+    });
+
+    if (!orgWard) return null;
+
+    // If not linked to a ward, return empty stats
+    if (!orgWard.wardId || !orgWard.ward) {
+      return {
+        totalCalls: 0,
+        totalDurationMinutes: 0,
+        averageDurationMinutes: 0,
+        callDates: [],
+      };
+    }
+
+    const startDate = new Date(params.startDate);
+    startDate.setHours(0, 0, 0, 0);
+    const endDate = new Date(params.endDate);
+    endDate.setHours(23, 59, 59, 999);
+
+    // Get all calls for this ward in the date range
+    const calls = await this.prisma.call.findMany({
+      where: {
+        calleeUserId: orgWard.ward.userId,
+        state: 'ended',
+        answeredAt: { not: null },
+        createdAt: {
+          gte: startDate,
+          lte: endDate,
+        },
+      },
+      select: {
+        createdAt: true,
+        answeredAt: true,
+        endedAt: true,
+      },
+    });
+
+    // Calculate stats
+    const totalCalls = calls.length;
+    let totalDurationMinutes = 0;
+    const callDatesSet = new Set<string>();
+
+    for (const call of calls) {
+      // Add the date to the set
+      callDatesSet.add(call.createdAt.toISOString().split('T')[0]);
+
+      // Calculate duration
+      if (call.answeredAt && call.endedAt) {
+        const durationMs = call.endedAt.getTime() - call.answeredAt.getTime();
+        totalDurationMinutes += durationMs / 60000;
+      }
+    }
+
+    const averageDurationMinutes =
+      totalCalls > 0
+        ? Math.round((totalDurationMinutes / totalCalls) * 100) / 100
+        : 0;
+
+    return {
+      totalCalls,
+      totalDurationMinutes: Math.round(totalDurationMinutes * 100) / 100,
+      averageDurationMinutes,
+      callDates: Array.from(callDatesSet).sort(),
+    };
   }
 
   // Call Schedule methods

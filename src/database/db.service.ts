@@ -590,6 +590,15 @@ export class DbService implements OnModuleDestroy {
     return this.wards.getOrganizationWardsStats(organizationId);
   }
 
+  async getBeneficiaryUsageStats(params: {
+    organizationId: string;
+    beneficiaryId: string;
+    startDate: string;
+    endDate: string;
+  }) {
+    return this.wards.getBeneficiaryUsageStats(params);
+  }
+
   async getUpcomingCallSchedules(
     dayOfWeek: number,
     startTime: string,
@@ -607,7 +616,11 @@ export class DbService implements OnModuleDestroy {
     slotStartHour: number,
     slotStartMinute: number,
   ) {
-    return this.wards.getSchedulesForCurrentSlot(dayOfWeek, slotStartHour, slotStartMinute);
+    return this.wards.getSchedulesForCurrentSlot(
+      dayOfWeek,
+      slotStartHour,
+      slotStartMinute,
+    );
   }
 
   async listOrganizationBeneficiaries(params: {
@@ -928,6 +941,10 @@ export class DbService implements OnModuleDestroy {
     return this.dashboard.getTodayStats();
   }
 
+  async getTodayOperationsSummary() {
+    return this.dashboard.getTodayOperationsSummary();
+  }
+
   async getWeeklyTrend() {
     return this.dashboard.getWeeklyTrend();
   }
@@ -954,6 +971,10 @@ export class DbService implements OnModuleDestroy {
 
   async getRecentActivity(limit: number = 10) {
     return this.dashboard.getRecentActivity(limit);
+  }
+
+  async getHourlyCallDistribution(date: Date) {
+    return this.dashboard.getHourlyCallDistribution(date);
   }
 
   // ============================================================

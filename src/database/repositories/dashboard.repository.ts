@@ -74,6 +74,54 @@ export class DashboardRepository {
     };
   }
 
+  /**
+   * Get today's daily operations summary
+   * Returns call breakdown by direction and check-in completion stats
+   */
+  async getTodayOperationsSummary() {
+    const result = await this.prisma.$queryRaw<
+      Array<{
+        total_calls: bigint;
+        incoming_calls: bigint;
+        outgoing_calls: bigint;
+        total_duration_minutes: number;
+        avg_duration_minutes: number;
+        scheduled_check_ins: bigint;
+        completed_check_ins: bigint;
+      }>
+    >`
+      SELECT
+        (SELECT count(*) FROM calls
+         WHERE created_at >= current_date AND state = 'ended') as total_calls,
+        (SELECT count(*) FROM calls
+         WHERE created_at >= current_date AND state = 'ended' AND direction = 'inbound') as incoming_calls,
+        (SELECT count(*) FROM calls
+         WHERE created_at >= current_date AND state = 'ended' AND direction = 'outbound') as outgoing_calls,
+        (SELECT coalesce(sum(extract(epoch from (ended_at - answered_at))/60), 0)
+         FROM calls WHERE created_at >= current_date AND state = 'ended' AND answered_at IS NOT NULL) as total_duration_minutes,
+        (SELECT coalesce(avg(extract(epoch from (ended_at - answered_at))/60), 0)
+         FROM calls WHERE created_at >= current_date AND state = 'ended' AND answered_at IS NOT NULL) as avg_duration_minutes,
+        (SELECT count(*) FROM call_schedules
+         WHERE scheduled_date = current_date) as scheduled_check_ins,
+        (SELECT count(*) FROM call_schedules cs
+         JOIN calls c ON cs.ward_id = c.callee_user_id::text
+         WHERE cs.scheduled_date = current_date
+         AND c.created_at::date = current_date
+         AND c.state = 'ended') as completed_check_ins
+    `;
+
+    const row = result[0];
+    return {
+      totalCalls: Number(row.total_calls),
+      incomingCalls: Number(row.incoming_calls),
+      outgoingCalls: Number(row.outgoing_calls),
+      totalDurationMinutes: Math.round(Number(row.total_duration_minutes || 0)),
+      avgDurationMinutes: Math.round(Number(row.avg_duration_minutes || 0)),
+      scheduledCheckIns: Number(row.scheduled_check_ins),
+      completedCheckIns: Number(row.completed_check_ins),
+    };
+  }
+
   async getWeeklyTrend() {
     const result = await this.prisma.$queryRaw<
       Array<{
@@ -300,6 +348,73 @@ export class DashboardRepository {
       wardName: r.ward_name || '알 수 없음',
       duration: r.duration ? Math.round(r.duration) : undefined,
       time: r.time,
+    }));
+  }
+
+  /**
+   * Get hourly call distribution for operations timeline
+   * Returns scheduled, actual, and incoming call counts per hour
+   */
+  async getHourlyCallDistribution(date: Date) {
+    const dateStr = date.toISOString().split('T')[0];
+
+    const result = await this.prisma.$queryRaw<
+      Array<{
+        hour: number;
+        scheduled: bigint;
+        actual: bigint;
+        incoming: bigint;
+      }>
+    >`
+      WITH hours AS (
+        SELECT generate_series(6, 20) as hour
+      ),
+      scheduled_calls AS (
+        SELECT
+          extract(hour from scheduled_time)::int as hour,
+          count(*) as cnt
+        FROM call_schedules
+        WHERE scheduled_time::date = ${dateStr}::date
+        GROUP BY 1
+      ),
+      actual_calls AS (
+        SELECT
+          extract(hour from created_at)::int as hour,
+          count(*) as cnt
+        FROM calls
+        WHERE created_at::date = ${dateStr}::date
+          AND state = 'ended'
+          AND direction = 'outbound'
+        GROUP BY 1
+      ),
+      incoming_calls AS (
+        SELECT
+          extract(hour from created_at)::int as hour,
+          count(*) as cnt
+        FROM calls
+        WHERE created_at::date = ${dateStr}::date
+          AND state = 'ended'
+          AND direction = 'inbound'
+        GROUP BY 1
+      )
+      SELECT
+        h.hour,
+        coalesce(sc.cnt, 0) as scheduled,
+        coalesce(ac.cnt, 0) as actual,
+        coalesce(ic.cnt, 0) as incoming
+      FROM hours h
+      LEFT JOIN scheduled_calls sc ON h.hour = sc.hour
+      LEFT JOIN actual_calls ac ON h.hour = ac.hour
+      LEFT JOIN incoming_calls ic ON h.hour = ic.hour
+      ORDER BY h.hour
+    `;
+
+    return result.map(r => ({
+      hour: Number(r.hour),
+      label: `${String(r.hour).padStart(2, '0')}:00`,
+      scheduled: Number(r.scheduled),
+      actual: Number(r.actual),
+      incoming: Number(r.incoming),
     }));
   }
 }

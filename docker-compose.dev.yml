@@ -3,9 +3,10 @@ services:
     image: caddy:2
     environment:
       - TZ=Asia/Seoul
+      - SODAM_DOMAIN=${SODAM_DOMAIN:-3.sodam.store}
     network_mode: host
     volumes:
-      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - ./Caddyfile.template:/etc/caddy/Caddyfile:ro
       - caddy_data:/data
       - caddy_config:/config
     restart: unless-stopped
@@ -89,6 +90,10 @@ services:
 
 volumes:
   caddy_data:
+    external: true
+    name: sodam_caddy_data
   caddy_config:
+    external: true
+    name: sodam_caddy_config
   db_data:
   redis_data:
