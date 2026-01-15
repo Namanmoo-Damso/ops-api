@@ -326,9 +326,45 @@ export class SeedService implements OnModuleInit {
       userId: string;
       orgWardId: string;
       name: string;
+      email: string;
     }> = [];
 
     for (const seedWard of SEED_WARDS) {
+      // 실제 팀원 계정은 연동하지 않음 (앱에서 직접 가입해야 함)
+      const isRealTeammate = !seedWard.email.endsWith('@example.com');
+      
+      if (isRealTeammate) {
+        // 실제 팀원은 OrganizationWard만 생성 (wardId 없이)
+        const existingOrgWard = await this.prisma.organizationWard.findFirst({
+          where: { organizationId, email: seedWard.email },
+        });
+        
+        if (!existingOrgWard) {
+          await this.prisma.organizationWard.create({
+            data: {
+              organizationId,
+              email: seedWard.email,
+              phoneNumber: seedWard.phoneNumber,
+              name: seedWard.name,
+              birthDate: seedWard.birthDate,
+              address: seedWard.address,
+              gender: seedWard.gender,
+              isRegistered: false, // 미연동 상태
+              wardId: null,
+              detail: {
+                create: {
+                  diseases: seedWard.diseases ?? [],
+                  notes: seedWard.notes ?? null,
+                },
+              },
+            },
+          });
+          this.logger.log(`대상자 등록 (미연동): ${seedWard.name}`);
+        }
+        continue; // 다음 ward로
+      }
+
+      // Mock 유저(@example.com)는 기존 로직대로 연동
       // Check if OrganizationWard already exists
       const existingOrgWard = await this.prisma.organizationWard.findFirst({
         where: { organizationId, email: seedWard.email },
@@ -342,6 +378,7 @@ export class SeedService implements OnModuleInit {
           userId: existingOrgWard.ward!.userId,
           orgWardId: existingOrgWard.id,
           name: seedWard.name,
+          email: seedWard.email,
         });
         continue;
       }
@@ -422,6 +459,7 @@ export class SeedService implements OnModuleInit {
         userId: user.id,
         orgWardId: orgWardId,
         name: seedWard.name,
+        email: seedWard.email,
       });
 
       this.logger.log(`대상자 연동: ${seedWard.name}`);
@@ -464,28 +502,36 @@ export class SeedService implements OnModuleInit {
   }
 
   private async generateCallLogs(
-    wardRecords: Array<{ wardId: string; userId: string; name: string }>,
+    wardRecords: Array<{ wardId: string; userId: string; name: string; email: string }>,
   ) {
     this.logger.log('통화 로그 생성...');
 
     const now = new Date();
     const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
 
-    // Check if calls already exist for any ward
+    // Only generate mock calls for fake users (@example.com), skip real teammates
+    const mockWards = wardRecords.filter(w => w.email.endsWith('@example.com'));
+    
+    if (mockWards.length === 0) {
+      this.logger.log('목 대상자가 없음, 통화 로그 생성 스킵');
+      return;
+    }
+
+    // Check if calls already exist for mock wards only
     const existingCalls = await this.prisma.call.findFirst({
       where: {
-        calleeUserId: { in: wardRecords.map(w => w.userId) },
+        calleeUserId: { in: mockWards.map(w => w.userId) },
       },
     });
 
     if (existingCalls) {
-      this.logger.log('통화 로그가 이미 존재함, 스킵');
+      this.logger.log('목 대상자 통화 로그가 이미 존재함, 스킵');
       return;
     }
 
     let totalCalls = 0;
 
-    for (const ward of wardRecords) {
+    for (const ward of mockWards) {
       // Generate 15-25 calls per ward over the past 30 days
       const callCount = 3 + Math.floor(Math.random() * 11);
 
