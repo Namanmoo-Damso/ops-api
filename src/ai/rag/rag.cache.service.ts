@@ -374,7 +374,7 @@ export class RagCacheService implements OnModuleInit {
    */
   private async getCachedVectors(
     wardId: string,
-  ): Promise<{ key: string; vectors: any[] } | null> {
+  ): Promise<{ key: string; vectors: unknown[] } | null> {
     if (!this.redisClient) {
       return null;
     }
@@ -385,7 +385,14 @@ export class RagCacheService implements OnModuleInit {
 
     if (primary) {
       try {
-        return { key: primaryKey, vectors: JSON.parse(primary) };
+        const parsed = JSON.parse(primary);
+        if (!Array.isArray(parsed)) {
+          this.logger.warn(
+            `Invalid cached vectors payload for key=${primaryKey}`,
+          );
+          return null;
+        }
+        return { key: primaryKey, vectors: parsed };
       } catch (error) {
         this.logger.warn(
           `Failed to parse cached vectors for key=${primaryKey}: ${error.message}`,

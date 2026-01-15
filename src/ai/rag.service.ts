@@ -14,6 +14,7 @@ import { RagEmbeddingService } from './rag/rag.embedding.service';
 import { RagSearchService } from './rag/rag.search.service';
 import { RagCacheService } from './rag/rag.cache.service';
 import { RagMetricsService } from './rag/rag.metrics.service';
+import { isValidEmbedding } from './rag/rag.utils';
 
 // Types
 import {
@@ -297,32 +298,51 @@ export class RagService implements OnModuleInit {
       );
 
       // Query 임베딩 생성
-      const embeddingStartTime = Date.now();
-      const queryEmbedding =
-        await this.embeddingService.generateEmbedding(query);
-      const embeddingTime = Date.now() - embeddingStartTime;
-      this.debug(`📝 Embedding generated in ${embeddingTime}ms`);
-
-      // 🚀 Redis 캐시 검색 (Fast Path)
-      const redisStartTime = Date.now();
-      const cached = await this.cacheService.searchRedisCache(
-        wardId,
-        queryEmbedding,
-        searchLimit,
-      );
-      const redisSearchTime = Date.now() - redisStartTime;
-
-      if (cached && cached.length > 0) {
-        this.metricsService.recordCacheHit(redisSearchTime);
-        this.logger.log(
-          `✅ Redis cache HIT: ${cached.length} results (${redisSearchTime}ms)`,
+      let queryEmbedding: number[] = [];
+      try {
+        const embeddingStartTime = Date.now();
+        queryEmbedding = await this.embeddingService.generateEmbedding(query);
+        const embeddingTime = Date.now() - embeddingStartTime;
+        this.debug(`📝 Embedding generated in ${embeddingTime}ms`);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        this.logger.warn(
+          `⚠️ Embedding generation failed, falling back to FTS-only search: ${message}`,
         );
-        return cached;
       }
 
-      // Cache miss
+      const hasValidEmbedding = isValidEmbedding(queryEmbedding);
+
+      // 🚀 Redis 캐시 검색 (Fast Path)
+      if (hasValidEmbedding) {
+        const redisStartTime = Date.now();
+        const cached = await this.cacheService.searchRedisCache(
+          wardId,
+          queryEmbedding,
+          searchLimit,
+        );
+        const redisSearchTime = Date.now() - redisStartTime;
+
+        if (cached && cached.length > 0) {
+          this.metricsService.recordCacheHit(redisSearchTime);
+          this.logger.log(
+            `✅ Redis cache HIT: ${cached.length} results (${redisSearchTime}ms)`,
+          );
+          return cached;
+        }
+      } else {
+        this.logger.warn(
+          '⚠️ Invalid embedding detected - skipping Redis cache search',
+        );
+      }
+
+      // Cache miss or skip
       this.metricsService.recordCacheMiss();
-      this.logger.warn(`⚠️ Redis cache MISS - falling back to PGVector`);
+      this.logger.warn(
+        hasValidEmbedding
+          ? '⚠️ Redis cache MISS - falling back to Hybrid Search'
+          : '⚠️ Redis cache skipped - proceeding to Hybrid Search (invalid embedding)',
+      );
 
       // 🔍 PGVector 검색 (Slow Path)
       // 하이브리드 검색: Vector + FTS + RRF
@@ -337,7 +357,7 @@ export class RagService implements OnModuleInit {
       this.metricsService.recordPgvectorSearch(pgSearchTime);
 
       this.logger.log(
-        `✅ PGVector search: ${pgResults.length} results (${pgSearchTime}ms)`,
+        `✅ Hybrid search: ${pgResults.length} results (${pgSearchTime}ms)`,
       );
 
       return pgResults;

@@ -2,7 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { Prisma } from '@prisma/client';
 import { RagMetadata, SearchResult } from './rag.types';
-import { getWindowContext } from './rag.utils';
+import { getWindowContext, isValidEmbedding } from './rag.utils';
 
 /**
  * RAG Search Repository
@@ -32,6 +32,16 @@ export class RagSearchRepository {
 
   private readonly DEBUG_LOGS = process.env.RAG_DEBUG_LOGS === 'true';
 
+  private readonly MAX_FTS_TOKENS = (() => {
+    const value = parseInt(process.env.RAG_FTS_MAX_TOKENS || '8', 10);
+    return Number.isFinite(value) && value > 0 ? value : 8;
+  })();
+  private readonly MAX_FTS_TOKEN_LENGTH = (() => {
+    const value = parseInt(process.env.RAG_FTS_MAX_TOKEN_LENGTH || '32', 10);
+    return Number.isFinite(value) && value > 0 ? value : 32;
+  })();
+  private readonly FTS_UNSAFE_CHARS = /[^a-zA-Z0-9가-힣_]+/g;
+
   constructor(private readonly prisma: PrismaService) {}
 
   /**
@@ -48,6 +58,11 @@ export class RagSearchRepository {
     limit: number,
   ): Promise<SearchResult[]> {
     try {
+      if (!isValidEmbedding(queryEmbedding)) {
+        this.logger.warn('Invalid embedding - skipping vector search');
+        return [];
+      }
+
       const embeddingStr = JSON.stringify(queryEmbedding);
       const expandedLimit = Math.max(
         limit,
@@ -186,17 +201,20 @@ export class RagSearchRepository {
         return [];
       }
 
+      // Sanitize user input to avoid tsquery parsing issues
+      const tokens = this.sanitizeKeywords(keywords);
+      if (tokens.length === 0) {
+        this.debug('No valid keywords after sanitization - skipping FTS');
+        return [];
+      }
+
       this.debug(
         `FTS search: ward=${wardId.substring(0, 8)}..., keywords="${keywords}", limit=${limit}`,
       );
 
       // 한글 복합어 지원을 위해 prefix 검색 사용
       // "병원 예약" → "병원:* | 예약:*" (OR: 하나라도 매칭되면 검색)
-      const prefixKeywords = keywords
-        .split(/\s+/)
-        .filter(k => k.length > 0)
-        .map(k => `${k}:*`)
-        .join(' | ');
+      const prefixKeywords = tokens.map(k => `${k}:*`).join(' | ');
 
       this.debug(`FTS prefix query: "${prefixKeywords}"`);
 
@@ -225,14 +243,14 @@ export class RagSearchRepository {
             c.offset_start,
             c.offset_end,
             c.metadata,
-            ts_rank(c.fts_tokens, query) AS rank_score,
+            ts_rank(COALESCE(c.fts_tokens, ''::tsvector), query) AS rank_score,
             c.created_at,
             c.call_id
           FROM conversation_vectors_child c
           INNER JOIN conversation_vectors_parent p ON c.parent_id = p.id,
           to_tsquery('simple', ${prefixKeywords}) query
           WHERE c.ward_id = ${wardId}::uuid
-            AND c.fts_tokens @@ query
+            AND COALESCE(c.fts_tokens, ''::tsvector) @@ query
           ORDER BY rank_score DESC
           LIMIT ${limit}
         `,
@@ -281,5 +299,15 @@ export class RagSearchRepository {
     if (this.DEBUG_LOGS) {
       this.logger.debug(message);
     }
+  }
+
+  private sanitizeKeywords(keywords: string): string[] {
+    const tokens = keywords
+      .split(/\s+/)
+      .map(token => token.replace(this.FTS_UNSAFE_CHARS, '').trim())
+      .filter(token => token.length > 0)
+      .map(token => token.slice(0, this.MAX_FTS_TOKEN_LENGTH));
+
+    return tokens.slice(0, this.MAX_FTS_TOKENS);
   }
 }
