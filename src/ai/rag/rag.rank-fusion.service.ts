@@ -60,7 +60,14 @@ export class RagRankFusionService {
 
     if (ftsResults.length === 0) {
       this.debug('Zero FTS results - returning vector results only');
-      return vectorResults.slice(0, limit);
+      return vectorResults.slice(0, limit).map(result => ({
+        ...result,
+        metadata: {
+          ...result.metadata,
+          hasKeywordMatch: false,
+          isRecommendation: false,
+        },
+      }));
     }
 
     // Step 1: 각 결과에 순위 부여 (1-based)
@@ -176,6 +183,7 @@ export class RagRankFusionService {
         vectorRank: scored.vectorRank,
         ftsRank: scored.ftsRank,
         hasKeywordMatch: scored.hasKeywordMatch,
+        isRecommendation: false,
       },
     }));
   }
@@ -195,6 +203,7 @@ export class RagRankFusionService {
         metadata: {
           ...r.metadata,
           isRecommendation: true,
+          hasKeywordMatch: false,
         },
       }));
     }
@@ -274,6 +283,7 @@ export class RagRankFusionService {
       metadata: {
         ...r.metadata,
         isRecommendation: true, // 추천 결과임을 표시
+        hasKeywordMatch: false,
       },
     }));
   }
