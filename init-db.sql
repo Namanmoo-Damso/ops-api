@@ -240,7 +240,17 @@ CREATE TABLE "call_schedule_groups" (
     CONSTRAINT "call_schedule_groups_pkey" PRIMARY KEY ("id")
 );
 
--- CreateTable: organization_wards (includes gender and ward_type from migration 20260105183600)
+-- [Migration Reference] If you need to migrate existing data from the removed organization_ward_details table:
+-- INSERT INTO "organization_wards" (id, diseases, medication, emergency_contact, notes)
+-- SELECT organization_ward_id, diseases, medication, guardian, notes
+-- FROM "organization_ward_details"
+-- ON CONFLICT (id) DO UPDATE SET
+--   diseases = EXCLUDED.diseases,
+--   medication = EXCLUDED.medication,
+--   emergency_contact = EXCLUDED.emergency_contact,
+--   notes = EXCLUDED.notes;
+
+-- CreateTable: organization_wards (consolidated - includes fields from organization_ward_details)
 CREATE TABLE "organization_wards" (
     "id" UUID NOT NULL DEFAULT gen_random_uuid(),
     "organization_id" UUID NOT NULL,
@@ -252,25 +262,18 @@ CREATE TABLE "organization_wards" (
     "address" TEXT,
     "gender" TEXT,
     "ward_type" TEXT,
+    -- Merged from organization_ward_details
+    "emergency_contact" TEXT,
+    "diseases" TEXT[] NOT NULL DEFAULT ARRAY[]::text[],
+    "medication" TEXT,
+    "notes" TEXT,
+    -- Status fields
     "is_registered" BOOLEAN NOT NULL DEFAULT false,
     "ward_id" UUID,
     "created_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updated_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
     CONSTRAINT "organization_wards_pkey" PRIMARY KEY ("id")
-);
-
--- CreateTable: organization_ward_details (from migration 20260201090000)
-CREATE TABLE "organization_ward_details" (
-    "organization_ward_id" UUID NOT NULL,
-    "guardian" TEXT,
-    "diseases" TEXT[] NOT NULL DEFAULT ARRAY[]::text[],
-    "medication" TEXT,
-    "notes" TEXT,
-    "created_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    "updated_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-
-    CONSTRAINT "organization_ward_details_pkey" PRIMARY KEY ("organization_ward_id")
 );
 
 -- CreateTable: ward_locations
@@ -741,7 +744,6 @@ ALTER TABLE "call_schedule_groups" ADD CONSTRAINT "call_schedule_groups_ward_id_
 ALTER TABLE "organization_wards" ADD CONSTRAINT "organization_wards_organization_id_fkey" FOREIGN KEY ("organization_id") REFERENCES "organizations"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 ALTER TABLE "organization_wards" ADD CONSTRAINT "organization_wards_uploaded_by_admin_id_fkey" FOREIGN KEY ("uploaded_by_admin_id") REFERENCES "admins"("id") ON DELETE SET NULL ON UPDATE CASCADE;
 ALTER TABLE "organization_wards" ADD CONSTRAINT "organization_wards_ward_id_fkey" FOREIGN KEY ("ward_id") REFERENCES "wards"("id") ON DELETE SET NULL ON UPDATE CASCADE;
-ALTER TABLE "organization_ward_details" ADD CONSTRAINT "organization_ward_details_organization_ward_id_fkey" FOREIGN KEY ("organization_ward_id") REFERENCES "organization_wards"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 ALTER TABLE "ward_locations" ADD CONSTRAINT "ward_locations_ward_id_fkey" FOREIGN KEY ("ward_id") REFERENCES "wards"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 ALTER TABLE "ward_current_locations" ADD CONSTRAINT "ward_current_locations_ward_id_fkey" FOREIGN KEY ("ward_id") REFERENCES "wards"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 ALTER TABLE "emergencies" ADD CONSTRAINT "emergencies_ward_id_fkey" FOREIGN KEY ("ward_id") REFERENCES "wards"("id") ON DELETE SET NULL ON UPDATE CASCADE;

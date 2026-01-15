@@ -74,7 +74,6 @@ export interface BeneficiaryUpdateInput {
 }
 
 const beneficiaryDetailInclude = {
-  detail: true,
   ward: {
     include: {
       guardian: {
@@ -561,6 +560,10 @@ export class WardRepository {
     birthDate: string | null;
     address: string | null;
     uploadedByAdminId?: string;
+    gender?: string;
+    diseases?: string[];
+    medication?: string;
+    emergencyContact?: string;
     notes?: string;
   }) {
     const orgWard = await this.prisma.organizationWard.create({
@@ -572,17 +575,14 @@ export class WardRepository {
         name: params.name,
         birthDate: params.birthDate ? new Date(params.birthDate) : null,
         address: params.address,
+        gender: params.gender ?? null,
+        diseases: params.diseases ?? [],
+        medication: params.medication ?? null,
+        emergencyContact: params.emergencyContact ?? null,
+        notes: params.notes ?? null,
         // 신규 등록은 기본적으로 미연동 상태
         isRegistered: false,
         wardId: null,
-        detail: {
-          create: {
-            notes: params.notes ?? null,
-          },
-        },
-      },
-      include: {
-        detail: { select: { notes: true } },
       },
     });
 
@@ -595,7 +595,11 @@ export class WardRepository {
       name: orgWard.name,
       birth_date: orgWard.birthDate?.toISOString().split('T')[0] ?? null,
       address: orgWard.address,
-      notes: orgWard.detail?.notes ?? null,
+      gender: orgWard.gender,
+      diseases: orgWard.diseases,
+      medication: orgWard.medication,
+      emergency_contact: orgWard.emergencyContact,
+      notes: orgWard.notes,
       is_registered: orgWard.isRegistered,
       ward_id: orgWard.wardId,
       created_at: orgWard.createdAt.toISOString(),
@@ -617,7 +621,6 @@ export class WardRepository {
             },
           },
         },
-        detail: { select: { notes: true } },
         wardAssignments: {
           where: { isActive: true },
           take: 1,
@@ -674,7 +677,7 @@ export class WardRepository {
         name: ow.name,
         birth_date: ow.birthDate?.toISOString().split('T')[0] ?? null,
         address: ow.address,
-        notes: ow.detail?.notes ?? null,
+        notes: ow.notes ?? null,
         gender: ow.gender ?? null,
         is_registered: ow.isRegistered,
         ward_id: ow.wardId,
@@ -715,7 +718,6 @@ export class WardRepository {
             },
           },
         },
-        detail: { select: { notes: true } },
       },
       orderBy: { createdAt: 'desc' },
     });
@@ -781,7 +783,7 @@ export class WardRepository {
         name: ow.name,
         birth_date: ow.birthDate?.toISOString().split('T')[0] ?? null,
         address: ow.address,
-        notes: ow.detail?.notes ?? null,
+        notes: ow.notes ?? null,
         is_registered: ow.isRegistered,
         ward_id: ow.wardId,
         created_at: ow.createdAt.toISOString(),
@@ -1174,38 +1176,14 @@ export class WardRepository {
       updateData.gender = params.data.gender;
     if (params.data.wardType !== undefined)
       updateData.wardType = params.data.wardType;
-
-    const hasDetailUpdate =
-      params.data.guardian !== undefined ||
-      params.data.diseases !== undefined ||
-      params.data.medication !== undefined ||
-      params.data.notes !== undefined;
-    if (hasDetailUpdate) {
-      updateData.detail = {
-        upsert: {
-          create: {
-            guardian: params.data.guardian ?? null,
-            diseases: params.data.diseases ?? [],
-            medication: params.data.medication ?? null,
-            notes: params.data.notes ?? null,
-          },
-          update: {
-            ...(params.data.guardian !== undefined && {
-              guardian: params.data.guardian ?? null,
-            }),
-            ...(params.data.diseases !== undefined && {
-              diseases: params.data.diseases ?? [],
-            }),
-            ...(params.data.medication !== undefined && {
-              medication: params.data.medication ?? null,
-            }),
-            ...(params.data.notes !== undefined && {
-              notes: params.data.notes ?? null,
-            }),
-          },
-        },
-      };
-    }
+    // Consolidated fields (previously in detail table)
+    if (params.data.guardian !== undefined)
+      updateData.emergencyContact = params.data.guardian;
+    if (params.data.diseases !== undefined)
+      updateData.diseases = params.data.diseases;
+    if (params.data.medication !== undefined)
+      updateData.medication = params.data.medication;
+    if (params.data.notes !== undefined) updateData.notes = params.data.notes;
 
     if (Object.keys(updateData).length === 0) {
       const existingDetail = await this.prisma.organizationWard.findFirst({
@@ -1252,7 +1230,8 @@ function toBeneficiaryDetailItem(
   row: OrganizationWardWithDetail,
 ): BeneficiaryDetailItem {
   const guardianUser = row.ward?.guardian?.user;
-  const guardian = row.detail?.guardian ?? formatGuardian(guardianUser);
+  // Use emergencyContact from consolidatedmodel, fallback to linked ward's guardian
+  const guardian = row.emergencyContact ?? formatGuardian(guardianUser);
   const recentLogs =
     row.ward?.callSummaries.map(summary => {
       const createdAt = summary.call?.createdAt ?? summary.createdAt;
@@ -1275,9 +1254,9 @@ function toBeneficiaryDetailItem(
     gender: row.gender ?? null,
     type: row.wardType ?? null,
     guardian,
-    diseases: row.detail?.diseases ?? [],
-    medication: row.detail?.medication ?? null,
-    notes: row.detail?.notes ?? null,
+    diseases: row.diseases ?? [],
+    medication: row.medication ?? null,
+    notes: row.notes ?? null,
     recentLogs,
   };
 }

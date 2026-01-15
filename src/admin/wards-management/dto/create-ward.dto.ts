@@ -1,5 +1,7 @@
 import { Transform } from 'class-transformer';
 import {
+  ArrayNotEmpty,
+  IsArray,
   IsDateString,
   IsEmail,
   IsNotEmpty,
@@ -7,6 +9,7 @@ import {
   IsString,
 } from 'class-validator';
 import { IsValidPhone } from '../validators/phone-number.validator';
+import { parseBirthDate, sanitizeDiseases } from '../../../common/utils/date.utils';
 
 export class CreateWardDto {
   @IsString()
@@ -31,11 +34,7 @@ export class CreateWardDto {
 
   @IsOptional()
   @IsDateString()
-  @Transform(({ value }) =>
-    typeof value === 'string' && value.trim().length > 0
-      ? value.trim()
-      : undefined,
-  )
+  @Transform(({ value }) => parseBirthDate(value))
   birth_date?: string;
 
   @IsOptional()
@@ -54,5 +53,39 @@ export class CreateWardDto {
       ? value.trim()
       : undefined,
   )
+  gender?: string;
+
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  @Transform(({ value }) => sanitizeDiseases(value))
+  diseases?: string[];
+
+  @IsOptional()
+  @IsString()
+  @Transform(({ value }) =>
+    typeof value === 'string' && value.trim().length > 0
+      ? value.trim()
+      : undefined,
+  )
+  medication?: string;
+
+  @IsOptional()
+  @IsString()
+  @Transform(({ value }) =>
+    typeof value === 'string' && value.trim().length > 0
+      ? value.trim()
+      : undefined,
+  )
+  emergency_contact?: string;
+
+  @IsOptional()
+  @IsString()
+  @Transform(({ value }) =>
+    typeof value === 'string' && value.trim().length > 0
+      ? value.trim()
+      : undefined,
+  )
   notes?: string;
 }
+

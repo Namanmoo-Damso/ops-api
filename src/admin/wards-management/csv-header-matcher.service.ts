@@ -28,7 +28,9 @@ export class CsvHeaderMatcherService {
       this.logger.log('Bedrock client initialized for CSV header matching');
     } else {
       this.client = null;
-      this.logger.warn('AWS credentials not set, LLM-based matching will not be available');
+      this.logger.warn(
+        'AWS credentials not set, LLM-based matching will not be available',
+      );
     }
   }
 
@@ -47,6 +49,10 @@ ${headers.map((h, i) => `${i + 1}. "${h}"`).join('\n')}
 - phone_number (전화번호, 휴대폰 등 - 필수)
 - birth_date (생년월일, 생일 등 - 선택)
 - address (주소, 거주지 등 - 선택)
+- gender (성별, 남/여 등 - 선택)
+- diseases (질환, 질병, 지병 등 - 선택)
+- medication (복용약, 약물 등 - 선택)
+- emergency_contact (비상연락처, 보호자 연락처 등 - 선택)
 - notes (비고, 메모 등 - 선택)
 
 응답 형식은 반드시 아래와 같은 JSON 객체여야 합니다:
@@ -101,8 +107,19 @@ JSON만 반환하고 다른 텍스트는 포함하지 마세요.`;
 
       const rawMapping = JSON.parse(jsonMatch[0]);
 
-      // 허용된 필드명만 필터링
-      const allowedFields = ['name', 'email', 'phone_number', 'birth_date', 'address', 'notes'];
+      // 허용된 필드명만 필터링 (신규 필드 포함)
+      const allowedFields = [
+        'name',
+        'email',
+        'phone_number',
+        'birth_date',
+        'address',
+        'gender',
+        'diseases',
+        'medication',
+        'emergency_contact',
+        'notes',
+      ];
       const mapping: HeaderMapping = {};
 
       for (const [key, value] of Object.entries(rawMapping)) {
@@ -113,11 +130,15 @@ JSON만 반환하고 다른 텍스트는 포함하지 마세요.`;
         }
       }
 
-      this.logger.log(`LLM matched ${Object.keys(mapping).length} headers (validated)`);
+      this.logger.log(
+        `LLM matched ${Object.keys(mapping).length} headers (validated)`,
+      );
 
       return mapping;
     } catch (error) {
-      this.logger.error(`LLM header matching failed: ${(error as Error).message}`);
+      this.logger.error(
+        `LLM header matching failed: ${(error as Error).message}`,
+      );
       return {};
     }
   }
