@@ -21,6 +21,7 @@ import { CurrentAdmin } from '../../common';
 import { AdminOrganizationGuard } from '../../common/guards/admin-organization.guard';
 import { BulkUploadWardsDto, CreateWardDto, MatchCsvHeadersDto } from './dto';
 import { CsvHeaderMatcherService } from './csv-header-matcher.service';
+import { WardsManagementService } from './wards-management.service';
 
 @Controller('v1/admin')
 @UseGuards(AdminOrganizationGuard)
@@ -36,21 +37,8 @@ export class WardsManagementController {
   constructor(
     private readonly dbService: DbService,
     private readonly csvHeaderMatcher: CsvHeaderMatcherService,
-  ) { }
-
-  private validateWardInput(payload: Partial<CreateWardDto>) {
-    const dto = plainToInstance(CreateWardDto, payload);
-    const errors = validateSync(dto, {
-      whitelist: true,
-      forbidUnknownValues: true,
-    });
-
-    if (errors.length > 0) {
-      const constraints = errors[0].constraints;
-      const [firstError] = constraints ? Object.values(constraints) : [];
-      throw new Error(firstError || '잘못된 입력입니다.');
-    }
-  }
+    private readonly wardsManagementService: WardsManagementService,
+  ) {}
 
   @Post('wards')
   async createWard(
@@ -118,13 +106,15 @@ export class WardsManagementController {
     @Body() body: BulkUploadWardsDto,
   ) {
     const organizationId = body.organizationId;
-    const headerMapping = body.headerMapping
-      ? (JSON.parse(body.headerMapping) as Record<string, string>)
-      : null;
 
     if (!file) {
       throw new HttpException('file is required', HttpStatus.BAD_REQUEST);
     }
+
+    // JSON.parse error handling is moved to service
+    const headerMapping = this.wardsManagementService.parseHeaderMapping(
+      body.headerMapping,
+    );
 
     const maxSize = 5 * 1024 * 1024;
     if (file.size > maxSize) {
@@ -150,90 +140,12 @@ export class WardsManagementController {
         trim: true,
       }) as Array<Record<string, string>>;
 
-      const results = {
-        total: records.length,
-        created: 0,
-        skipped: 0,
-        failed: 0,
-        errors: [] as Array<{ row: number; email: string; reason: string }>,
-      };
-
-      for (let i = 0; i < records.length; i++) {
-        const record = records[i];
-        const row = i + 2;
-
-        // Extract fields using header mapping if available
-        const getField = (fieldName: string) => {
-          if (!headerMapping) return record[fieldName];
-          const actualHeader = Object.keys(headerMapping).find(
-            key => headerMapping[key] === fieldName,
-          );
-          return actualHeader ? record[actualHeader] : record[fieldName];
-        };
-
-        const email = getField('email')?.trim() ?? '';
-        const phoneNumber = getField('phone_number')?.trim() ?? '';
-        const name = getField('name')?.trim() ?? '';
-        const birthDate = getField('birth_date')?.trim() || null;
-        const address = getField('address')?.trim() || null;
-        const notes = getField('notes')?.trim() || undefined;
-
-        try {
-          this.validateWardInput({
-            organizationId,
-            email,
-            phone_number: phoneNumber,
-            name,
-            birth_date: birthDate ?? undefined,
-            address: address ?? undefined,
-            gender: getField('gender')?.trim() || undefined,
-            diseases:
-              getField('diseases')
-                ?.split(',')
-                .map((s: string) => s.trim())
-                .filter(Boolean) || undefined,
-            medication: getField('medication')?.trim() || undefined,
-            emergency_contact: getField('emergency_contact')?.trim() || undefined,
-            notes,
-          });
-
-          const existing = await this.dbService.findOrganizationWard(
-            organizationId,
-            email,
-          );
-          if (existing) {
-            results.skipped++;
-            continue;
-          }
-
-          await this.dbService.createOrganizationWard({
-            organizationId,
-            email,
-            phoneNumber,
-            name,
-            birthDate,
-            address,
-            gender: getField('gender')?.trim() || undefined,
-            diseases: getField('diseases')
-              ?.split(',')
-              .map((s: string) => s.trim())
-              .filter(Boolean),
-            medication: getField('medication')?.trim() || undefined,
-            emergencyContact: getField('emergency_contact')?.trim() || undefined,
-            uploadedByAdminId: admin.sub,
-            notes,
-          });
-
-          results.created++;
-        } catch (error) {
-          results.failed++;
-          results.errors.push({
-            row,
-            email,
-            reason: (error as Error).message,
-          });
-        }
-      }
+      const results = await this.wardsManagementService.processBulkUpload(
+        admin.sub,
+        organizationId,
+        records,
+        headerMapping,
+      );
 
       this.logger.log(
         `bulkUploadWards completed organizationId=${organizationId} adminId=${admin.sub} total=${results.total} created=${results.created} skipped=${results.skipped} failed=${results.failed}`,
@@ -247,6 +159,11 @@ export class WardsManagementController {
       this.logger.error(
         `bulkUploadWards failed error=${(error as Error).message}`,
       );
+
+      if (error instanceof HttpException) {
+        throw error;
+      }
+
       throw new HttpException(
         'Failed to process CSV file',
         HttpStatus.BAD_REQUEST,

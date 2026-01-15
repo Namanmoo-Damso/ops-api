@@ -8,6 +8,6 @@ export class BulkUploadWardsDto {
   organizationId!: string;
 
   @IsOptional()
-  headerMapping?: string; // JSON string of HeaderMapping
+  @IsString()
+  headerMapping?: string; // JSON string of HeaderMapping: Record<string, string>
 }
-

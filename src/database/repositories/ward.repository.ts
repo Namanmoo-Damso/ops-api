@@ -108,7 +108,7 @@ type OrganizationWardWithDetail = Prisma.OrganizationWardGetPayload<{
 
 @Injectable()
 export class WardRepository {
-  constructor(private readonly prisma: PrismaService) { }
+  constructor(private readonly prisma: PrismaService) {}
 
   async create(params: {
     userId: string;
@@ -141,9 +141,9 @@ export class WardRepository {
 
   async findByGuardianId(guardianId: string): Promise<
     | (WardRow & {
-      user_nickname: string | null;
-      user_profile_image_url: string | null;
-    })
+        user_nickname: string | null;
+        user_profile_image_url: string | null;
+      })
     | undefined
   > {
     // guardian_ward_registrations를 통해 연결된 ward 조회
@@ -642,17 +642,17 @@ export class WardRepository {
     const [lastCalls, callCounts] =
       wardUserIds.length > 0
         ? await Promise.all([
-          this.prisma.call.groupBy({
-            by: ['calleeUserId'],
-            where: { calleeUserId: { in: wardUserIds }, state: 'ended' },
-            _max: { createdAt: true },
-          }),
-          this.prisma.call.groupBy({
-            by: ['calleeUserId'],
-            where: { calleeUserId: { in: wardUserIds }, state: 'ended' },
-            _count: true,
-          }),
-        ])
+            this.prisma.call.groupBy({
+              by: ['calleeUserId'],
+              where: { calleeUserId: { in: wardUserIds }, state: 'ended' },
+              _max: { createdAt: true },
+            }),
+            this.prisma.call.groupBy({
+              by: ['calleeUserId'],
+              where: { calleeUserId: { in: wardUserIds }, state: 'ended' },
+              _count: true,
+            }),
+          ])
         : [[], []];
 
     const lastCallMap = new Map(
@@ -734,17 +734,17 @@ export class WardRepository {
     const [lastCalls, callCounts] =
       wardUserIds.length > 0
         ? await Promise.all([
-          this.prisma.call.groupBy({
-            by: ['calleeUserId'],
-            where: { calleeUserId: { in: wardUserIds }, state: 'ended' },
-            _max: { createdAt: true },
-          }),
-          this.prisma.call.groupBy({
-            by: ['calleeUserId'],
-            where: { calleeUserId: { in: wardUserIds }, state: 'ended' },
-            _count: true,
-          }),
-        ])
+            this.prisma.call.groupBy({
+              by: ['calleeUserId'],
+              where: { calleeUserId: { in: wardUserIds }, state: 'ended' },
+              _max: { createdAt: true },
+            }),
+            this.prisma.call.groupBy({
+              by: ['calleeUserId'],
+              where: { calleeUserId: { in: wardUserIds }, state: 'ended' },
+              _count: true,
+            }),
+          ])
         : [[], []];
 
     const lastCallMap = new Map(
@@ -1047,10 +1047,10 @@ export class WardRepository {
   }): Promise<BeneficiaryListResult> {
     const { organizationId, search, riskOnly = false, page, pageSize } = params;
 
-    // 연동 완료된(isRegistered=true) 대상자만 전체 대상자 관리에 노출
+    // List all beneficiaries (both registered and pending) for this organization.
+    // SECURITY: organizationId check is crucial here.
     const where: Prisma.OrganizationWardWhereInput = {
       organizationId,
-      isRegistered: true,
     };
     const q = search?.trim();
     if (q) {
@@ -1122,7 +1122,6 @@ export class WardRepository {
       where: {
         id: params.beneficiaryId,
         organizationId: params.organizationId,
-        isRegistered: true,
       },
       select: {
         id: true,
