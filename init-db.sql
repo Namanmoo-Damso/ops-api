@@ -477,20 +477,35 @@ CREATE TABLE "emotion_summaries" (
     CONSTRAINT "emotion_summaries_ward_id_period_start_key" UNIQUE ("ward_id", "period_start")
 );
 
+-- CreateTable: staff (직원 - 단순 배정용, 인증 없음)
+CREATE TABLE "staff" (
+    "id" UUID NOT NULL DEFAULT gen_random_uuid(),
+    "organization_id" UUID NOT NULL,
+    "name" TEXT NOT NULL,
+    "email" TEXT,
+    "phone_number" TEXT,
+    "team" TEXT,
+    "job_title" TEXT,
+    "is_active" BOOLEAN NOT NULL DEFAULT true,
+    "created_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updated_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    CONSTRAINT "staff_pkey" PRIMARY KEY ("id")
+);
+
 -- CreateTable: ward_assignments (직원-대상자 배정)
 CREATE TABLE "ward_assignments" (
     "id" UUID NOT NULL DEFAULT gen_random_uuid(),
-    "admin_id" UUID NOT NULL,
+    "staff_id" UUID NOT NULL,
     "organization_ward_id" UUID NOT NULL,
     "assigned_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    "assigned_by" UUID,
     "is_active" BOOLEAN NOT NULL DEFAULT true,
     "notes" TEXT,
     "created_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updated_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
     CONSTRAINT "ward_assignments_pkey" PRIMARY KEY ("id"),
-    CONSTRAINT "ward_assignments_admin_id_organization_ward_id_key" UNIQUE ("admin_id", "organization_ward_id")
+    CONSTRAINT "ward_assignments_staff_id_organization_ward_id_key" UNIQUE ("staff_id", "organization_ward_id")
 );
 
 -- CreateTable: organization_settings (기관 설정)
@@ -690,11 +705,14 @@ CREATE INDEX "care_alert_events_call_id_idx" ON "care_alert_events"("call_id");
 -- Emotion summaries indexes
 CREATE INDEX "emotion_summaries_ward_id_period_start_idx" ON "emotion_summaries"("ward_id", "period_start" DESC);
 
+-- Staff indexes
+CREATE INDEX "staff_organization_id_idx" ON "staff"("organization_id");
+CREATE INDEX "staff_organization_id_is_active_idx" ON "staff"("organization_id", "is_active");
+
 -- Ward assignments indexes
-CREATE INDEX "ward_assignments_admin_id_idx" ON "ward_assignments"("admin_id");
+CREATE INDEX "ward_assignments_staff_id_idx" ON "ward_assignments"("staff_id");
 CREATE INDEX "ward_assignments_organization_ward_id_idx" ON "ward_assignments"("organization_ward_id");
-CREATE INDEX "ward_assignments_admin_id_is_active_idx" ON "ward_assignments"("admin_id", "is_active");
-CREATE INDEX "ward_assignments_assigned_by_idx" ON "ward_assignments"("assigned_by");
+CREATE INDEX "ward_assignments_staff_id_is_active_idx" ON "ward_assignments"("staff_id", "is_active");
 
 -- ============================================================================
 -- FOREIGN KEYS
@@ -747,10 +765,12 @@ ALTER TABLE "care_alert_events" ADD CONSTRAINT "care_alert_events_ward_id_fkey" 
 -- Emotion summaries foreign keys
 ALTER TABLE "emotion_summaries" ADD CONSTRAINT "emotion_summaries_ward_id_fkey" FOREIGN KEY ("ward_id") REFERENCES "wards"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 
+-- Staff foreign keys
+ALTER TABLE "staff" ADD CONSTRAINT "staff_organization_id_fkey" FOREIGN KEY ("organization_id") REFERENCES "organizations"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
 -- Ward assignments foreign keys
-ALTER TABLE "ward_assignments" ADD CONSTRAINT "ward_assignments_admin_id_fkey" FOREIGN KEY ("admin_id") REFERENCES "admins"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+ALTER TABLE "ward_assignments" ADD CONSTRAINT "ward_assignments_staff_id_fkey" FOREIGN KEY ("staff_id") REFERENCES "staff"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 ALTER TABLE "ward_assignments" ADD CONSTRAINT "ward_assignments_organization_ward_id_fkey" FOREIGN KEY ("organization_ward_id") REFERENCES "organization_wards"("id") ON DELETE CASCADE ON UPDATE CASCADE;
-ALTER TABLE "ward_assignments" ADD CONSTRAINT "ward_assignments_assigned_by_fkey" FOREIGN KEY ("assigned_by") REFERENCES "admins"("id") ON DELETE SET NULL ON UPDATE CASCADE;
 
 -- Organization settings foreign keys
 ALTER TABLE "organization_settings" ADD CONSTRAINT "organization_settings_organization_id_fkey" FOREIGN KEY ("organization_id") REFERENCES "organizations"("id") ON DELETE CASCADE ON UPDATE CASCADE;

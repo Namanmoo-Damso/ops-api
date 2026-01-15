@@ -487,7 +487,7 @@ export class SeedService implements OnModuleInit {
 
     for (const ward of wardRecords) {
       // Generate 15-25 calls per ward over the past 30 days
-      const callCount = 15 + Math.floor(Math.random() * 11);
+      const callCount = 3 + Math.floor(Math.random() * 11);
 
       for (let i = 0; i < callCount; i++) {
         // Random date within last 30 days
