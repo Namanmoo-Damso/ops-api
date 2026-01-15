@@ -6,7 +6,27 @@ import {
   Min,
   Max,
   Matches,
+  ValidatorConstraint,
+  ValidatorConstraintInterface,
+  Validate,
+  ValidationArguments,
 } from 'class-validator';
+
+@ValidatorConstraint({ name: 'isTimeRangeValid', async: false })
+class IsTimeRangeValid implements ValidatorConstraintInterface {
+  validate(value: any, args: ValidationArguments) {
+    const dto = args.object as UpdateSettingsDto;
+    // Only validate if both times are provided
+    if (dto.preferredStartTime && dto.preferredEndTime) {
+      return dto.preferredStartTime < dto.preferredEndTime;
+    }
+    return true;
+  }
+
+  defaultMessage() {
+    return 'preferredStartTime must be earlier than preferredEndTime';
+  }
+}
 
 export class UpdateSettingsDto {
   // Scheduled Calls
@@ -15,6 +35,7 @@ export class UpdateSettingsDto {
   @Matches(/^([01]\d|2[0-3]):([0-5]\d)$/, {
     message: 'preferredStartTime must be in HH:mm format',
   })
+  @Validate(IsTimeRangeValid)
   preferredStartTime?: string;
 
   @IsOptional()
