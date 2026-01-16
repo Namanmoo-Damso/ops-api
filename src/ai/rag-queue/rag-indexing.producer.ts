@@ -14,7 +14,7 @@ import { Queue } from 'bullmq';
 import {
   RAG_INDEXING_QUEUE,
   RAG_INDEXING_JOB,
-  DEFAULT_JOB_OPTIONS,
+  INDEXING_JOB_DELAY_MS,
 } from './rag-queue.constants';
 
 // 인덱싱 작업 데이터 타입
@@ -43,7 +43,7 @@ export class RagIndexingProducer {
    * @returns 생성된 Job ID
    *
    * 특징:
-   * - 1초 지연: DB 트랜잭션 완료 후 작업 시작 보장
+   * - 지연 시간 적용: DB 트랜잭션 완료 후 작업 시작 보장
    * - 중복 방지: callId를 Job ID로 사용하여 중복 등록 방지
    */
   async addIndexingJob(callId: string, wardId: string): Promise<string> {
@@ -56,12 +56,12 @@ export class RagIndexingProducer {
     const job = await this.ragIndexingQueue.add(RAG_INDEXING_JOB, jobData, {
       // Job ID를 callId로 설정하여 중복 방지
       jobId: `index-${callId}`,
-      // 1초 지연: DB 트랜잭션 완료 보장
-      delay: DEFAULT_JOB_OPTIONS.DELAY_MS,
+      // 지연 시간 적용: DB 트랜잭션 완료 보장
+      delay: INDEXING_JOB_DELAY_MS,
     });
 
     this.logger.log(
-      `📤 인덱싱 작업 큐 등록: callId=${callId}, jobId=${job.id}, delay=${DEFAULT_JOB_OPTIONS.DELAY_MS}ms`,
+      `Indexing job enqueued: callId=${callId}, jobId=${job.id}, delay=${INDEXING_JOB_DELAY_MS}ms`,
     );
 
     return job.id!;
@@ -93,7 +93,7 @@ export class RagIndexingProducer {
     const existingJob = await this.ragIndexingQueue.getJob(`index-${callId}`);
     if (existingJob) {
       await existingJob.remove();
-      this.logger.log(`🗑️ 기존 작업 제거: callId=${callId}`);
+      this.logger.log(`Removed existing job before retry: callId=${callId}`);
     }
 
     const job = await this.ragIndexingQueue.add(RAG_INDEXING_JOB, jobData, {
@@ -103,7 +103,7 @@ export class RagIndexingProducer {
     });
 
     this.logger.log(
-      `🔄 인덱싱 재시도 큐 등록: callId=${callId}, jobId=${job.id}, retryCount=${retryCount + 1}`,
+      `Retry job enqueued: callId=${callId}, jobId=${job.id}, retryCount=${retryCount + 1}`,
     );
 
     return job.id!;

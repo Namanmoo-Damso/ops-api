@@ -17,6 +17,7 @@
 import { NestFactory } from '@nestjs/core';
 import { Logger } from '@nestjs/common';
 import { WorkerModule } from './worker.module';
+import { PROCESSOR_OPTIONS } from './ai/rag-queue/rag-queue.constants';
 
 // 로거 인스턴스
 const logger = new Logger('IndexingWorker');
@@ -25,16 +26,16 @@ const logger = new Logger('IndexingWorker');
 let isShuttingDown = false;
 
 async function bootstrap() {
-  logger.log('🚀 RAG 인덱싱 워커 시작 중...');
+  logger.log('RAG indexing worker starting...');
 
   // HTTP 서버 없이 애플리케이션 컨텍스트만 생성
   const app = await NestFactory.createApplicationContext(WorkerModule, {
     logger: ['error', 'warn', 'log'],
   });
 
-  logger.log('✅ 워커 초기화 완료');
-  logger.log(`📊 동시 처리: ${process.env.WORKER_CONCURRENCY || 5}개 작업`);
-  logger.log(`📡 Redis: ${process.env.REDIS_URL || 'redis://localhost:6379'}`);
+  logger.log('Worker initialized');
+  logger.log(`Concurrency: ${PROCESSOR_OPTIONS.CONCURRENCY} jobs`);
+  logger.log(`Redis: ${process.env.REDIS_URL || 'redis://localhost:6379'}`);
 
   /**
    * Graceful Shutdown 핸들러
@@ -47,23 +48,23 @@ async function bootstrap() {
   const gracefulShutdown = async (signal: string) => {
     // 중복 호출 방지
     if (isShuttingDown) {
-      logger.warn(`⚠️ 이미 종료 진행 중... (signal: ${signal})`);
+      logger.warn(`Shutdown already in progress (signal: ${signal})`);
       return;
     }
     isShuttingDown = true;
 
-    logger.log(`🛑 종료 신호 수신: ${signal}`);
-    logger.log('⏳ 진행 중인 작업 완료 대기 중...');
+    logger.log(`Shutdown signal received: ${signal}`);
+    logger.log('Waiting for in-flight jobs to finish...');
 
     try {
       // NestJS 애플리케이션 컨텍스트 종료
       // 이 과정에서 BullMQ 워커의 close()가 호출됨
       // close()는 현재 실행 중인 작업이 완료될 때까지 대기
       await app.close();
-      logger.log('✅ 워커 정상 종료 완료');
+      logger.log('Worker shutdown complete');
       process.exit(0);
     } catch (error) {
-      logger.error(`❌ 종료 중 에러 발생: ${error}`);
+      logger.error(`Error during shutdown: ${error}`);
       process.exit(1);
     }
   };
@@ -74,20 +75,20 @@ async function bootstrap() {
 
   // 예기치 못한 에러 핸들링
   process.on('uncaughtException', (error) => {
-    logger.error(`❌ Uncaught Exception: ${error.message}`, error.stack);
+    logger.error(`Uncaught exception: ${error.message}`, error.stack);
     gracefulShutdown('uncaughtException');
   });
 
   process.on('unhandledRejection', (reason) => {
-    logger.error(`❌ Unhandled Rejection: ${reason}`);
+    logger.error(`Unhandled rejection: ${reason}`);
     gracefulShutdown('unhandledRejection');
   });
 
-  logger.log('📋 워커 실행 중... (종료: Ctrl+C)');
+  logger.log('Worker running (stop: Ctrl+C)');
 }
 
 // 워커 시작
 bootstrap().catch((error) => {
-  logger.error(`❌ 워커 시작 실패: ${error.message}`, error.stack);
+  logger.error(`Worker start failed: ${error.message}`, error.stack);
   process.exit(1);
 });

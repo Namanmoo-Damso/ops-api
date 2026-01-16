@@ -306,7 +306,7 @@ export class RagController {
       throw new BadRequestException('callId is required');
     }
 
-    this.logger.log(`🔄 인덱싱 재시도 요청: callId=${callId}`);
+    this.logger.log(`Indexing retry requested: callId=${callId}`);
 
     // 통화 정보 조회
     const indexingInfo = await this.dbService.getIndexingInfo(callId);
@@ -330,7 +330,7 @@ export class RagController {
     );
 
     this.logger.log(
-      `✅ 인덱싱 재시도 큐 등록 완료: callId=${callId}, jobId=${jobId}, previousAttempts=${indexingInfo.attempts}`,
+      `Indexing retry enqueued: callId=${callId}, jobId=${jobId}, previousAttempts=${indexingInfo.attempts}`,
     );
 
     return {

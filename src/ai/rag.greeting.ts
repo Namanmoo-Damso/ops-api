@@ -97,7 +97,7 @@ export class GreetingGenerator {
         const greetingChannel = `greeting:ward:${wardId}`;
         await redisClient.publish(greetingChannel, greeting);
         this.deps.logger.log(
-          `📡 Published greeting to channel: ${greetingChannel}`,
+          `Published greeting to channel: ${greetingChannel}`,
         );
       } else {
         this.deps.logger.warn(

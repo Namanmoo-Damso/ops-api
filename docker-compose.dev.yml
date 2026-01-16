@@ -37,9 +37,9 @@ services:
       [
         'redis-server',
         '--maxmemory',
-        '512mb',
+        '${REDIS_MAXMEMORY:-512mb}',
         '--maxmemory-policy',
-        'noeviction',
+        'allkeys-lru',
         '--save',
         '60',
         '1',
@@ -109,10 +109,10 @@ services:
     environment:
       - TZ=Asia/Seoul
       # 워커 전용 환경변수
-      - WORKER_CONCURRENCY=5
+      - WORKER_CONCURRENCY=${WORKER_CONCURRENCY:-5}
       # Bull Board UI 인증 (API에서 접근)
-      - ADMIN_USER=${ADMIN_USER:-admin}
-      - ADMIN_PASS=${ADMIN_PASS:-admin}
+      - ADMIN_USER=${ADMIN_USER}
+      - ADMIN_PASS=${ADMIN_PASS}
     extra_hosts:
       - 'host.docker.internal:host-gateway'
     volumes:
@@ -126,11 +126,11 @@ services:
         condition: service_healthy
     # Graceful Shutdown 설정 (30초 대기)
     stop_grace_period: 30s
-    # 메모리 제한 (1GB)
+    # 메모리 제한
     deploy:
       resources:
         limits:
-          memory: 1G
+          memory: ${WORKER_MEMORY_LIMIT:-1G}
     command: >
       sh -c "
       npm install &&

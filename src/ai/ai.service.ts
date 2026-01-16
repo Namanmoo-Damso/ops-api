@@ -19,6 +19,12 @@ export class AiService {
     @Optional() private readonly ragIndexingProducer?: RagIndexingProducer,
   ) {}
 
+  private hasIndexingProducer(
+    producer?: RagIndexingProducer,
+  ): producer is RagIndexingProducer {
+    return Boolean(producer);
+  }
+
   async analyzeCall(callId: string): Promise<AnalyzeCallResult> {
     this.logger.log(`analyzeCall callId=${callId}`);
 
@@ -93,20 +99,26 @@ export class AiService {
     // 5. RAG 벡터 DB 인덱싱 (BullMQ 큐로 비동기 처리)
     // 워커 컨테이너에서 처리하여 API 서버 부하 분리
     if (callInfo.ward_id) {
-      if (this.ragIndexingProducer) {
+      if (this.hasIndexingProducer(this.ragIndexingProducer)) {
         // BullMQ를 통한 큐 기반 인덱싱 (권장)
         this.ragIndexingProducer
           .addIndexingJob(callId, callInfo.ward_id)
           .then((jobId) => {
-            this.logger.log(`📤 RAG 인덱싱 작업 큐 등록 완료: callId=${callId}, jobId=${jobId}`);
+            this.logger.log(
+              `RAG indexing job enqueued: callId=${callId}, jobId=${jobId}`,
+            );
           })
           .catch((error) => {
             // 큐 등록 실패 시 로깅 (전체 분석에 영향 없음)
-            this.logger.error(`❌ RAG 인덱싱 큐 등록 실패: callId=${callId}, error=${error.message}`);
+            this.logger.error(
+              `Failed to enqueue RAG indexing job: callId=${callId}, error=${error.message}`,
+            );
           });
       } else {
         // Fallback: Producer가 없으면 직접 인덱싱 (기존 방식)
-        this.logger.warn(`⚠️ RagIndexingProducer 미등록, 직접 인덱싱 실행: callId=${callId}`);
+        this.logger.warn(
+          `RagIndexingProducer not registered. Running direct indexing: callId=${callId}`,
+        );
         this.transcriptStore.getTranscriptEntries(callId)
           .then((transcriptEntries) => {
             if (transcriptEntries && transcriptEntries.length > 0) {

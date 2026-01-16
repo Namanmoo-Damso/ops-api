@@ -52,7 +52,7 @@ export class RagIndexingProcessor extends WorkerHost {
     const startTime = Date.now();
 
     this.logger.log(
-      `🔧 인덱싱 작업 시작: callId=${callId}, wardId=${wardId}, isRetry=${isRetry}, attempt=${job.attemptsMade + 1}`,
+      `Indexing started: callId=${callId}, wardId=${wardId}, isRetry=${isRetry}, attempt=${job.attemptsMade + 1}`,
     );
 
     try {
@@ -78,7 +78,7 @@ export class RagIndexingProcessor extends WorkerHost {
           error: null,
         });
 
-        this.logger.warn(`⚠️ 트랜스크립트 없음: callId=${callId}, 인덱싱 스킵`);
+        this.logger.warn(`No transcripts found. Skipping indexing: callId=${callId}`);
         return { success: true, message: 'No transcripts to index' };
       }
 
@@ -86,7 +86,7 @@ export class RagIndexingProcessor extends WorkerHost {
       await job.updateProgress(30);
 
       // Step 5: RAG 인덱싱 실행
-      this.logger.log(`📝 RAG 인덱싱 실행: callId=${callId}, lines=${transcriptEntries.length}`);
+      this.logger.log(`Indexing transcripts: callId=${callId}, lines=${transcriptEntries.length}`);
       await this.ragService.indexConversation(callId, wardId, transcriptEntries);
 
       // Step 6: 진행률 업데이트 (90%)
@@ -104,7 +104,7 @@ export class RagIndexingProcessor extends WorkerHost {
 
       const duration = Date.now() - startTime;
       this.logger.log(
-        `✅ 인덱싱 완료: callId=${callId}, duration=${duration}ms, chunks=${transcriptEntries.length}`,
+        `Indexing completed: callId=${callId}, duration=${duration}ms, chunks=${transcriptEntries.length}`,
       );
 
       return { success: true, message: `Indexed ${transcriptEntries.length} transcript lines in ${duration}ms` };
@@ -116,7 +116,7 @@ export class RagIndexingProcessor extends WorkerHost {
 
       // 상세 에러 로그
       this.logger.error(
-        `❌ 인덱싱 실패: callId=${callId}, error=${errorMessage}`,
+        `Indexing failed: callId=${callId}, error=${errorMessage}`,
         errorStack,
       );
 
@@ -142,7 +142,7 @@ export class RagIndexingProcessor extends WorkerHost {
   @OnWorkerEvent('completed')
   onCompleted(job: Job<RagIndexingJobData>) {
     this.logger.log(
-      `📋 작업 완료 이벤트: jobId=${job.id}, callId=${job.data.callId}`,
+      `Job completed: jobId=${job.id}, callId=${job.data.callId}`,
     );
   }
 
@@ -152,7 +152,7 @@ export class RagIndexingProcessor extends WorkerHost {
   @OnWorkerEvent('failed')
   onFailed(job: Job<RagIndexingJobData>, error: Error) {
     this.logger.error(
-      `📋 작업 실패 이벤트: jobId=${job.id}, callId=${job.data.callId}, attempts=${job.attemptsMade}, error=${error.message}`,
+      `Job failed: jobId=${job.id}, callId=${job.data.callId}, attempts=${job.attemptsMade}, error=${error.message}`,
     );
   }
 
@@ -163,7 +163,7 @@ export class RagIndexingProcessor extends WorkerHost {
   onProgress(job: Job<RagIndexingJobData>, progress: number | object) {
     const progressValue = typeof progress === 'number' ? progress : 0;
     this.logger.debug(
-      `📋 작업 진행: jobId=${job.id}, callId=${job.data.callId}, progress=${progressValue}%`,
+      `Job progress: jobId=${job.id}, callId=${job.data.callId}, progress=${progressValue}%`,
     );
   }
 }

@@ -56,7 +56,7 @@ export class RagEmbeddingService implements OnModuleInit {
     if (this.DEBUG_LOGS) {
       const truncatedText = text.substring(0, 100);
       this.logger.debug(
-        `🔄 Bedrock embedding request: "${truncatedText}${text.length > 100 ? '...' : ''}" (${text.length} chars)`,
+        `Bedrock embedding request: "${truncatedText}${text.length > 100 ? '...' : ''}" (${text.length} chars)`,
       );
     }
 
@@ -77,7 +77,7 @@ export class RagEmbeddingService implements OnModuleInit {
           });
 
           if (this.DEBUG_LOGS) {
-            this.logger.debug(`📡 Sending request to Bedrock...`);
+            this.logger.debug('Sending request to Bedrock...');
           }
           const response = await this.bedrockClient.send(command);
           const responseBody = JSON.parse(

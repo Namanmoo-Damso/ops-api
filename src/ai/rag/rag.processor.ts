@@ -54,7 +54,7 @@ export class RagProcessor {
     transcripts: TranscriptLine[],
     callDate: string,
   ): Promise<DenseSummaryResult> {
-    this.debug(`🚀 Starting Dense Summary processing: ${transcripts.length} lines`);
+    this.debug(`Starting dense summary processing: ${transcripts.length} lines`);
 
     // Step 1: LLM으로 요약 + 청크 생성
     const summaryResult =
@@ -130,7 +130,7 @@ export class RagProcessor {
   async processWithRawTranscripts(
     transcripts: TranscriptLine[],
   ): Promise<ParentChunk[]> {
-    this.debug(`📝 Processing raw transcripts: ${transcripts.length} lines`);
+    this.debug(`Processing raw transcripts: ${transcripts.length} lines`);
 
     const parentChunks = this.chunkConversation(transcripts);
 
