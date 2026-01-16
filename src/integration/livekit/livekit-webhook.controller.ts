@@ -142,6 +142,14 @@ export class LiveKitWebhookController {
             roomName: room.name,
           });
 
+          // Clear any danger status when room ends
+          this.eventsService.emit({
+            type: 'room-danger',
+            roomName: room.name,
+            isDanger: false,
+            name: `room-ended:${room.name}`,
+          });
+
           // Trigger call analysis for the room
           setImmediate(async () => {
             try {

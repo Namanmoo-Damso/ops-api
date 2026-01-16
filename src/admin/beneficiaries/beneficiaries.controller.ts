@@ -202,6 +202,58 @@ export class BeneficiariesController {
     };
   }
 
+  /**
+   * Get beneficiary detail by user ID (e.g., kakao_xxx)
+   * Used when participant identity is available but not ward UUID
+   */
+  @Get('by-user/:userId')
+  async detailByUserId(
+    @CurrentAdmin() admin: { organization_id?: string },
+    @Param('userId') userId: string,
+  ): Promise<BeneficiaryDetailResponse> {
+    const organizationId = this.getOrganizationId(admin);
+
+    // Find ward by user ID
+    const ward = await this.dbService.findWardByUserId(userId);
+
+    if (!ward || ward.organization_id !== organizationId) {
+      throw new HttpException(
+        '대상자 정보를 찾을 수 없습니다.',
+        HttpStatus.NOT_FOUND,
+      );
+    }
+
+    const detail = await this.dbService.getOrganizationBeneficiaryDetail({
+      organizationId,
+      beneficiaryId: ward.id,
+    });
+
+    if (!detail) {
+      throw new HttpException(
+        '대상자 정보를 찾을 수 없습니다.',
+        HttpStatus.NOT_FOUND,
+      );
+    }
+
+    return {
+      data: {
+        id: detail.id,
+        name: detail.name,
+        email: detail.email,
+        phoneNumber: detail.phoneNumber,
+        birthDate: detail.birthDate,
+        address: detail.address,
+        gender: detail.gender,
+        type: detail.type,
+        guardian: detail.guardian,
+        diseases: detail.diseases,
+        medication: detail.medication,
+        notes: detail.notes,
+        recentLogs: detail.recentLogs,
+      },
+    };
+  }
+
   @Get(':id/schedule')
   async getSchedule(
     @CurrentAdmin() admin: { organization_id?: string },
