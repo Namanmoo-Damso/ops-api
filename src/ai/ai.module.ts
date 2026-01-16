@@ -1,4 +1,5 @@
 import { Module, Global } from '@nestjs/common';
+import { BullModule } from '@nestjs/bullmq';
 import { AiService } from './ai.service';
 import { AiAnalysisProvider } from './ai.interface';
 import { TranscriptStore } from './transcript.store';
@@ -20,6 +21,12 @@ import { RagSearchRepository } from './rag/rag.search.repository';
 import { RagRankFusionService } from './rag/rag.rank-fusion.service';
 import { RagHybridSearchService } from './rag/rag.hybrid-search.service';
 import { KoreanQueryProcessor } from './rag/rag.korean-query.processor';
+import { parseRedisUrl } from '../common/utils/redis.utils';
+
+// RAG Queue (BullMQ 기반 인덱싱 큐)
+import { RagQueueModule } from './rag-queue/rag-queue.module';
+import { RagIndexingProducer } from './rag-queue/rag-indexing.producer';
+import { RAG_INDEXING_QUEUE } from './rag-queue/rag-queue.constants';
 
 // AI Providers
 import { OpenAiProvider } from './providers/openai.provider';
@@ -52,6 +59,35 @@ import { DEFAULT_AI_INSTRUCTION, AI_RESPONSE_SCHEMA } from './ai.constants';
  */
 @Global()
 @Module({
+  imports: [
+    // BullMQ 전역 설정 (Redis 연결)
+    BullModule.forRoot({
+      connection: parseRedisUrl(
+        process.env.REDIS_URL || 'redis://localhost:6379',
+      ),
+    }),
+    // RAG 인덱싱 큐 등록
+    BullModule.registerQueue({
+      name: RAG_INDEXING_QUEUE,
+      defaultJobOptions: {
+        attempts: 3,
+        backoff: {
+          type: 'exponential',
+          delay: 5000,
+        },
+        removeOnComplete: {
+          age: 24 * 3600,
+          count: 1000,
+        },
+        removeOnFail: {
+          age: 7 * 24 * 3600,
+          count: 5000,
+        },
+      },
+    }),
+    // RagQueueModule (Bull Board UI 마운트)
+    RagQueueModule,
+  ],
   controllers: [RagController],
   providers: [
     AiService,
@@ -127,6 +163,6 @@ import { DEFAULT_AI_INSTRUCTION, AI_RESPONSE_SCHEMA } from './ai.constants';
       },
     },
   ],
-  exports: [AiService, RagService, TranscriptStore],
+  exports: [AiService, RagService, TranscriptStore, RagQueueModule],
 })
 export class AiModule {}

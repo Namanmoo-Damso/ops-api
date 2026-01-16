@@ -96,6 +96,9 @@ CREATE TABLE "rooms" (
     CONSTRAINT "rooms_pkey" PRIMARY KEY ("id")
 );
 
+-- CreateEnum: IndexingStatus (RAG 인덱싱 상태)
+CREATE TYPE "IndexingStatus" AS ENUM ('PENDING', 'PROCESSING', 'COMPLETED', 'FAILED');
+
 -- CreateTable: calls
 CREATE TABLE "calls" (
     "call_id" UUID NOT NULL DEFAULT gen_random_uuid(),
@@ -108,6 +111,11 @@ CREATE TABLE "calls" (
     "created_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "answered_at" TIMESTAMP(3),
     "ended_at" TIMESTAMP(3),
+    -- RAG 인덱싱 관련 필드
+    "indexing_status" "IndexingStatus" NOT NULL DEFAULT 'PENDING',
+    "indexing_error" VARCHAR(4000),
+    "indexing_attempts" INTEGER NOT NULL DEFAULT 0,
+    "indexed_at" TIMESTAMP(3),
 
     CONSTRAINT "calls_pkey" PRIMARY KEY ("call_id")
 );
@@ -580,6 +588,7 @@ CREATE UNIQUE INDEX "rooms_room_name_key" ON "rooms"("room_name");
 -- Calls indexes
 CREATE INDEX "calls_callee_identity_state_idx" ON "calls"("callee_identity", "state");
 CREATE INDEX "calls_room_name_idx" ON "calls"("room_name");
+CREATE INDEX "calls_indexing_status_idx" ON "calls"("indexing_status");
 
 -- Room members indexes
 CREATE INDEX "room_members_room_id_idx" ON "room_members"("room_id");

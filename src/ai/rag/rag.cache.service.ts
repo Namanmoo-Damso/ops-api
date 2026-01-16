@@ -123,7 +123,7 @@ export class RagCacheService implements OnModuleInit {
       const withHeaders = vectors.filter(v => v.chunk_header).length;
 
       this.logger.log(
-        `📊 Preload stats: total=${vectors.length}, v2=${v2Count}, with_headers=${withHeaders}`,
+        `Preload stats: total=${vectors.length}, v2=${v2Count}, with_headers=${withHeaders}`,
       );
 
       const cacheKey = this.getRedisVectorsKey(wardId);

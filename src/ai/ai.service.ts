@@ -1,8 +1,9 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, Optional } from '@nestjs/common';
 import { DbService } from '../database';
 import { AiAnalysisProvider } from './ai.interface';
 import { TranscriptStore } from './transcript.store';
 import { RagService } from './rag.service';
+import { RagIndexingProducer } from './rag-queue/rag-indexing.producer';
 import { AnalyzeCallResult, AiResponse } from './types';
 
 @Injectable()
@@ -14,7 +15,15 @@ export class AiService {
     private readonly aiProvider: AiAnalysisProvider,
     private readonly transcriptStore: TranscriptStore,
     private readonly ragService: RagService,
+    // Optional: 워커 모듈에서는 Producer가 없을 수 있음
+    @Optional() private readonly ragIndexingProducer?: RagIndexingProducer,
   ) {}
+
+  private hasIndexingProducer(
+    producer?: RagIndexingProducer,
+  ): producer is RagIndexingProducer {
+    return Boolean(producer);
+  }
 
   async analyzeCall(callId: string): Promise<AnalyzeCallResult> {
     this.logger.log(`analyzeCall callId=${callId}`);
@@ -87,22 +96,42 @@ export class AiService {
       );
     }
 
-    // 5. RAG 벡터 DB 인덱싱 (백그라운드 비동기 처리)
-    // AI 분석과 독립적으로 실행되어 응답 속도 개선
+    // 5. RAG 벡터 DB 인덱싱 (BullMQ 큐로 비동기 처리)
+    // 워커 컨테이너에서 처리하여 API 서버 부하 분리
     if (callInfo.ward_id) {
-      this.transcriptStore.getTranscriptEntries(callId)
-        .then((transcriptEntries) => {
-          if (transcriptEntries && transcriptEntries.length > 0) {
-            return this.ragService.indexConversation(callId, callInfo.ward_id!, transcriptEntries);
-          }
-        })
-        .then(() => {
-          this.logger.log(`RAG indexing completed for callId=${callId}`);
-        })
-        .catch((error) => {
-          // RAG indexing 실패는 전체 분석에 영향 없음
-          this.logger.error(`RAG indexing failed for callId=${callId}: ${error.message}`);
-        });
+      if (this.hasIndexingProducer(this.ragIndexingProducer)) {
+        // BullMQ를 통한 큐 기반 인덱싱 (권장)
+        this.ragIndexingProducer
+          .addIndexingJob(callId, callInfo.ward_id)
+          .then((jobId) => {
+            this.logger.log(
+              `RAG indexing job enqueued: callId=${callId}, jobId=${jobId}`,
+            );
+          })
+          .catch((error) => {
+            // 큐 등록 실패 시 로깅 (전체 분석에 영향 없음)
+            this.logger.error(
+              `Failed to enqueue RAG indexing job: callId=${callId}, error=${error.message}`,
+            );
+          });
+      } else {
+        // Fallback: Producer가 없으면 직접 인덱싱 (기존 방식)
+        this.logger.warn(
+          `RagIndexingProducer not registered. Running direct indexing: callId=${callId}`,
+        );
+        this.transcriptStore.getTranscriptEntries(callId)
+          .then((transcriptEntries) => {
+            if (transcriptEntries && transcriptEntries.length > 0) {
+              return this.ragService.indexConversation(callId, callInfo.ward_id!, transcriptEntries);
+            }
+          })
+          .then(() => {
+            this.logger.log(`RAG indexing completed for callId=${callId}`);
+          })
+          .catch((error) => {
+            this.logger.error(`RAG indexing failed for callId=${callId}: ${error.message}`);
+          });
+      }
     }
 
     this.logger.log(

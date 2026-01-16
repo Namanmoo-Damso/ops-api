@@ -125,7 +125,7 @@ export class RagService implements OnModuleInit {
 
     try {
       this.logger.log(
-        `📥 Indexing conversation: callId=${callId}, wardId=${wardId}, lines=${transcripts.length}`,
+        `Indexing conversation: callId=${callId}, wardId=${wardId}, lines=${transcripts.length}`,
       );
 
       // 통화 날짜 정보 추출
@@ -168,7 +168,7 @@ export class RagService implements OnModuleInit {
     callDate: string,
     callStartKst: Date,
   ): Promise<void> {
-    this.logger.log(`🚀 Starting Dense Summary indexing for call=${callId}`);
+    this.logger.log(`Starting dense summary indexing for call=${callId}`);
 
     try {
       // Step 1-2: 요약 + 청크 생성 + 임베딩 (Single LLM Call)
@@ -213,7 +213,7 @@ export class RagService implements OnModuleInit {
     wardId: string,
     transcripts: TranscriptLine[],
   ): Promise<void> {
-    this.logger.log(`📝 Using raw transcript indexing for call=${callId}`);
+    this.logger.log(`Using raw transcript indexing for call=${callId}`);
 
     // Step 1: 대화를 Parent 청크로 분할
     const parentChunks =
@@ -294,7 +294,7 @@ export class RagService implements OnModuleInit {
     try {
       const searchLimit = limit || this.config.searchLimit;
       this.logger.log(
-        `🔍 RAG search: ward=${wardId.substring(0, 8)}..., query="${query.substring(0, 30)}...", limit=${searchLimit}`,
+        `RAG search: ward=${wardId.substring(0, 8)}..., query="${query.substring(0, 30)}...", limit=${searchLimit}`,
       );
 
       // Query 임베딩 생성
@@ -303,7 +303,7 @@ export class RagService implements OnModuleInit {
         const embeddingStartTime = Date.now();
         queryEmbedding = await this.embeddingService.generateEmbedding(query);
         const embeddingTime = Date.now() - embeddingStartTime;
-        this.debug(`📝 Embedding generated in ${embeddingTime}ms`);
+        this.debug(`Embedding generated in ${embeddingTime}ms`);
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
         this.logger.warn(
