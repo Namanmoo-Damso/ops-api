@@ -262,33 +262,6 @@ export class RtcController {
     }
   }
 
-  @Post('v1/livekit/bot')
-  async createBotWithAgent(
-    @Headers('authorization') authorization: string | undefined,
-  ) {
-    const config = this.configService.getConfig();
-    const auth = this.authService.getAuthContext(authorization);
-    if (config.authRequired && !auth) {
-      throw new HttpException('Unauthorized', HttpStatus.UNAUTHORIZED);
-    }
-
-    try {
-      const rtcData = await this.rtcTokenService.createBotWithAgent();
-      this.logger.log(
-        `createBotWithAgent room=${rtcData.roomName} identity=${rtcData.identity}`,
-      );
-      return rtcData;
-    } catch (error) {
-      this.logger.error(
-        `createBotWithAgent failed: ${(error as Error).message}`,
-      );
-      throw new HttpException(
-        'Failed to create bot session',
-        HttpStatus.BAD_GATEWAY,
-      );
-    }
-  }
-
   @Post('v1/livekit/rooms/:roomName/delete')
   async deleteLivekitRoom(
     @Headers('authorization') authorization: string | undefined,
