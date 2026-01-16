@@ -7,6 +7,7 @@
 import { Injectable, Inject, OnModuleDestroy } from '@nestjs/common';
 import { Pool } from 'pg';
 import { PrismaService } from '../prisma';
+import { IndexingStatus } from '@prisma/client';
 import {
   UserRepository,
   DeviceRepository,
@@ -32,6 +33,9 @@ export type {
   DeviceRow,
   RoomMemberRow,
 } from './types';
+
+// Re-export IndexingStatus enum for use in other modules
+export { IndexingStatus } from '@prisma/client';
 
 @Injectable()
 export class DbService implements OnModuleDestroy {
@@ -277,6 +281,33 @@ export class DbService implements OnModuleDestroy {
 
   async hasActiveCall(userId: string, excludeRingingRoom?: string) {
     return this.calls.hasActiveCall(userId, excludeRingingRoom);
+  }
+
+  /**
+   * RAG 인덱싱 상태 원자적 업데이트
+   * 워커에서 인덱싱 작업 시작/완료/실패 시 호출
+   */
+  async updateIndexingStatus(params: {
+    callId: string;
+    status: IndexingStatus;
+    error?: string | null;
+    incrementAttempts?: boolean;
+  }) {
+    return this.calls.updateIndexingStatus(params);
+  }
+
+  /**
+   * 실패한 인덱싱 작업 조회 (재시도 대상)
+   */
+  async getFailedIndexingCalls(maxAttempts?: number, limit?: number) {
+    return this.calls.getFailedIndexingCalls(maxAttempts, limit);
+  }
+
+  /**
+   * 특정 통화의 인덱싱 정보 조회
+   */
+  async getIndexingInfo(callId: string) {
+    return this.calls.getIndexingInfo(callId);
   }
 
   // ============================================================

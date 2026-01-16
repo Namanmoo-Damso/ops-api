@@ -4,7 +4,7 @@
  */
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../../prisma';
-import { Prisma } from '@prisma/client';
+import { Prisma, IndexingStatus } from '@prisma/client';
 import { CallRow, CallSummaryRow } from '../types';
 import { toCallRow, toCallSummaryRow } from '../prisma-mappers';
 
@@ -383,5 +383,118 @@ export class CallRepository {
       },
     });
     return count > 0;
+  }
+
+  /**
+   * RAG 인덱싱 상태 원자적 업데이트
+   * 워커에서 인덱싱 작업 시작/완료/실패 시 호출
+   *
+   * @param callId 통화 ID
+   * @param status 새로운 인덱싱 상태
+   * @param error 에러 메시지 (실패 시)
+   * @param incrementAttempts 재시도 횟수 증가 여부
+   */
+  async updateIndexingStatus(params: {
+    callId: string;
+    status: IndexingStatus;
+    error?: string | null;
+    incrementAttempts?: boolean;
+  }): Promise<CallRow | null> {
+    const { callId, status, error, incrementAttempts } = params;
+
+    const updateData: Prisma.CallUpdateInput = {
+      indexingStatus: status,
+      indexingError: error ?? null,
+    };
+
+    // 완료 시 indexed_at 타임스탬프 설정
+    if (status === IndexingStatus.COMPLETED) {
+      updateData.indexedAt = new Date();
+    }
+
+    // 재시도 횟수 증가 (PROCESSING 시작 시)
+    if (incrementAttempts) {
+      updateData.indexingAttempts = { increment: 1 };
+    }
+
+    try {
+      const call = await this.prisma.call.update({
+        where: { callId },
+        data: updateData,
+      });
+      return call ? toCallRow(call) : null;
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * 실패한 인덱싱 작업 조회 (재시도 대상)
+   * 최대 재시도 횟수 미만인 FAILED 상태 통화만 반환
+   *
+   * @param maxAttempts 최대 재시도 횟수
+   * @param limit 조회 개수
+   */
+  async getFailedIndexingCalls(
+    maxAttempts: number = 3,
+    limit: number = 100,
+  ): Promise<Array<{ callId: string; wardId: string | null; attempts: number }>> {
+    const calls = await this.prisma.call.findMany({
+      where: {
+        indexingStatus: IndexingStatus.FAILED,
+        indexingAttempts: { lt: maxAttempts },
+      },
+      select: {
+        callId: true,
+        indexingAttempts: true,
+        callee: {
+          select: {
+            ward: {
+              select: { id: true },
+            },
+          },
+        },
+      },
+      orderBy: { createdAt: 'desc' },
+      take: limit,
+    });
+
+    return calls.map(c => ({
+      callId: c.callId,
+      wardId: c.callee?.ward?.id ?? null,
+      attempts: c.indexingAttempts,
+    }));
+  }
+
+  /**
+   * 특정 통화의 인덱싱 정보 조회
+   */
+  async getIndexingInfo(callId: string): Promise<{
+    callId: string;
+    status: IndexingStatus;
+    error: string | null;
+    attempts: number;
+    indexedAt: Date | null;
+  } | null> {
+    const call = await this.prisma.call.findUnique({
+      where: { callId },
+      select: {
+        callId: true,
+        indexingStatus: true,
+        indexingError: true,
+        indexingAttempts: true,
+        indexedAt: true,
+      },
+    });
+
+    if (!call) return null;
+
+    return {
+      callId: call.callId,
+      status: call.indexingStatus,
+      error: call.indexingError,
+      attempts: call.indexingAttempts,
+      indexedAt: call.indexedAt,
+    };
   }
 }

@@ -155,6 +155,15 @@ model Room {
 // =============================================================================
 // 7. CALLS
 // =============================================================================
+
+// RAG 인덱싱 상태 Enum
+enum IndexingStatus {
+  PENDING     // 대기 중
+  PROCESSING  // 처리 중
+  COMPLETED   // 완료
+  FAILED      // 실패
+}
+
 model Call {
   callId         String    @id @default(dbgenerated("gen_random_uuid()")) @map("call_id") @db.Uuid
   callerUserId   String?   @map("caller_user_id") @db.Uuid
@@ -167,6 +176,12 @@ model Call {
   answeredAt     DateTime? @map("answered_at")
   endedAt        DateTime? @map("ended_at")
 
+  // RAG 인덱싱 관련 필드
+  indexingStatus   IndexingStatus @default(PENDING) @map("indexing_status")
+  indexingError    String?        @map("indexing_error")      // 에러 메시지 (실패 시)
+  indexingAttempts Int            @default(0) @map("indexing_attempts") // 재시도 횟수
+  indexedAt        DateTime?      @map("indexed_at")          // 인덱싱 완료 시각
+
   // Relations
   caller      User?         @relation("CallerCalls", fields: [callerUserId], references: [id], onDelete: SetNull)
   callee      User?         @relation("CalleeCalls", fields: [calleeUserId], references: [id], onDelete: SetNull)
@@ -175,6 +190,7 @@ model Call {
 
   @@index([calleeIdentity, state])
   @@index([roomName])
+  @@index([indexingStatus])
   @@map("calls")
 }
 

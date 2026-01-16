@@ -15,6 +15,9 @@ export type {
   BeneficiaryStatus,
 } from './repositories/ward.repository';
 
+// Prisma 타입 (인덱싱 상태 등)
+export { IndexingStatus } from '@prisma/client';
+
 // Repositories
 export {
   UserRepository,
