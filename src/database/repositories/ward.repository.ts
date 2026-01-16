@@ -108,7 +108,7 @@ type OrganizationWardWithDetail = Prisma.OrganizationWardGetPayload<{
 
 @Injectable()
 export class WardRepository {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(private readonly prisma: PrismaService) { }
 
   async create(params: {
     userId: string;
@@ -141,9 +141,9 @@ export class WardRepository {
 
   async findByGuardianId(guardianId: string): Promise<
     | (WardRow & {
-        user_nickname: string | null;
-        user_profile_image_url: string | null;
-      })
+      user_nickname: string | null;
+      user_profile_image_url: string | null;
+    })
     | undefined
   > {
     // guardian_ward_registrations를 통해 연결된 ward 조회
@@ -642,17 +642,17 @@ export class WardRepository {
     const [lastCalls, callCounts] =
       wardUserIds.length > 0
         ? await Promise.all([
-            this.prisma.call.groupBy({
-              by: ['calleeUserId'],
-              where: { calleeUserId: { in: wardUserIds }, state: 'ended' },
-              _max: { createdAt: true },
-            }),
-            this.prisma.call.groupBy({
-              by: ['calleeUserId'],
-              where: { calleeUserId: { in: wardUserIds }, state: 'ended' },
-              _count: true,
-            }),
-          ])
+          this.prisma.call.groupBy({
+            by: ['calleeUserId'],
+            where: { calleeUserId: { in: wardUserIds }, state: 'ended' },
+            _max: { createdAt: true },
+          }),
+          this.prisma.call.groupBy({
+            by: ['calleeUserId'],
+            where: { calleeUserId: { in: wardUserIds }, state: 'ended' },
+            _count: true,
+          }),
+        ])
         : [[], []];
 
     const lastCallMap = new Map(
@@ -734,17 +734,17 @@ export class WardRepository {
     const [lastCalls, callCounts] =
       wardUserIds.length > 0
         ? await Promise.all([
-            this.prisma.call.groupBy({
-              by: ['calleeUserId'],
-              where: { calleeUserId: { in: wardUserIds }, state: 'ended' },
-              _max: { createdAt: true },
-            }),
-            this.prisma.call.groupBy({
-              by: ['calleeUserId'],
-              where: { calleeUserId: { in: wardUserIds }, state: 'ended' },
-              _count: true,
-            }),
-          ])
+          this.prisma.call.groupBy({
+            by: ['calleeUserId'],
+            where: { calleeUserId: { in: wardUserIds }, state: 'ended' },
+            _max: { createdAt: true },
+          }),
+          this.prisma.call.groupBy({
+            by: ['calleeUserId'],
+            where: { calleeUserId: { in: wardUserIds }, state: 'ended' },
+            _count: true,
+          }),
+        ])
         : [[], []];
 
     const lastCallMap = new Map(
@@ -1286,21 +1286,12 @@ export class WardRepository {
 
     // Map schedules to day-wise format
     // Each schedule has weekdays array [0-6], we need to extract individual days
-    const dayNames: Array<keyof BeneficiaryScheduleData['schedule']> = [
-      'sunday',
-      'monday',
-      'tuesday',
-      'wednesday',
-      'thursday',
-      'friday',
-      'saturday',
-    ];
-
     for (const sched of schedules) {
+      // NOTE: slotStartHour/Minute are stored as local (KST) wall clock time
       const timeStr = `${sched.slotStartHour.toString().padStart(2, '0')}:${sched.slotStartMinute.toString().padStart(2, '0')}`;
       for (const dayOfWeek of sched.weekdays) {
         if (dayOfWeek >= 0 && dayOfWeek <= 6) {
-          const dayName = dayNames[dayOfWeek];
+          const dayName = DAY_NAMES[dayOfWeek];
           // Only set if not already set (first match wins - most recent due to orderBy)
           if (schedule[dayName] === null) {
             schedule[dayName] = timeStr;
@@ -1313,9 +1304,9 @@ export class WardRepository {
     const latestUpdate =
       schedules.length > 0
         ? schedules
-            .map(s => s.updatedAt)
-            .reduce((a, b) => (a > b ? a : b))
-            .toISOString()
+          .map((s) => s.updatedAt)
+          .reduce((a, b) => (a > b ? a : b))
+          .toISOString()
         : orgWard.updatedAt.toISOString();
 
     return {
@@ -1327,6 +1318,7 @@ export class WardRepository {
   /**
    * Update beneficiary call schedule
    * Replaces existing schedules with new day-wise schedule
+   * Uses transaction to ensure atomicity
    */
   async updateBeneficiarySchedule(params: {
     organizationId: string;
@@ -1364,28 +1356,11 @@ export class WardRepository {
       };
     }
 
-    // Delete existing schedules for this ward
-    await this.prisma.callScheduleGroup.deleteMany({
-      where: {
-        wardId: orgWard.wardId,
-      },
-    });
-
-    // Create new schedules - one record per unique time slot
-    // Group days by time slot
+    // Group days by time slot to minimize database records
     const timeSlotDays: Record<string, number[]> = {};
-    const dayNames: Array<keyof BeneficiaryScheduleData['schedule']> = [
-      'sunday',
-      'monday',
-      'tuesday',
-      'wednesday',
-      'thursday',
-      'friday',
-      'saturday',
-    ];
 
     for (let dayOfWeek = 0; dayOfWeek < 7; dayOfWeek++) {
-      const dayName = dayNames[dayOfWeek];
+      const dayName = DAY_NAMES[dayOfWeek];
       const timeValue = schedule[dayName];
       if (timeValue && timeValue !== null) {
         if (!timeSlotDays[timeValue]) {
@@ -1395,25 +1370,35 @@ export class WardRepository {
       }
     }
 
-    // Create schedule records
-    const now = new Date();
-    for (const [timeStr, weekdays] of Object.entries(timeSlotDays)) {
-      const [hourStr, minuteStr] = timeStr.split(':');
-      const hour = parseInt(hourStr, 10);
-      const minute = parseInt(minuteStr, 10);
-
-      await this.prisma.callScheduleGroup.create({
-        data: {
-          wardId: orgWard.wardId,
-          slotStartHour: hour,
-          slotStartMinute: minute,
-          weekdays,
-          isEnabled: true,
-          createdAt: now,
-          updatedAt: now,
+    // Use transaction to ensure delete and create are atomic
+    await this.prisma.$transaction(async (tx) => {
+      // 1. Delete existing schedules for this ward
+      await tx.callScheduleGroup.deleteMany({
+        where: {
+          wardId: orgWard.wardId!,
         },
       });
-    }
+
+      // 2. Create new schedules - one record per unique time slot
+      const now = new Date();
+      for (const [timeStr, weekdays] of Object.entries(timeSlotDays)) {
+        const [hourStr, minuteStr] = timeStr.split(':');
+        const hour = parseInt(hourStr, 10);
+        const minute = parseInt(minuteStr, 10);
+
+        await tx.callScheduleGroup.create({
+          data: {
+            wardId: orgWard.wardId!,
+            slotStartHour: hour,
+            slotStartMinute: minute,
+            weekdays,
+            isEnabled: true,
+            createdAt: now,
+            updatedAt: now,
+          },
+        });
+      }
+    });
 
     // Return updated schedule
     return this.getBeneficiarySchedule({ organizationId, beneficiaryId });

@@ -1,4 +1,4 @@
-import { IsOptional, IsString, Matches } from 'class-validator';
+import { IsOptional, IsString, Matches, ValidateIf } from 'class-validator';
 import { Transform } from 'class-transformer';
 
 // Time format regex: HH:mm (00:00 - 23:59)
@@ -10,42 +10,49 @@ const TIME_REGEX = /^([01]\d|2[0-3]):([0-5]\d)$/;
  */
 export class UpdateBeneficiaryScheduleDto {
   @IsOptional()
+  @ValidateIf((o, v) => v !== null)
   @Transform(({ value }) => (value === '' ? null : value))
   @IsString()
   @Matches(TIME_REGEX, { message: 'sunday must be in HH:mm format' })
   sunday?: string | null;
 
   @IsOptional()
+  @ValidateIf((o, v) => v !== null)
   @Transform(({ value }) => (value === '' ? null : value))
   @IsString()
   @Matches(TIME_REGEX, { message: 'monday must be in HH:mm format' })
   monday?: string | null;
 
   @IsOptional()
+  @ValidateIf((o, v) => v !== null)
   @Transform(({ value }) => (value === '' ? null : value))
   @IsString()
   @Matches(TIME_REGEX, { message: 'tuesday must be in HH:mm format' })
   tuesday?: string | null;
 
   @IsOptional()
+  @ValidateIf((o, v) => v !== null)
   @Transform(({ value }) => (value === '' ? null : value))
   @IsString()
   @Matches(TIME_REGEX, { message: 'wednesday must be in HH:mm format' })
   wednesday?: string | null;
 
   @IsOptional()
+  @ValidateIf((o, v) => v !== null)
   @Transform(({ value }) => (value === '' ? null : value))
   @IsString()
   @Matches(TIME_REGEX, { message: 'thursday must be in HH:mm format' })
   thursday?: string | null;
 
   @IsOptional()
+  @ValidateIf((o, v) => v !== null)
   @Transform(({ value }) => (value === '' ? null : value))
   @IsString()
   @Matches(TIME_REGEX, { message: 'friday must be in HH:mm format' })
   friday?: string | null;
 
   @IsOptional()
+  @ValidateIf((o, v) => v !== null)
   @Transform(({ value }) => (value === '' ? null : value))
   @IsString()
   @Matches(TIME_REGEX, { message: 'saturday must be in HH:mm format' })

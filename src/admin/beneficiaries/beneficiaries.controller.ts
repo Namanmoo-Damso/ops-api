@@ -175,7 +175,7 @@ export class BeneficiariesController {
     private readonly dbService: DbService,
     private readonly staffService: StaffService,
     private readonly settingsService: SettingsService,
-  ) {}
+  ) { }
 
   @Get()
   async list(
@@ -267,15 +267,15 @@ export class BeneficiariesController {
       );
     }
 
-    // Get organization service hours
-    const settings = await this.settingsService.getSettings(organizationId);
+    const { startTime, endTime } =
+      await this.getOrganizationServiceHours(organizationId);
 
     return {
       beneficiaryId: id,
       schedule: scheduleData.schedule,
       organizationServiceHours: {
-        startTime: settings.preferredStartTime,
-        endTime: settings.preferredEndTime,
+        startTime,
+        endTime,
       },
       updatedAt: scheduleData.updatedAt,
     };
@@ -310,17 +310,28 @@ export class BeneficiariesController {
       );
     }
 
-    // Get organization service hours
-    const settings = await this.settingsService.getSettings(organizationId);
+    const { startTime, endTime } =
+      await this.getOrganizationServiceHours(organizationId);
 
     return {
       beneficiaryId: id,
       schedule: scheduleData.schedule,
       organizationServiceHours: {
-        startTime: settings.preferredStartTime,
-        endTime: settings.preferredEndTime,
+        startTime,
+        endTime,
       },
       updatedAt: scheduleData.updatedAt,
+    };
+  }
+
+  private async getOrganizationServiceHours(organizationId: string): Promise<{
+    startTime: string;
+    endTime: string;
+  }> {
+    const settings = await this.settingsService.getSettings(organizationId);
+    return {
+      startTime: settings.preferredStartTime,
+      endTime: settings.preferredEndTime,
     };
   }
 
