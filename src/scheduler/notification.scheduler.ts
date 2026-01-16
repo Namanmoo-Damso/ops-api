@@ -1,4 +1,9 @@
-import { Injectable, Logger, OnModuleInit, OnModuleDestroy } from '@nestjs/common';
+import {
+  Injectable,
+  Logger,
+  OnModuleInit,
+  OnModuleDestroy,
+} from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { DbService } from '../database';
 import { CallsService } from '../calls/calls.service';
@@ -19,7 +24,7 @@ export class NotificationScheduler implements OnModuleInit, OnModuleDestroy {
   constructor(
     private readonly dbService: DbService,
     private readonly callsService: CallsService,
-  ) { }
+  ) {}
 
   async onModuleInit() {
     const redisUrl = process.env.REDIS_URL;
@@ -29,7 +34,9 @@ export class NotificationScheduler implements OnModuleInit, OnModuleDestroy {
         await this.redisClient.connect();
         this.logger.log('Redis connected for scheduler distributed lock');
       } catch (error) {
-        this.logger.warn(`Redis connection failed for scheduler lock: ${(error as Error).message}`);
+        this.logger.warn(
+          `Redis connection failed for scheduler lock: ${(error as Error).message}`,
+        );
         this.redisClient = null;
       }
     } else {
@@ -53,10 +60,14 @@ export class NotificationScheduler implements OnModuleInit, OnModuleDestroy {
     }
 
     try {
-      const result = await this.redisClient.set(lockKey, process.pid.toString(), {
-        NX: true, // Only set if not exists
-        EX: this.LOCK_TTL_SECONDS,
-      });
+      const result = await this.redisClient.set(
+        lockKey,
+        process.pid.toString(),
+        {
+          NX: true, // Only set if not exists
+          EX: this.LOCK_TTL_SECONDS,
+        },
+      );
       return result === 'OK';
     } catch (error) {
       this.logger.error(`Lock acquire failed: ${(error as Error).message}`);
@@ -215,7 +226,9 @@ export class NotificationScheduler implements OnModuleInit, OnModuleDestroy {
     const lockKey = `scheduler:call:${slotStartHour}:${String(slotStartMinute).padStart(2, '0')}`;
     const acquired = await this.tryAcquireLock(lockKey);
     if (!acquired) {
-      this.logger.debug(`initiateScheduledCalls skipped - lock exists: ${lockKey}`);
+      this.logger.debug(
+        `initiateScheduledCalls skipped - lock exists: ${lockKey}`,
+      );
       return;
     }
 
@@ -282,6 +295,41 @@ export class NotificationScheduler implements OnModuleInit, OnModuleDestroy {
       if (now - timestamp > this.DUPLICATE_PREVENTION_MS) {
         this.recentlyCalledSchedules.delete(scheduleId);
       }
+    }
+  }
+
+  /**
+   * Stale call 정리: 'answered' 상태에서 오래 지속된 통화를 'ended'로 변경
+   * LiveKit webhook 누락 시 안전망 역할
+   *
+   * 매 5분마다 실행
+   */
+  @Cron(CronExpression.EVERY_5_MINUTES)
+  async cleanupStaleCalls() {
+    const now = new Date();
+    const lockKey = `scheduler:stale-cleanup:${now.getHours()}:${Math.floor(now.getMinutes() / 5) * 5}`;
+    const acquired = await this.tryAcquireLock(lockKey);
+    if (!acquired) {
+      this.logger.debug(`cleanupStaleCalls skipped - lock exists: ${lockKey}`);
+      return;
+    }
+
+    const STALE_THRESHOLD_MINUTES = 15; // Calls can only last 10 minutes, so 15 is generous
+
+    try {
+      const endedCount = await this.dbService.endStaleCalls(
+        STALE_THRESHOLD_MINUTES,
+      );
+
+      if (endedCount > 0) {
+        this.logger.log(
+          `cleanupStaleCalls ended ${endedCount} stale call(s) older than ${STALE_THRESHOLD_MINUTES} minutes`,
+        );
+      }
+    } catch (error) {
+      this.logger.error(
+        `cleanupStaleCalls failed error=${(error as Error).message}`,
+      );
     }
   }
 }

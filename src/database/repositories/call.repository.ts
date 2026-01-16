@@ -438,7 +438,9 @@ export class CallRepository {
   async getFailedIndexingCalls(
     maxAttempts: number = 3,
     limit: number = 100,
-  ): Promise<Array<{ callId: string; wardId: string | null; attempts: number }>> {
+  ): Promise<
+    Array<{ callId: string; wardId: string | null; attempts: number }>
+  > {
     const calls = await this.prisma.call.findMany({
       where: {
         indexingStatus: IndexingStatus.FAILED,
@@ -496,5 +498,50 @@ export class CallRepository {
       attempts: call.indexingAttempts,
       indexedAt: call.indexedAt,
     };
+  }
+
+  /**
+   * Stale call 정리: 'answered' 상태에서 maxAgeMinutes 이상 지속된 통화를 'ended'로 변경
+   * LiveKit webhook 누락 시 안전망 역할
+   *
+   * @param maxAgeMinutes 스테일로 간주할 최소 시간 (분)
+   * @returns 종료된 통화 수
+   */
+  async endStaleCalls(maxAgeMinutes: number = 30): Promise<number> {
+    const cutoff = new Date(Date.now() - maxAgeMinutes * 60 * 1000);
+
+    const result = await this.prisma.call.updateMany({
+      where: {
+        state: 'answered',
+        answeredAt: { lt: cutoff },
+        endedAt: null,
+      },
+      data: {
+        state: 'ended',
+        endedAt: new Date(),
+      },
+    });
+
+    return result.count;
+  }
+
+  /**
+   * roomName으로 처리되지 않은 모든 통화를 종료
+   * room_finished 웹훅에서 callContext를 찾지 못했을 때 fallback으로 사용
+   */
+  async endCallsByRoomName(roomName: string): Promise<number> {
+    const result = await this.prisma.call.updateMany({
+      where: {
+        roomName,
+        state: { not: 'ended' },
+        endedAt: null,
+      },
+      data: {
+        state: 'ended',
+        endedAt: new Date(),
+      },
+    });
+
+    return result.count;
   }
 }
