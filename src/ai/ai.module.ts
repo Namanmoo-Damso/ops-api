@@ -21,6 +21,7 @@ import { RagSearchRepository } from './rag/rag.search.repository';
 import { RagRankFusionService } from './rag/rag.rank-fusion.service';
 import { RagHybridSearchService } from './rag/rag.hybrid-search.service';
 import { KoreanQueryProcessor } from './rag/rag.korean-query.processor';
+import { parseRedisUrl } from '../common/utils/redis.utils';
 
 // RAG Queue (BullMQ 기반 인덱싱 큐)
 import { RagQueueModule } from './rag-queue/rag-queue.module';
@@ -31,22 +32,6 @@ import { RAG_INDEXING_QUEUE } from './rag-queue/rag-queue.constants';
 import { OpenAiProvider } from './providers/openai.provider';
 import { BedrockProvider } from './providers/bedrock.provider';
 import { DEFAULT_AI_INSTRUCTION, AI_RESPONSE_SCHEMA } from './ai.constants';
-
-/**
- * Redis URL 파싱 유틸리티
- */
-function parseRedisUrl(url: string): {
-  host: string;
-  port: number;
-  password?: string;
-} {
-  const parsed = new URL(url);
-  return {
-    host: parsed.hostname,
-    port: parseInt(parsed.port, 10) || 6379,
-    password: parsed.password || undefined,
-  };
-}
 
 /**
  * AI 모듈

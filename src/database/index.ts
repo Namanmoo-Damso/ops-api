@@ -17,6 +17,7 @@ export type {
 
 // Prisma 타입 (인덱싱 상태 등)
 export { IndexingStatus } from '@prisma/client';
+export { INDEXING_ERROR_MAX_LENGTH } from './constants';
 
 // Repositories
 export {

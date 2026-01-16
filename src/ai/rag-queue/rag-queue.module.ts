@@ -22,6 +22,7 @@ import { Request, Response, NextFunction } from 'express';
 import { RagIndexingProducer } from './rag-indexing.producer';
 import { RagIndexingProcessor } from './rag-indexing.processor';
 import { RAG_INDEXING_QUEUE } from './rag-queue.constants';
+import { parseRedisUrl } from '../../common/utils/redis.utils';
 
 // Bull Board Express 어댑터 인스턴스 (싱글톤)
 const serverAdapter = new ExpressAdapter();
@@ -66,15 +67,15 @@ export class RagQueueModule implements NestModule {
    * /admin/queues 경로에 Basic Auth + Bull Board UI 마운트
    */
   configure(consumer: MiddlewareConsumer) {
+    const { username: adminUser, password: adminPass } =
+      this.getAdminCredentials();
+
     // Basic Auth 미들웨어
     const basicAuthMiddleware = (
       req: Request,
       res: Response,
       next: NextFunction,
     ) => {
-      const adminUser = process.env.ADMIN_USER || 'admin';
-      const adminPass = process.env.ADMIN_PASS || 'admin';
-
       // Authorization 헤더 확인
       const authHeader = req.headers.authorization;
 
@@ -117,7 +118,7 @@ export class RagQueueModule implements NestModule {
    */
   private initializeBullBoard() {
     const redisUrl = process.env.REDIS_URL || 'redis://localhost:6379';
-    const redisOptions = this.parseRedisUrl(redisUrl);
+    const redisOptions = parseRedisUrl(redisUrl);
 
     // BullMQ Queue 인스턴스 생성 (Bull Board용)
     const ragIndexingQueue = new Queue(RAG_INDEXING_QUEUE, {
@@ -131,19 +132,16 @@ export class RagQueueModule implements NestModule {
     });
   }
 
-  /**
-   * Redis URL 파싱
-   */
-  private parseRedisUrl(url: string): {
-    host: string;
-    port: number;
-    password?: string;
-  } {
-    const parsed = new URL(url);
-    return {
-      host: parsed.hostname,
-      port: parseInt(parsed.port, 10) || 6379,
-      password: parsed.password || undefined,
-    };
+  private getAdminCredentials(): { username: string; password: string } {
+    const username = process.env.ADMIN_USER;
+    const password = process.env.ADMIN_PASS;
+
+    if (!username || !password) {
+      throw new Error(
+        'ADMIN_USER and ADMIN_PASS must be set to enable Bull Board.',
+      );
+    }
+
+    return { username, password };
   }
 }

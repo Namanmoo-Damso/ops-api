@@ -50,22 +50,7 @@ import { DEFAULT_AI_INSTRUCTION, AI_RESPONSE_SCHEMA } from './ai/ai.constants';
 // RAG Queue (프로세서만 등록)
 import { RagIndexingProcessor } from './ai/rag-queue/rag-indexing.processor';
 import { RAG_INDEXING_QUEUE } from './ai/rag-queue/rag-queue.constants';
-
-/**
- * Redis URL 파싱 유틸리티
- */
-function parseRedisUrl(url: string): {
-  host: string;
-  port: number;
-  password?: string;
-} {
-  const parsed = new URL(url);
-  return {
-    host: parsed.hostname,
-    port: parseInt(parsed.port, 10) || 6379,
-    password: parsed.password || undefined,
-  };
-}
+import { parseRedisUrl } from './common/utils/redis.utils';
 
 @Module({
   imports: [

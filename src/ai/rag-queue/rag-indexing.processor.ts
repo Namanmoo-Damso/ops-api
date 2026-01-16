@@ -13,7 +13,11 @@ import { Processor, WorkerHost, OnWorkerEvent } from '@nestjs/bullmq';
 import { Logger } from '@nestjs/common';
 import { Job } from 'bullmq';
 
-import { DbService, IndexingStatus } from '../../database';
+import {
+  DbService,
+  IndexingStatus,
+  INDEXING_ERROR_MAX_LENGTH,
+} from '../../database';
 import { RagService } from '../rag.service';
 import { TranscriptStore } from '../transcript.store';
 import { RagIndexingJobData } from './rag-indexing.producer';
@@ -124,7 +128,7 @@ export class RagIndexingProcessor extends WorkerHost {
       await this.dbService.updateIndexingStatus({
         callId,
         status: IndexingStatus.FAILED,
-        error: fullError.substring(0, 4000), // DB 컬럼 크기 제한 고려
+        error: fullError.substring(0, INDEXING_ERROR_MAX_LENGTH),
       });
 
       // 에러를 다시 throw하여 BullMQ가 재시도 처리하도록 함

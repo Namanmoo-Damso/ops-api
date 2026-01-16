@@ -113,7 +113,7 @@ CREATE TABLE "calls" (
     "ended_at" TIMESTAMP(3),
     -- RAG 인덱싱 관련 필드
     "indexing_status" "IndexingStatus" NOT NULL DEFAULT 'PENDING',
-    "indexing_error" TEXT,
+    "indexing_error" VARCHAR(4000),
     "indexing_attempts" INTEGER NOT NULL DEFAULT 0,
     "indexed_at" TIMESTAMP(3),
 

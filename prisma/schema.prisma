@@ -178,7 +178,7 @@ model Call {
 
   // RAG 인덱싱 관련 필드
   indexingStatus   IndexingStatus @default(PENDING) @map("indexing_status")
-  indexingError    String?        @map("indexing_error")      // 에러 메시지 (실패 시)
+  indexingError    String?        @db.VarChar(4000) @map("indexing_error") // 에러 메시지 (실패 시)
   indexingAttempts Int            @default(0) @map("indexing_attempts") // 재시도 횟수
   indexedAt        DateTime?      @map("indexed_at")          // 인덱싱 완료 시각
 
@@ -844,5 +844,4 @@ model OrganizationSettings {
 
   @@map("organization_settings")
 }
-
 
