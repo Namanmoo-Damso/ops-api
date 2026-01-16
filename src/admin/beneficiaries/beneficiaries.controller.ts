@@ -175,7 +175,7 @@ export class BeneficiariesController {
     private readonly dbService: DbService,
     private readonly staffService: StaffService,
     private readonly settingsService: SettingsService,
-  ) { }
+  ) {}
 
   @Get()
   async list(
