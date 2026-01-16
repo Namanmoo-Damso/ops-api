@@ -184,9 +184,29 @@ export class LiveKitWebhookController {
                   );
                 }
               } else {
+                // Fallback: end any non-ended calls for this room
+                // This handles cases where getCallContextByRoomName returns null
                 this.logger.warn(
-                  `No call context found for room=${room.name}, skipping analysis`,
+                  `No call context found for room=${room.name}, attempting fallback cleanup`,
                 );
+                try {
+                  const result = await this.dbService.endCallsByRoomName(
+                    room.name,
+                  );
+                  if (result.count > 0) {
+                    this.logger.log(
+                      `Fallback cleanup ended ${result.count} call(s) for room=${room.name} callIds=[${result.callIds.join(', ')}]`,
+                    );
+                  } else {
+                    this.logger.log(
+                      `No calls to cleanup for room=${room.name}`,
+                    );
+                  }
+                } catch (fallbackError) {
+                  this.logger.error(
+                    `Fallback cleanup failed for room=${room.name}: ${(fallbackError as Error).message}`,
+                  );
+                }
               }
             } catch (error) {
               this.logger.error(
