@@ -40,69 +40,7 @@ export class RtcTokenService {
     private readonly eventsService: EventsService,
     private readonly liveKitService: LiveKitService,
     private readonly ragService: RagService,
-  ) { }
-
-  /**
-   * Create an isolated LiveKit room for a bot participant (identity starting with "bot-")
-   * and dispatch the existing voice agent (identity starting with "agent-") into the same room
-   * so they can interact with each other.
-   */
-  async createBotWithAgent(): Promise<RtcTokenResult> {
-    const config = this.configService.getConfig();
-    const ttlSeconds = config.livekitTokenTtlSeconds;
-    const expiresAt = new Date(Date.now() + ttlSeconds * 1000).toISOString();
-
-    const roomName = `bot-${randomUUID()}`;
-    const identity = `bot-${randomUUID()}`;
-    const name = identity;
-    const role: Role = 'host';
-
-    this.logger.log(
-      `createBotWithAgent room=${roomName} identity=${identity} role=${role}`,
-    );
-
-    // Dispatch voice agent
-    try {
-      await this.liveKitService.dispatchVoiceAgent(roomName, {
-        identity,
-        name,
-        type: 'bot',
-      });
-    } catch (err) {
-      this.logger.error(`Failed to dispatch voice agent: ${(err as Error).message}`);
-    }
-
-    const options: AccessTokenOptions = {
-      identity,
-      name,
-      ttl: ttlSeconds,
-    };
-    const accessToken = new AccessToken(
-      config.livekitApiKey,
-      config.livekitApiSecret,
-      options,
-    );
-
-    accessToken.addGrant({
-      roomJoin: true,
-      room: roomName,
-      canPublish: true,
-      canSubscribe: true,
-      canPublishData: true,
-      roomAdmin: true,
-      hidden: false,
-    });
-
-    return {
-      livekitUrl: config.livekitPublicUrl,
-      roomName,
-      token: await accessToken.toJwt(),
-      expiresAt,
-      identity,
-      name,
-      role,
-    };
-  }
+  ) {}
 
   async issueToken(params: {
     roomName: string;
@@ -119,10 +57,13 @@ export class RtcTokenService {
     // Generate unique room name for iOS users
     // BUT if iOS provides a valid roomName (from scheduled call push), use it
     const isIosUser = !!(params.device?.apnsToken || params.device?.voipToken);
-    const isScheduledCall = params.roomName && params.roomName.startsWith('room-');
+    const isScheduledCall =
+      params.roomName && params.roomName.startsWith('room-');
     const roomName = isScheduledCall
       ? params.roomName
-      : (isIosUser ? `room-${randomUUID()}` : params.roomName);
+      : isIosUser
+        ? `room-${randomUUID()}`
+        : params.roomName;
 
     const deviceSummary = params.device
       ? `apns=${this.summarizeToken(params.device.apnsToken)} voip=${this.summarizeToken(params.device.voipToken)} env=${params.device.env ?? 'default'} platform=${params.device.platform ?? 'ios'}`
@@ -242,7 +183,9 @@ export class RtcTokenService {
       // 🚀 PRE-WARM: Preload weekly context and generate personalized greeting BEFORE agent joins
       // This runs immediately when user requests a call, parallel with agent dispatch
       // By the time agent enters and subscribes to Redis, both context and greeting are likely ready
-      const wardId = await this.dbService.findWardByUserId(user.id).then(w => w?.id);
+      const wardId = await this.dbService
+        .findWardByUserId(user.id)
+        .then(w => w?.id);
       if (wardId) {
         this.logger.log(
           `🚀 Pre-warming weekly context and greeting for ward=${wardId} room=${roomName}`,
@@ -290,7 +233,9 @@ export class RtcTokenService {
           this.liveKitService.closeRoomIfAdminOnly(roomName);
         }, 15000);
       } catch (err) {
-        this.logger.error(`Failed to dispatch voice agent: ${(err as Error).message}`);
+        this.logger.error(
+          `Failed to dispatch voice agent: ${(err as Error).message}`,
+        );
         throw new HttpException(
           'Voice agent dispatch failed',
           HttpStatus.SERVICE_UNAVAILABLE,
@@ -300,7 +245,11 @@ export class RtcTokenService {
       // 예약 통화 수락 시 기존 ringing call 사용, 새 통화 시 call 레코드 생성
       if (isScheduledCall) {
         // 예약 통화: 기존 ringing call 찾기
-        const existingCall = await this.dbService.findRingingCall(identity, roomName, 120);
+        const existingCall = await this.dbService.findRingingCall(
+          identity,
+          roomName,
+          120,
+        );
         if (existingCall) {
           callId = existingCall.callId;
           this.logger.log(
@@ -326,9 +275,9 @@ export class RtcTokenService {
           );
         } catch (error) {
           this.logger.warn(
-            `Auto call record failed room=${roomName} identity=${identity} error=${(
-              error as Error
-            ).message}`,
+            `Auto call record failed room=${roomName} identity=${identity} error=${
+              (error as Error).message
+            }`,
           );
         }
       }

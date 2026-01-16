@@ -19,6 +19,7 @@ import { EventsModule } from './events';
 import { ConfigModule } from './core/config';
 import { LiveKitModule } from './integration/livekit';
 import { CareAlertsModule } from './care-alerts';
+import { BotModule } from './bot';
 
 @Module({
   imports: [
@@ -43,6 +44,7 @@ import { CareAlertsModule } from './care-alerts';
     AdminModule,
     SchedulerModule,
     CareAlertsModule,
+    BotModule,
   ],
   controllers: [AppController, PushController],
   providers: [],
