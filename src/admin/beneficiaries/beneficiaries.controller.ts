@@ -35,6 +35,11 @@ import {
   TransformEmptyToUndefined,
 } from '../../common';
 import type { BeneficiaryListItem } from '../../database/repositories/ward.repository';
+import {
+  UpdateBeneficiaryScheduleDto,
+  BeneficiaryScheduleResponse,
+} from './beneficiary-schedule.dto';
+import { SettingsService } from '../settings/settings.service';
 
 class ListBeneficiariesQueryDto {
   @IsOptional()
@@ -169,6 +174,7 @@ export class BeneficiariesController {
   constructor(
     private readonly dbService: DbService,
     private readonly staffService: StaffService,
+    private readonly settingsService: SettingsService,
   ) {}
 
   @Get()
@@ -239,6 +245,82 @@ export class BeneficiariesController {
         averageDurationMinutes: stats.averageDurationMinutes,
       },
       callDates: stats.callDates,
+    };
+  }
+
+  @Get(':id/schedule')
+  async getSchedule(
+    @CurrentAdmin() admin: { organization_id?: string },
+    @Param('id', new ParseUUIDPipe()) id: string,
+  ): Promise<BeneficiaryScheduleResponse> {
+    const organizationId = this.getOrganizationId(admin);
+
+    const scheduleData = await this.dbService.getBeneficiarySchedule({
+      organizationId,
+      beneficiaryId: id,
+    });
+
+    if (!scheduleData) {
+      throw new HttpException(
+        '대상자 정보를 찾을 수 없습니다.',
+        HttpStatus.NOT_FOUND,
+      );
+    }
+
+    // Get organization service hours
+    const settings = await this.settingsService.getSettings(organizationId);
+
+    return {
+      beneficiaryId: id,
+      schedule: scheduleData.schedule,
+      organizationServiceHours: {
+        startTime: settings.preferredStartTime,
+        endTime: settings.preferredEndTime,
+      },
+      updatedAt: scheduleData.updatedAt,
+    };
+  }
+
+  @Put(':id/schedule')
+  async updateSchedule(
+    @CurrentAdmin() admin: { organization_id?: string },
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @Body() body: UpdateBeneficiaryScheduleDto,
+  ): Promise<BeneficiaryScheduleResponse> {
+    const organizationId = this.getOrganizationId(admin);
+
+    const scheduleData = await this.dbService.updateBeneficiarySchedule({
+      organizationId,
+      beneficiaryId: id,
+      schedule: {
+        sunday: body.sunday,
+        monday: body.monday,
+        tuesday: body.tuesday,
+        wednesday: body.wednesday,
+        thursday: body.thursday,
+        friday: body.friday,
+        saturday: body.saturday,
+      },
+    });
+
+    if (!scheduleData) {
+      throw new HttpException(
+        '대상자 정보를 찾을 수 없습니다.',
+        HttpStatus.NOT_FOUND,
+      );
+    }
+
+    // Get organization service hours
+    const settings = await this.settingsService.getSettings(organizationId);
+
+    return {
+      beneficiaryId: id,
+      schedule: scheduleData.schedule,
+      organizationServiceHours: {
+        startTime: settings.preferredStartTime,
+        endTime: settings.preferredEndTime,
+      },
+      updatedAt: scheduleData.updatedAt,
     };
   }
 

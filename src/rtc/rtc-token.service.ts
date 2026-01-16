@@ -57,8 +57,11 @@ export class RtcTokenService {
     // Generate unique room name for iOS users
     // BUT if iOS provides a valid roomName (from scheduled call push), use it
     const isIosUser = !!(params.device?.apnsToken || params.device?.voipToken);
+    // Scheduled calls have room names starting with 'room-' or 'call-'
     const isScheduledCall =
-      params.roomName && params.roomName.startsWith('room-');
+      params.roomName &&
+      (params.roomName.startsWith('room-') ||
+        params.roomName.startsWith('call-'));
     const roomName = isScheduledCall
       ? params.roomName
       : isIosUser

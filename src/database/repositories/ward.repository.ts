@@ -1231,6 +1231,209 @@ export class WardRepository {
 
     return toBeneficiaryDetailItem(row);
   }
+
+  /**
+   * Get beneficiary call schedule
+   * Returns day-wise schedule (each day has 0 or 1 time slot)
+   */
+  async getBeneficiarySchedule(params: {
+    organizationId: string;
+    beneficiaryId: string;
+  }): Promise<BeneficiaryScheduleData | null> {
+    const { organizationId, beneficiaryId } = params;
+
+    // Get organization ward and verify it belongs to the organization
+    const orgWard = await this.prisma.organizationWard.findFirst({
+      where: {
+        id: beneficiaryId,
+        organizationId,
+      },
+      select: {
+        wardId: true,
+        updatedAt: true,
+      },
+    });
+
+    if (!orgWard) return null;
+
+    // Initialize empty schedule
+    const schedule: BeneficiaryScheduleData['schedule'] = {
+      sunday: null,
+      monday: null,
+      tuesday: null,
+      wednesday: null,
+      thursday: null,
+      friday: null,
+      saturday: null,
+    };
+
+    // If not linked to a ward, return empty schedule
+    if (!orgWard.wardId) {
+      return {
+        schedule,
+        updatedAt: orgWard.updatedAt.toISOString(),
+      };
+    }
+
+    // Get schedules from CallScheduleGroup for this ward
+    const schedules = await this.prisma.callScheduleGroup.findMany({
+      where: {
+        wardId: orgWard.wardId,
+        isEnabled: true,
+      },
+      orderBy: { updatedAt: 'desc' },
+    });
+
+    // Map schedules to day-wise format
+    // Each schedule has weekdays array [0-6], we need to extract individual days
+    const dayNames: Array<keyof BeneficiaryScheduleData['schedule']> = [
+      'sunday',
+      'monday',
+      'tuesday',
+      'wednesday',
+      'thursday',
+      'friday',
+      'saturday',
+    ];
+
+    for (const sched of schedules) {
+      const timeStr = `${sched.slotStartHour.toString().padStart(2, '0')}:${sched.slotStartMinute.toString().padStart(2, '0')}`;
+      for (const dayOfWeek of sched.weekdays) {
+        if (dayOfWeek >= 0 && dayOfWeek <= 6) {
+          const dayName = dayNames[dayOfWeek];
+          // Only set if not already set (first match wins - most recent due to orderBy)
+          if (schedule[dayName] === null) {
+            schedule[dayName] = timeStr;
+          }
+        }
+      }
+    }
+
+    // Find the most recent update time
+    const latestUpdate =
+      schedules.length > 0
+        ? schedules
+            .map(s => s.updatedAt)
+            .reduce((a, b) => (a > b ? a : b))
+            .toISOString()
+        : orgWard.updatedAt.toISOString();
+
+    return {
+      schedule,
+      updatedAt: latestUpdate,
+    };
+  }
+
+  /**
+   * Update beneficiary call schedule
+   * Replaces existing schedules with new day-wise schedule
+   */
+  async updateBeneficiarySchedule(params: {
+    organizationId: string;
+    beneficiaryId: string;
+    schedule: Partial<BeneficiaryScheduleData['schedule']>;
+  }): Promise<BeneficiaryScheduleData | null> {
+    const { organizationId, beneficiaryId, schedule } = params;
+
+    // Get organization ward and verify it belongs to the organization
+    const orgWard = await this.prisma.organizationWard.findFirst({
+      where: {
+        id: beneficiaryId,
+        organizationId,
+      },
+      select: {
+        wardId: true,
+      },
+    });
+
+    if (!orgWard) return null;
+
+    // If not linked to a ward, cannot update schedule
+    if (!orgWard.wardId) {
+      return {
+        schedule: {
+          sunday: null,
+          monday: null,
+          tuesday: null,
+          wednesday: null,
+          thursday: null,
+          friday: null,
+          saturday: null,
+        },
+        updatedAt: new Date().toISOString(),
+      };
+    }
+
+    // Delete existing schedules for this ward
+    await this.prisma.callScheduleGroup.deleteMany({
+      where: {
+        wardId: orgWard.wardId,
+      },
+    });
+
+    // Create new schedules - one record per unique time slot
+    // Group days by time slot
+    const timeSlotDays: Record<string, number[]> = {};
+    const dayNames: Array<keyof BeneficiaryScheduleData['schedule']> = [
+      'sunday',
+      'monday',
+      'tuesday',
+      'wednesday',
+      'thursday',
+      'friday',
+      'saturday',
+    ];
+
+    for (let dayOfWeek = 0; dayOfWeek < 7; dayOfWeek++) {
+      const dayName = dayNames[dayOfWeek];
+      const timeValue = schedule[dayName];
+      if (timeValue && timeValue !== null) {
+        if (!timeSlotDays[timeValue]) {
+          timeSlotDays[timeValue] = [];
+        }
+        timeSlotDays[timeValue].push(dayOfWeek);
+      }
+    }
+
+    // Create schedule records
+    const now = new Date();
+    for (const [timeStr, weekdays] of Object.entries(timeSlotDays)) {
+      const [hourStr, minuteStr] = timeStr.split(':');
+      const hour = parseInt(hourStr, 10);
+      const minute = parseInt(minuteStr, 10);
+
+      await this.prisma.callScheduleGroup.create({
+        data: {
+          wardId: orgWard.wardId,
+          slotStartHour: hour,
+          slotStartMinute: minute,
+          weekdays,
+          isEnabled: true,
+          createdAt: now,
+          updatedAt: now,
+        },
+      });
+    }
+
+    // Return updated schedule
+    return this.getBeneficiarySchedule({ organizationId, beneficiaryId });
+  }
+}
+
+/**
+ * Beneficiary schedule data structure
+ */
+export interface BeneficiaryScheduleData {
+  schedule: {
+    sunday: string | null;
+    monday: string | null;
+    tuesday: string | null;
+    wednesday: string | null;
+    thursday: string | null;
+    friday: string | null;
+    saturday: string | null;
+  };
+  updatedAt: string;
 }
 
 function toBeneficiaryDetailItem(

@@ -763,6 +763,29 @@ export class DbService implements OnModuleDestroy {
     return this.wards.getOrganizationBeneficiaryDetail(params);
   }
 
+  async getBeneficiarySchedule(params: {
+    organizationId: string;
+    beneficiaryId: string;
+  }) {
+    return this.wards.getBeneficiarySchedule(params);
+  }
+
+  async updateBeneficiarySchedule(params: {
+    organizationId: string;
+    beneficiaryId: string;
+    schedule: {
+      sunday?: string | null;
+      monday?: string | null;
+      tuesday?: string | null;
+      wednesday?: string | null;
+      thursday?: string | null;
+      friday?: string | null;
+      saturday?: string | null;
+    };
+  }) {
+    return this.wards.updateBeneficiarySchedule(params);
+  }
+
   // ============================================================
   // Admin methods
   // ============================================================
