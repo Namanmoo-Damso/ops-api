@@ -314,16 +314,18 @@ export class NotificationScheduler implements OnModuleInit, OnModuleDestroy {
       return;
     }
 
-    const STALE_THRESHOLD_MINUTES = 15; // Calls can only last 10 minutes, so 15 is generous
+    // 환경 변수로 threshold 관리 (기본값: 15분)
+    const staleThresholdMinutes = parseInt(
+      process.env.STALE_CALL_THRESHOLD_MINUTES || '15',
+      10,
+    );
 
     try {
-      const endedCount = await this.dbService.endStaleCalls(
-        STALE_THRESHOLD_MINUTES,
-      );
+      const result = await this.dbService.endStaleCalls(staleThresholdMinutes);
 
-      if (endedCount > 0) {
+      if (result.count > 0) {
         this.logger.log(
-          `cleanupStaleCalls ended ${endedCount} stale call(s) older than ${STALE_THRESHOLD_MINUTES} minutes`,
+          `cleanupStaleCalls ended ${result.count} stale call(s) older than ${staleThresholdMinutes} minutes callIds=[${result.callIds.join(', ')}]`,
         );
       }
     } catch (error) {

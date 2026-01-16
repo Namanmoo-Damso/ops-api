@@ -313,7 +313,7 @@ export class DbService implements OnModuleDestroy {
   /**
    * Stale call 정리: 'answered' 상태에서 maxAgeMinutes 이상 지속된 통화를 'ended'로 변경
    */
-  async endStaleCalls(maxAgeMinutes: number = 30) {
+  async endStaleCalls(maxAgeMinutes: number = 15) {
     return this.calls.endStaleCalls(maxAgeMinutes);
   }
 

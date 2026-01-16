@@ -505,15 +505,35 @@ export class CallRepository {
    * LiveKit webhook 누락 시 안전망 역할
    *
    * @param maxAgeMinutes 스테일로 간주할 최소 시간 (분)
-   * @returns 종료된 통화 수
+   * @returns 종료된 통화 ID 목록
    */
-  async endStaleCalls(maxAgeMinutes: number = 30): Promise<number> {
+  async endStaleCalls(
+    maxAgeMinutes: number = 15,
+  ): Promise<{ count: number; callIds: string[] }> {
     const cutoff = new Date(Date.now() - maxAgeMinutes * 60 * 1000);
 
-    const result = await this.prisma.call.updateMany({
+    // 먼저 대상 통화 조회 (로깅 및 감사용)
+    const staleCalls = await this.prisma.call.findMany({
       where: {
         state: 'answered',
-        answeredAt: { lt: cutoff },
+        endedAt: null,
+        // answeredAt이 null일 수 있으므로 createdAt 기반 OR 조건 추가
+        OR: [{ answeredAt: { lt: cutoff } }, { createdAt: { lt: cutoff } }],
+      },
+      select: { callId: true },
+    });
+
+    if (staleCalls.length === 0) {
+      return { count: 0, callIds: [] };
+    }
+
+    const callIds = staleCalls.map(c => c.callId);
+
+    // 조회된 callId 기준으로 업데이트 (race condition 방지)
+    await this.prisma.call.updateMany({
+      where: {
+        callId: { in: callIds },
+        state: 'answered', // 상태 재확인
         endedAt: null,
       },
       data: {
@@ -522,18 +542,39 @@ export class CallRepository {
       },
     });
 
-    return result.count;
+    return { count: callIds.length, callIds };
   }
 
   /**
    * roomName으로 처리되지 않은 모든 통화를 종료
    * room_finished 웹훅에서 callContext를 찾지 못했을 때 fallback으로 사용
+   *
+   * @returns 종료된 통화 ID 목록
    */
-  async endCallsByRoomName(roomName: string): Promise<number> {
-    const result = await this.prisma.call.updateMany({
+  async endCallsByRoomName(
+    roomName: string,
+  ): Promise<{ count: number; callIds: string[] }> {
+    // 먼저 대상 통화 조회 (로깅용)
+    const activeCalls = await this.prisma.call.findMany({
       where: {
         roomName,
-        state: { not: 'ended' },
+        state: { in: ['ringing', 'answered'] }, // 명시적 상태 리스트
+        endedAt: null,
+      },
+      select: { callId: true },
+    });
+
+    if (activeCalls.length === 0) {
+      return { count: 0, callIds: [] };
+    }
+
+    const callIds = activeCalls.map(c => c.callId);
+
+    // 조회된 callId 기준으로 업데이트 (race condition 방지)
+    await this.prisma.call.updateMany({
+      where: {
+        callId: { in: callIds },
+        state: { in: ['ringing', 'answered'] }, // 상태 재확인
         endedAt: null,
       },
       data: {
@@ -542,6 +583,6 @@ export class CallRepository {
       },
     });
 
-    return result.count;
+    return { count: callIds.length, callIds };
   }
 }

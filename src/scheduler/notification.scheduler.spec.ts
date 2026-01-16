@@ -29,7 +29,7 @@ describe('NotificationScheduler', () => {
       getMissedCalls: jest.fn().mockResolvedValue([]),
       getSchedulesForCurrentSlot: jest.fn().mockResolvedValue([]),
       markReminderSent: jest.fn().mockResolvedValue(undefined),
-      endStaleCalls: jest.fn().mockResolvedValue(0),
+      endStaleCalls: jest.fn().mockResolvedValue({ count: 0, callIds: [] }),
     };
 
     mockCallsService = {
@@ -203,7 +203,10 @@ describe('NotificationScheduler', () => {
 
     it('should log when stale calls are ended', async () => {
       mockRedisClient.set.mockResolvedValue('OK');
-      (mockDbService.endStaleCalls as jest.Mock).mockResolvedValue(3);
+      (mockDbService.endStaleCalls as jest.Mock).mockResolvedValue({
+        count: 3,
+        callIds: ['call-1', 'call-2', 'call-3'],
+      });
 
       await scheduler.cleanupStaleCalls();
 

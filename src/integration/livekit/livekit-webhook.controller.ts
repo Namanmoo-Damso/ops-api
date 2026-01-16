@@ -189,15 +189,23 @@ export class LiveKitWebhookController {
                 this.logger.warn(
                   `No call context found for room=${room.name}, attempting fallback cleanup`,
                 );
-                const endedCount = await this.dbService.endCallsByRoomName(
-                  room.name,
-                );
-                if (endedCount > 0) {
-                  this.logger.log(
-                    `Fallback cleanup ended ${endedCount} call(s) for room=${room.name}`,
+                try {
+                  const result = await this.dbService.endCallsByRoomName(
+                    room.name,
                   );
-                } else {
-                  this.logger.log(`No calls to cleanup for room=${room.name}`);
+                  if (result.count > 0) {
+                    this.logger.log(
+                      `Fallback cleanup ended ${result.count} call(s) for room=${room.name} callIds=[${result.callIds.join(', ')}]`,
+                    );
+                  } else {
+                    this.logger.log(
+                      `No calls to cleanup for room=${room.name}`,
+                    );
+                  }
+                } catch (fallbackError) {
+                  this.logger.error(
+                    `Fallback cleanup failed for room=${room.name}: ${(fallbackError as Error).message}`,
+                  );
                 }
               }
             } catch (error) {
