@@ -9,54 +9,59 @@ const TIME_REGEX = /^([01]\d|2[0-3]):([0-5]\d)$/;
  * Each day can be a time string (HH:mm) or null (no schedule)
  */
 export class UpdateBeneficiaryScheduleDto {
+  @ValidateIf((o, v) => v !== null && v !== undefined)
   @IsOptional()
-  @ValidateIf((o, v) => v !== null)
   @Transform(({ value }) => (value === '' ? null : value))
   @IsString()
   @Matches(TIME_REGEX, { message: 'sunday must be in HH:mm format' })
   sunday?: string | null;
 
+  @ValidateIf((o, v) => v !== null && v !== undefined)
   @IsOptional()
-  @ValidateIf((o, v) => v !== null)
   @Transform(({ value }) => (value === '' ? null : value))
   @IsString()
   @Matches(TIME_REGEX, { message: 'monday must be in HH:mm format' })
   monday?: string | null;
 
+  @ValidateIf((o, v) => v !== null && v !== undefined)
   @IsOptional()
-  @ValidateIf((o, v) => v !== null)
   @Transform(({ value }) => (value === '' ? null : value))
   @IsString()
   @Matches(TIME_REGEX, { message: 'tuesday must be in HH:mm format' })
   tuesday?: string | null;
 
+  @ValidateIf((o, v) => v !== null && v !== undefined)
   @IsOptional()
-  @ValidateIf((o, v) => v !== null)
   @Transform(({ value }) => (value === '' ? null : value))
   @IsString()
   @Matches(TIME_REGEX, { message: 'wednesday must be in HH:mm format' })
   wednesday?: string | null;
 
+  @ValidateIf((o, v) => v !== null && v !== undefined)
   @IsOptional()
-  @ValidateIf((o, v) => v !== null)
   @Transform(({ value }) => (value === '' ? null : value))
   @IsString()
   @Matches(TIME_REGEX, { message: 'thursday must be in HH:mm format' })
   thursday?: string | null;
 
+  @ValidateIf((o, v) => v !== null && v !== undefined)
   @IsOptional()
-  @ValidateIf((o, v) => v !== null)
   @Transform(({ value }) => (value === '' ? null : value))
   @IsString()
   @Matches(TIME_REGEX, { message: 'friday must be in HH:mm format' })
   friday?: string | null;
 
+  @ValidateIf((o, v) => v !== null && v !== undefined)
   @IsOptional()
-  @ValidateIf((o, v) => v !== null)
   @Transform(({ value }) => (value === '' ? null : value))
   @IsString()
   @Matches(TIME_REGEX, { message: 'saturday must be in HH:mm format' })
   saturday?: string | null;
+}
+
+export interface OrganizationServiceHours {
+  startTime: string;
+  endTime: string;
 }
 
 /**
@@ -73,10 +78,7 @@ export interface BeneficiaryScheduleResponse {
     friday: string | null;
     saturday: string | null;
   };
-  organizationServiceHours: {
-    startTime: string;
-    endTime: string;
-  };
+  organizationServiceHours: OrganizationServiceHours;
   updatedAt: string;
 }
 

@@ -34,12 +34,12 @@ import {
   TransformEmptyToNull,
   TransformEmptyToUndefined,
 } from '../../common';
-import type { BeneficiaryListItem } from '../../database/repositories/ward.repository';
 import {
   UpdateBeneficiaryScheduleDto,
   BeneficiaryScheduleResponse,
 } from './beneficiary-schedule.dto';
 import { SettingsService } from '../settings/settings.service';
+import type { BeneficiaryListItem } from '../../database/repositories/ward.repository';
 
 class ListBeneficiariesQueryDto {
   @IsOptional()
@@ -202,52 +202,6 @@ export class BeneficiariesController {
     };
   }
 
-  @Get(':id/stats')
-  async getUsageStats(
-    @CurrentAdmin() admin: { organization_id?: string },
-    @Param('id', new ParseUUIDPipe()) id: string,
-    @Query() query: UsageStatsQueryDto,
-  ): Promise<{
-    beneficiaryId: string;
-    period: { startDate: string; endDate: string };
-    summary: {
-      totalCalls: number;
-      totalDurationMinutes: number;
-      averageDurationMinutes: number;
-    };
-    callDates: string[];
-  }> {
-    const organizationId = this.getOrganizationId(admin);
-
-    const stats = await this.dbService.getBeneficiaryUsageStats({
-      organizationId,
-      beneficiaryId: id,
-      startDate: query.startDate,
-      endDate: query.endDate,
-    });
-
-    if (!stats) {
-      throw new HttpException(
-        '대상자 정보를 찾을 수 없습니다.',
-        HttpStatus.NOT_FOUND,
-      );
-    }
-
-    return {
-      beneficiaryId: id,
-      period: {
-        startDate: query.startDate,
-        endDate: query.endDate,
-      },
-      summary: {
-        totalCalls: stats.totalCalls,
-        totalDurationMinutes: stats.totalDurationMinutes,
-        averageDurationMinutes: stats.averageDurationMinutes,
-      },
-      callDates: stats.callDates,
-    };
-  }
-
   @Get(':id/schedule')
   async getSchedule(
     @CurrentAdmin() admin: { organization_id?: string },
@@ -332,6 +286,52 @@ export class BeneficiariesController {
     return {
       startTime: settings.preferredStartTime,
       endTime: settings.preferredEndTime,
+    };
+  }
+
+  @Get(':id/stats')
+  async getUsageStats(
+    @CurrentAdmin() admin: { organization_id?: string },
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @Query() query: UsageStatsQueryDto,
+  ): Promise<{
+    beneficiaryId: string;
+    period: { startDate: string; endDate: string };
+    summary: {
+      totalCalls: number;
+      totalDurationMinutes: number;
+      averageDurationMinutes: number;
+    };
+    callDates: string[];
+  }> {
+    const organizationId = this.getOrganizationId(admin);
+
+    const stats = await this.dbService.getBeneficiaryUsageStats({
+      organizationId,
+      beneficiaryId: id,
+      startDate: query.startDate,
+      endDate: query.endDate,
+    });
+
+    if (!stats) {
+      throw new HttpException(
+        '대상자 정보를 찾을 수 없습니다.',
+        HttpStatus.NOT_FOUND,
+      );
+    }
+
+    return {
+      beneficiaryId: id,
+      period: {
+        startDate: query.startDate,
+        endDate: query.endDate,
+      },
+      summary: {
+        totalCalls: stats.totalCalls,
+        totalDurationMinutes: stats.totalDurationMinutes,
+        averageDurationMinutes: stats.averageDurationMinutes,
+      },
+      callDates: stats.callDates,
     };
   }
 

@@ -1284,13 +1284,11 @@ export class WardRepository {
       orderBy: { updatedAt: 'desc' },
     });
 
-    // Map schedules to day-wise format
-    // Each schedule has weekdays array [0-6], we need to extract individual days
     for (const sched of schedules) {
       // NOTE: slotStartHour/Minute are stored as local (KST) wall clock time
       const timeStr = `${sched.slotStartHour.toString().padStart(2, '0')}:${sched.slotStartMinute.toString().padStart(2, '0')}`;
       for (const dayOfWeek of sched.weekdays) {
-        if (dayOfWeek >= 0 && dayOfWeek <= 6) {
+        if (dayOfWeek >= 0 && dayOfWeek < 7) {
           const dayName = DAY_NAMES[dayOfWeek];
           // Only set if not already set (first match wins - most recent due to orderBy)
           if (schedule[dayName] === null) {
@@ -1342,6 +1340,7 @@ export class WardRepository {
 
     // If not linked to a ward, cannot update schedule
     if (!orgWard.wardId) {
+      // Just return empty schedule without error
       return {
         schedule: {
           sunday: null,
@@ -1356,13 +1355,15 @@ export class WardRepository {
       };
     }
 
+    const wardId = orgWard.wardId; // Capture for safe usage
+
     // Group days by time slot to minimize database records
     const timeSlotDays: Record<string, number[]> = {};
 
     for (let dayOfWeek = 0; dayOfWeek < 7; dayOfWeek++) {
       const dayName = DAY_NAMES[dayOfWeek];
       const timeValue = schedule[dayName];
-      if (timeValue && timeValue !== null) {
+      if (timeValue) {
         if (!timeSlotDays[timeValue]) {
           timeSlotDays[timeValue] = [];
         }
@@ -1372,10 +1373,11 @@ export class WardRepository {
 
     // Use transaction to ensure delete and create are atomic
     await this.prisma.$transaction(async (tx) => {
-      // 1. Delete existing schedules for this ward
+      // 1. Delete ALL existing schedules for this ward
+      // This is safe even if timeSlotDays is empty (clearing schedule)
       await tx.callScheduleGroup.deleteMany({
         where: {
-          wardId: orgWard.wardId!,
+          wardId: wardId,
         },
       });
 
@@ -1388,7 +1390,7 @@ export class WardRepository {
 
         await tx.callScheduleGroup.create({
           data: {
-            wardId: orgWard.wardId!,
+            wardId: wardId,
             slotStartHour: hour,
             slotStartMinute: minute,
             weekdays,
@@ -1403,22 +1405,6 @@ export class WardRepository {
     // Return updated schedule
     return this.getBeneficiarySchedule({ organizationId, beneficiaryId });
   }
-}
-
-/**
- * Beneficiary schedule data structure
- */
-export interface BeneficiaryScheduleData {
-  schedule: {
-    sunday: string | null;
-    monday: string | null;
-    tuesday: string | null;
-    wednesday: string | null;
-    thursday: string | null;
-    friday: string | null;
-    saturday: string | null;
-  };
-  updatedAt: string;
 }
 
 function toBeneficiaryDetailItem(
@@ -1489,4 +1475,33 @@ function mapMoodToSentiment(
     return mood;
   }
   return undefined;
+}
+
+/**
+ * Constants for internal repository use
+ */
+const DAY_NAMES = [
+  'sunday',
+  'monday',
+  'tuesday',
+  'wednesday',
+  'thursday',
+  'friday',
+  'saturday',
+] as const;
+
+/**
+ * Beneficiary schedule data structure
+ */
+export interface BeneficiaryScheduleData {
+  schedule: {
+    sunday: string | null;
+    monday: string | null;
+    tuesday: string | null;
+    wednesday: string | null;
+    thursday: string | null;
+    friday: string | null;
+    saturday: string | null;
+  };
+  updatedAt: string;
 }
