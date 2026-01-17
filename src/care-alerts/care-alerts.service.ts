@@ -31,6 +31,10 @@ export class CareAlertsService {
   // wardId -> EmotionBufferData[] (10분 집계용 버퍼)
   private emotionBuffers: Map<string, EmotionBufferData[]> = new Map();
 
+  // roomName -> current danger code (4-bit string tracking active alerts)
+  // Bit positions: 1000=deviceFall, 0100=personFall, 0010=loudVoice, 0001=emotion
+  private roomDangerCodes: Map<string, string> = new Map();
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly pushService: PushService,
@@ -403,8 +407,12 @@ export class CareAlertsService {
 
     // 2. Organization에게 WebSocket 이벤트
     if (ward.organization && event.roomName && wardId) {
+      // Compute danger code by ORing new alert type with existing state
+      // 4-bit string: 1000=deviceFall, 0100=personFall, 0010=loudVoice, 0001=emotion
+      const dangerCode = this.computeDangerCode(event.roomName, event.alertType);
+
       this.logger.log(
-        `[NOTIFY_WS] wardId=${wardId} organizationId=${ward.organization.id} roomName=${event.roomName}`,
+        `[NOTIFY_WS] wardId=${wardId} organizationId=${ward.organization.id} roomName=${event.roomName} dangerCode=${dangerCode}`,
       );
 
       this.eventsService.emit({
@@ -415,6 +423,7 @@ export class CareAlertsService {
         wardId: wardId || undefined,
         wardName: wardName || undefined,
         alertType: event.alertType,
+        dangerCode,
       });
     } else if (!wardId) {
       this.logger.warn(
@@ -426,6 +435,68 @@ export class CareAlertsService {
     this.logger.log(
       `[NOTIFY_COMPLETE] wardId=${wardId} alertId=${event.id} elapsed=${elapsed}ms`,
     );
+  }
+
+  /**
+   * Get the bit mask for an alert type
+   * Bit positions: 1000=deviceFall, 0100=personFall, 0010=loudVoice, 0001=emotion
+   */
+  private getAlertTypeBit(alertType: string): number {
+    switch (alertType) {
+      case 'device_fall':
+        return 0b1000;
+      case 'person_fall':
+        return 0b0100;
+      case 'loud_voice':
+        return 0b0010;
+      case 'emotion':
+        return 0b0001;
+      default:
+        return 0b0000;
+    }
+  }
+
+  /**
+   * Compute danger code by ORing the new alert type with existing state
+   * Returns 4-bit string: 1000=deviceFall, 0100=personFall, 0010=loudVoice, 0001=emotion
+   */
+  private computeDangerCode(roomName: string, alertType: string): string {
+    const currentCode = this.roomDangerCodes.get(roomName) || '0000';
+    const currentBits = parseInt(currentCode, 2);
+    const newBit = this.getAlertTypeBit(alertType);
+    const combinedBits = currentBits | newBit;
+    const newCode = combinedBits.toString(2).padStart(4, '0');
+    this.roomDangerCodes.set(roomName, newCode);
+    return newCode;
+  }
+
+  /**
+   * Clear a specific alert type from the danger code
+   */
+  clearDangerCode(roomName: string, alertType?: string): string {
+    if (!alertType) {
+      // Clear all
+      this.roomDangerCodes.delete(roomName);
+      return '0000';
+    }
+    const currentCode = this.roomDangerCodes.get(roomName) || '0000';
+    const currentBits = parseInt(currentCode, 2);
+    const bitToClear = this.getAlertTypeBit(alertType);
+    const newBits = currentBits & ~bitToClear;
+    const newCode = newBits.toString(2).padStart(4, '0');
+    if (newBits === 0) {
+      this.roomDangerCodes.delete(roomName);
+    } else {
+      this.roomDangerCodes.set(roomName, newCode);
+    }
+    return newCode;
+  }
+
+  /**
+   * Get current danger code for a room
+   */
+  getDangerCode(roomName: string): string {
+    return this.roomDangerCodes.get(roomName) || '0000';
   }
 
   /**

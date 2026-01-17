@@ -23,6 +23,7 @@ export type RoomEvent = {
   wardId?: string;
   wardName?: string;
   alertType?: string;
+  dangerCode?: string; // 4-bit string: 1000=deviceFall, 0100=personFall, 0010=loudVoice, 0001=emotion
   timestamp: string;
 };
 
