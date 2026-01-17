@@ -213,6 +213,11 @@ export class BeneficiariesController {
   ): Promise<BeneficiaryDetailResponse> {
     const organizationId = this.getOrganizationId(admin);
 
+    // Validate userId parameter
+    if (!userId || userId.trim().length === 0) {
+      throw new HttpException('Invalid user ID format', HttpStatus.BAD_REQUEST);
+    }
+
     // Find ward by user identity (e.g., kakao_xxx)
     const ward = await this.dbService.findWardByUserIdentity(userId);
 

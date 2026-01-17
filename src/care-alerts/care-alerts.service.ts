@@ -402,7 +402,7 @@ export class CareAlertsService {
     }
 
     // 2. Organization에게 WebSocket 이벤트
-    if (ward.organization && event.roomName) {
+    if (ward.organization && event.roomName && wardId) {
       this.logger.log(
         `[NOTIFY_WS] wardId=${wardId} organizationId=${ward.organization.id} roomName=${event.roomName}`,
       );
@@ -412,10 +412,14 @@ export class CareAlertsService {
         roomName: event.roomName,
         isDanger: true,
         name: `${event.alertType}:${wardId}`,
-        wardId,
-        wardName,
+        wardId: wardId || undefined,
+        wardName: wardName || undefined,
         alertType: event.alertType,
       });
+    } else if (!wardId) {
+      this.logger.warn(
+        `[NOTIFY_SKIP] wardId not available for room-danger event, roomName=${event.roomName}`,
+      );
     }
 
     const elapsed = Date.now() - notifyStart;
