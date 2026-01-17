@@ -203,7 +203,7 @@ export class BeneficiariesController {
   }
 
   /**
-   * Get beneficiary detail by user ID (e.g., kakao_xxx)
+   * Get beneficiary detail by user identity (e.g., kakao_xxx)
    * Used when participant identity is available but not ward UUID
    */
   @Get('by-user/:userId')
@@ -213,8 +213,8 @@ export class BeneficiariesController {
   ): Promise<BeneficiaryDetailResponse> {
     const organizationId = this.getOrganizationId(admin);
 
-    // Find ward by user ID
-    const ward = await this.dbService.findWardByUserId(userId);
+    // Find ward by user identity (e.g., kakao_xxx)
+    const ward = await this.dbService.findWardByUserIdentity(userId);
 
     if (!ward || ward.organization_id !== organizationId) {
       throw new HttpException(

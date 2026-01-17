@@ -539,6 +539,10 @@ export class DbService implements OnModuleDestroy {
     return this.wards.findByUserId(userId);
   }
 
+  async findWardByUserIdentity(identity: string) {
+    return this.wards.findByUserIdentity(identity);
+  }
+
   async findWardById(wardId: string) {
     return this.wards.findById(wardId);
   }

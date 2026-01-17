@@ -132,6 +132,19 @@ export class WardRepository {
     return ward ? toWardRow(ward) : undefined;
   }
 
+  /**
+   * Find ward by user identity (e.g., kakao_xxx)
+   * Used when we have the participant identity from LiveKit but not the user UUID
+   */
+  async findByUserIdentity(identity: string): Promise<WardRow | undefined> {
+    const user = await this.prisma.user.findUnique({
+      where: { identity },
+      include: { ward: true },
+    });
+    if (!user?.ward) return undefined;
+    return toWardRow(user.ward);
+  }
+
   async findById(wardId: string): Promise<WardRow | undefined> {
     const ward = await this.prisma.ward.findUnique({
       where: { id: wardId },

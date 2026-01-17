@@ -20,6 +20,9 @@ export type RoomEvent = {
   identity?: string;
   name?: string;
   isDanger?: boolean;
+  wardId?: string;
+  wardName?: string;
+  alertType?: string;
   timestamp: string;
 };
 
