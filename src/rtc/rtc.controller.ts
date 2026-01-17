@@ -381,6 +381,25 @@ export class RtcController {
 
     const isDanger = body.isDanger ?? false;
 
+    // Update LiveKit room metadata to sync danger state
+    try {
+      await this.liveKitService.updateRoomMetadata(
+        roomName,
+        JSON.stringify({
+          isDanger,
+          dangerCode: isDanger ? '0000' : '0000', // Will be overwritten by care-alerts if isDanger=true
+          timestamp: Date.now(),
+        }),
+      );
+      this.logger.log(
+        `setRoomDanger updated room metadata: room=${roomName} isDanger=${isDanger}`,
+      );
+    } catch (err) {
+      this.logger.warn(
+        `setRoomDanger failed to update room metadata: ${(err as Error).message}`,
+      );
+    }
+
     // Emit room-danger event for SSE subscribers
     this.eventsService.emitRoomEvent({
       type: 'room-danger',

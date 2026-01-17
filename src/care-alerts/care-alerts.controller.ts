@@ -15,6 +15,7 @@ import { CareAlertsService } from './care-alerts.service';
 import { AuthService } from '../auth';
 import { PrismaService } from '../prisma/prisma.service';
 import { EventsService } from '../events/events.service';
+import { LiveKitService } from '../integration/livekit/livekit.service';
 import { CreateCareAlertDto } from './dto/create-care-alert.dto';
 
 type UserType = 'guardian' | 'ward';
@@ -44,6 +45,7 @@ export class CareAlertsController {
     private readonly authService: AuthService,
     private readonly prisma: PrismaService,
     private readonly eventsService: EventsService,
+    private readonly livekitService: LiveKitService,
   ) { }
 
   private verifyAuthHeader(authorization: string | undefined): AuthPayload {
@@ -297,11 +299,31 @@ export class CareAlertsController {
       // 알림 해제 처리
       const result = await this.careAlertsService.acknowledgeAlert(alertId, payload.sub);
 
-      // WebSocket으로 room-danger 해제 이벤트 전송 (Organization이 있는 경우)
+      // WebSocket으로 room-danger 해제 이벤트 전송 + LiveKit room metadata 업데이트
       if (alert.roomName && alert.ward.organization) {
         this.logger.log(
           `[API] Emitting room-danger=false for roomName=${alert.roomName}`,
         );
+
+        // Update LiveKit room metadata to clear danger state
+        try {
+          await this.livekitService.updateRoomMetadata(
+            alert.roomName,
+            JSON.stringify({
+              isDanger: false,
+              dangerCode: '0000',
+              timestamp: Date.now(),
+            }),
+          );
+          this.logger.log(
+            `[API] Updated room metadata: room=${alert.roomName} isDanger=false`,
+          );
+        } catch (err) {
+          this.logger.warn(
+            `[API] Failed to update room metadata: ${(err as Error).message}`,
+          );
+        }
+
         this.eventsService.emit({
           type: 'room-danger',
           roomName: alert.roomName,
