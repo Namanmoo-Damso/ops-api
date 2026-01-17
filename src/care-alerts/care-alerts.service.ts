@@ -4,6 +4,7 @@ import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { PushService } from '../push/push.service';
 import { EventsService } from '../events/events.service';
+import { LiveKitService } from '../integration/livekit/livekit.service';
 import { CreateCareAlertDto } from './dto/create-care-alert.dto';
 import {
   CareAlertCreatedResponse,
@@ -35,6 +36,7 @@ export class CareAlertsService {
     private readonly prisma: PrismaService,
     private readonly pushService: PushService,
     private readonly eventsService: EventsService,
+    private readonly livekitService: LiveKitService,
   ) {
     this.logger.log('CareAlertsService initialized');
   }
@@ -401,11 +403,35 @@ export class CareAlertsService {
       }
     }
 
-    // 2. Organization에게 WebSocket 이벤트
+    // 2. Organization에게 WebSocket 이벤트 + LiveKit room metadata 업데이트
     if (ward.organization && event.roomName && wardId) {
       this.logger.log(
         `[NOTIFY_WS] wardId=${wardId} organizationId=${ward.organization.id} roomName=${event.roomName}`,
       );
+
+      // Compute danger code based on alert type
+      const dangerCode = this.getDangerCode(event.alertType);
+
+      // Update LiveKit room metadata for real-time sync
+      try {
+        await this.livekitService.updateRoomMetadata(
+          event.roomName,
+          JSON.stringify({
+            isDanger: true,
+            dangerCode,
+            alertType: event.alertType,
+            wardId,
+            timestamp: Date.now(),
+          }),
+        );
+        this.logger.log(
+          `[NOTIFY_LIVEKIT] Updated room metadata: room=${event.roomName} dangerCode=${dangerCode}`,
+        );
+      } catch (err) {
+        this.logger.warn(
+          `[NOTIFY_LIVEKIT] Failed to update room metadata: ${(err as Error).message}`,
+        );
+      }
 
       this.eventsService.emit({
         type: 'room-danger',
@@ -426,6 +452,25 @@ export class CareAlertsService {
     this.logger.log(
       `[NOTIFY_COMPLETE] wardId=${wardId} alertId=${event.id} elapsed=${elapsed}ms`,
     );
+  }
+
+  /**
+   * Get danger code based on alert type
+   * 4-bit string: 1000=deviceFall, 0100=personFall, 0010=loudVoice, 0001=emotion
+   */
+  private getDangerCode(alertType: string): string {
+    switch (alertType) {
+      case 'device_fall':
+        return '1000';
+      case 'person_fall':
+        return '0100';
+      case 'loud_voice':
+        return '0010';
+      case 'emotion':
+        return '0001';
+      default:
+        return '0000';
+    }
   }
 
   /**
