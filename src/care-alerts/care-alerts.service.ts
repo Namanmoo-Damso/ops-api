@@ -237,7 +237,8 @@ export class CareAlertsService {
       (sum, emotion) => sum + emotionCounts[emotion],
       0,
     );
-    const negativeRatio = Math.round((negativeCount / totalSamples) * 1000) / 1000;
+    const negativeRatio =
+      Math.round((negativeCount / totalSamples) * 1000) / 1000;
 
     // 평균 confidence
     const averageConfidence =
@@ -335,7 +336,13 @@ export class CareAlertsService {
    */
   private async sendNotifications(
     wardId: string,
-    event: { id: string; alertType: string; severity: string; timestamp: Date; roomName: string | null },
+    event: {
+      id: string;
+      alertType: string;
+      severity: string;
+      timestamp: Date;
+      roomName: string | null;
+    },
   ): Promise<void> {
     const notifyStart = Date.now();
 
@@ -368,8 +375,8 @@ export class CareAlertsService {
     // 1. Guardian에게 APNs Push
     if (ward.guardian?.user.devices) {
       const tokens = ward.guardian.user.devices
-        .filter((d) => d.apnsToken)
-        .map((d) => ({ token: d.apnsToken!, env: d.env }));
+        .filter(d => d.apnsToken)
+        .map(d => ({ token: d.apnsToken!, env: d.env }));
 
       if (tokens.length > 0) {
         this.logger.log(
@@ -395,7 +402,7 @@ export class CareAlertsService {
     }
 
     // 2. Organization에게 WebSocket 이벤트
-    if (ward.organization && event.roomName) {
+    if (ward.organization && event.roomName && wardId) {
       this.logger.log(
         `[NOTIFY_WS] wardId=${wardId} organizationId=${ward.organization.id} roomName=${event.roomName}`,
       );
@@ -405,7 +412,14 @@ export class CareAlertsService {
         roomName: event.roomName,
         isDanger: true,
         name: `${event.alertType}:${wardId}`,
+        wardId: wardId || undefined,
+        wardName: wardName || undefined,
+        alertType: event.alertType,
       });
+    } else if (!wardId) {
+      this.logger.warn(
+        `[NOTIFY_SKIP] wardId not available for room-danger event, roomName=${event.roomName}`,
+      );
     }
 
     const elapsed = Date.now() - notifyStart;
@@ -480,7 +494,7 @@ export class CareAlertsService {
     ]);
 
     return {
-      alerts: alerts.map((alert) => ({
+      alerts: alerts.map(alert => ({
         id: alert.id,
         wardId: alert.wardId,
         alertType: alert.alertType as AlertType,
@@ -499,7 +513,10 @@ export class CareAlertsService {
   /**
    * 감정 리포트 조회 (Guardian용)
    */
-  async getEmotionReport(wardId: string, date: string): Promise<EmotionReportResponse> {
+  async getEmotionReport(
+    wardId: string,
+    date: string,
+  ): Promise<EmotionReportResponse> {
     this.logger.log(`[GET_EMOTION_REPORT] wardId=${wardId} date=${date}`);
 
     const targetDate = new Date(date);
@@ -543,7 +560,8 @@ export class CareAlertsService {
 
     for (const summary of summaries) {
       totalSamples += summary.totalSamples;
-      totalNegativeRatio += Number(summary.negativeRatio) * summary.totalSamples;
+      totalNegativeRatio +=
+        Number(summary.negativeRatio) * summary.totalSamples;
 
       const dist = summary.emotionDistribution as Record<EmotionType, number>;
       for (const [emotion, ratio] of Object.entries(dist)) {
@@ -560,12 +578,15 @@ export class CareAlertsService {
 
     return {
       date,
-      summaries: summaries.map((s) => ({
+      summaries: summaries.map(s => ({
         id: s.id,
         periodStart: s.periodStart.toISOString(),
         periodEnd: s.periodEnd.toISOString(),
         totalSamples: s.totalSamples,
-        emotionDistribution: s.emotionDistribution as Record<EmotionType, number>,
+        emotionDistribution: s.emotionDistribution as Record<
+          EmotionType,
+          number
+        >,
         averageConfidence: Number(s.averageConfidence),
         negativeRatio: Number(s.negativeRatio),
         dominantEmotion: s.dominantEmotion as EmotionType,
