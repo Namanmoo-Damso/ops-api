@@ -1088,6 +1088,58 @@ export class WardRepository {
       }));
   }
 
+  /**
+   * Get upcoming scheduled calls for the dashboard
+   * Returns calls scheduled for the next N hours
+   */
+  async getUpcomingScheduledCalls(hoursAhead: number = 2) {
+    const now = new Date();
+    const dayOfWeek = now.getDay();
+    const currentHour = now.getHours();
+    const currentMinute = now.getMinutes();
+
+    // Get all schedules for today that are in the future (within hoursAhead)
+    const schedules = await this.prisma.callScheduleGroup.findMany({
+      where: {
+        weekdays: { has: dayOfWeek },
+        isEnabled: true,
+        wardId: { not: null },
+        OR: [
+          // Same hour but later minute
+          {
+            slotStartHour: currentHour,
+            slotStartMinute: { gt: currentMinute },
+          },
+          // Future hours within range
+          {
+            slotStartHour: { gt: currentHour, lte: currentHour + hoursAhead },
+          },
+        ],
+      },
+      include: {
+        ward: {
+          include: {
+            user: { select: { id: true, identity: true, displayName: true, nickname: true } },
+          },
+        },
+      },
+      orderBy: [{ slotStartHour: 'asc' }, { slotStartMinute: 'asc' }],
+    });
+
+    return schedules
+      .filter(s => s.ward !== null)
+      .map(s => ({
+        scheduleId: s.id,
+        wardId: s.wardId!,
+        wardName: s.ward!.user.displayName ?? s.ward!.user.nickname ?? s.ward!.user.identity,
+        wardIdentity: s.ward!.user.identity,
+        aiPersona: s.ward!.aiPersona ?? '다미',
+        slotStartHour: s.slotStartHour,
+        slotStartMinute: s.slotStartMinute,
+        scheduledTime: `${String(s.slotStartHour).padStart(2, '0')}:${String(s.slotStartMinute).padStart(2, '0')}`,
+      }));
+  }
+
   async listOrganizationBeneficiaries(params: {
     organizationId: string;
     search?: string;

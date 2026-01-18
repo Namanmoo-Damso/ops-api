@@ -216,4 +216,34 @@ export class DashboardController {
       );
     }
   }
+
+  /**
+   * Get upcoming scheduled calls
+   * Returns calls scheduled for the next N hours
+   */
+  @Get('upcoming-calls')
+  async getUpcomingCalls(@Query('hoursAhead') hoursAheadParam?: string) {
+    const hoursAhead = hoursAheadParam ? parseInt(hoursAheadParam, 10) : 2;
+
+    this.logger.log(`getUpcomingCalls called hoursAhead=${hoursAhead}`);
+
+    try {
+      const calls = await this.dbService.getUpcomingScheduledCalls(hoursAhead);
+
+      return {
+        calls,
+        count: calls.length,
+        hoursAhead,
+        fetchedAt: new Date().toISOString(),
+      };
+    } catch (error) {
+      this.logger.warn(
+        `getUpcomingCalls failed error=${(error as Error).message}`,
+      );
+      throw new HttpException(
+        'Failed to fetch upcoming calls',
+        HttpStatus.INTERNAL_SERVER_ERROR,
+      );
+    }
+  }
 }

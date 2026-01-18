@@ -676,6 +676,10 @@ export class DbService implements OnModuleDestroy {
     );
   }
 
+  async getUpcomingScheduledCalls(hoursAhead: number = 2) {
+    return this.wards.getUpcomingScheduledCalls(hoursAhead);
+  }
+
   async listOrganizationBeneficiaries(params: {
     organizationId: string;
     search?: string;
