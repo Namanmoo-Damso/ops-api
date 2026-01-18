@@ -875,6 +875,10 @@ export class WardRepository {
     totalDurationMinutes: number;
     averageDurationMinutes: number;
     callDates: string[];
+    emergencyStats: {
+      detected: number;
+      responded: number;
+    };
   } | null> {
     // First, get the organization ward and check if it's registered
     const orgWard = await this.prisma.organizationWard.findFirst({
@@ -899,6 +903,10 @@ export class WardRepository {
         totalDurationMinutes: 0,
         averageDurationMinutes: 0,
         callDates: [],
+        emergencyStats: {
+          detected: 0,
+          responded: 0,
+        },
       };
     }
 
@@ -924,6 +932,31 @@ export class WardRepository {
         endedAt: true,
       },
     });
+
+    // Get emergency stats from care_alert_events for this ward
+    const [emergencyDetected, emergencyResponded] = await Promise.all([
+      this.prisma.careAlertEvent.count({
+        where: {
+          wardId: orgWard.wardId,
+          alertType: { not: 'emotion' },
+          timestamp: {
+            gte: startDate,
+            lte: endDate,
+          },
+        },
+      }),
+      this.prisma.careAlertEvent.count({
+        where: {
+          wardId: orgWard.wardId,
+          alertType: { not: 'emotion' },
+          acknowledged: true,
+          timestamp: {
+            gte: startDate,
+            lte: endDate,
+          },
+        },
+      }),
+    ]);
 
     // Calculate stats
     const totalCalls = calls.length;
@@ -951,6 +984,10 @@ export class WardRepository {
       totalDurationMinutes: Math.round(totalDurationMinutes * 100) / 100,
       averageDurationMinutes,
       callDates: Array.from(callDatesSet).sort(),
+      emergencyStats: {
+        detected: emergencyDetected,
+        responded: emergencyResponded,
+      },
     };
   }
 
@@ -1048,6 +1085,58 @@ export class WardRepository {
         ward_user_id: s.ward!.userId,
         ward_identity: s.ward!.user.identity,
         ai_persona: s.ward!.aiPersona ?? '다미',
+      }));
+  }
+
+  /**
+   * Get upcoming scheduled calls for the dashboard
+   * Returns calls scheduled for the next N hours
+   */
+  async getUpcomingScheduledCalls(hoursAhead: number = 2) {
+    const now = new Date();
+    const dayOfWeek = now.getDay();
+    const currentHour = now.getHours();
+    const currentMinute = now.getMinutes();
+
+    // Get all schedules for today that are in the future (within hoursAhead)
+    const schedules = await this.prisma.callScheduleGroup.findMany({
+      where: {
+        weekdays: { has: dayOfWeek },
+        isEnabled: true,
+        wardId: { not: null },
+        OR: [
+          // Same hour but later minute
+          {
+            slotStartHour: currentHour,
+            slotStartMinute: { gt: currentMinute },
+          },
+          // Future hours within range
+          {
+            slotStartHour: { gt: currentHour, lte: currentHour + hoursAhead },
+          },
+        ],
+      },
+      include: {
+        ward: {
+          include: {
+            user: { select: { id: true, identity: true, displayName: true, nickname: true } },
+          },
+        },
+      },
+      orderBy: [{ slotStartHour: 'asc' }, { slotStartMinute: 'asc' }],
+    });
+
+    return schedules
+      .filter(s => s.ward !== null)
+      .map(s => ({
+        scheduleId: s.id,
+        wardId: s.wardId!,
+        wardName: s.ward!.user.displayName ?? s.ward!.user.nickname ?? s.ward!.user.identity,
+        wardIdentity: s.ward!.user.identity,
+        aiPersona: s.ward!.aiPersona ?? '다미',
+        slotStartHour: s.slotStartHour,
+        slotStartMinute: s.slotStartMinute,
+        scheduledTime: `${String(s.slotStartHour).padStart(2, '0')}:${String(s.slotStartMinute).padStart(2, '0')}`,
       }));
   }
 

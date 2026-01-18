@@ -150,18 +150,25 @@ export class DashboardController {
   async getCareAlerts(
     @Query('limit') limitParam?: string,
     @Query('hoursBack') hoursBackParam?: string,
+    @Query('page') pageParam?: string,
+    @Query('startDate') startDate?: string,
+    @Query('endDate') endDate?: string,
   ) {
-    const limit = limitParam ? parseInt(limitParam, 10) : 50;
+    const limit = limitParam ? parseInt(limitParam, 10) : 30;
     const hoursBack = hoursBackParam ? parseInt(hoursBackParam, 10) : 24;
+    const page = pageParam ? parseInt(pageParam, 10) : 1;
 
     this.logger.log(
-      `getCareAlerts called limit=${limit} hoursBack=${hoursBack}`,
+      `getCareAlerts called limit=${limit} hoursBack=${hoursBack} page=${page} startDate=${startDate} endDate=${endDate}`,
     );
 
     try {
       const result = await this.dbService.getCareAlertLogs(undefined, {
         limit,
         hoursBack,
+        page,
+        startDate,
+        endDate,
       });
 
       return {
@@ -205,6 +212,36 @@ export class DashboardController {
       );
       throw new HttpException(
         'Failed to fetch care alert stats',
+        HttpStatus.INTERNAL_SERVER_ERROR,
+      );
+    }
+  }
+
+  /**
+   * Get upcoming scheduled calls
+   * Returns calls scheduled for the next N hours
+   */
+  @Get('upcoming-calls')
+  async getUpcomingCalls(@Query('hoursAhead') hoursAheadParam?: string) {
+    const hoursAhead = hoursAheadParam ? parseInt(hoursAheadParam, 10) : 2;
+
+    this.logger.log(`getUpcomingCalls called hoursAhead=${hoursAhead}`);
+
+    try {
+      const calls = await this.dbService.getUpcomingScheduledCalls(hoursAhead);
+
+      return {
+        calls,
+        count: calls.length,
+        hoursAhead,
+        fetchedAt: new Date().toISOString(),
+      };
+    } catch (error) {
+      this.logger.warn(
+        `getUpcomingCalls failed error=${(error as Error).message}`,
+      );
+      throw new HttpException(
+        'Failed to fetch upcoming calls',
         HttpStatus.INTERNAL_SERVER_ERROR,
       );
     }

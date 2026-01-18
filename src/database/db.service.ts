@@ -676,6 +676,10 @@ export class DbService implements OnModuleDestroy {
     );
   }
 
+  async getUpcomingScheduledCalls(hoursAhead: number = 2) {
+    return this.wards.getUpcomingScheduledCalls(hoursAhead);
+  }
+
   async listOrganizationBeneficiaries(params: {
     organizationId: string;
     search?: string;
@@ -1065,6 +1069,9 @@ export class DbService implements OnModuleDestroy {
     options?: {
       limit?: number;
       hoursBack?: number;
+      page?: number;
+      startDate?: string;
+      endDate?: string;
     },
   ) {
     return this.dashboard.getCareAlertLogs(organizationId, options);

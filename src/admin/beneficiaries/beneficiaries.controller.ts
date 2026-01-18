@@ -360,6 +360,10 @@ export class BeneficiariesController {
       averageDurationMinutes: number;
     };
     callDates: string[];
+    emergencyStats: {
+      detected: number;
+      responded: number;
+    };
   }> {
     const organizationId = this.getOrganizationId(admin);
 
@@ -389,6 +393,7 @@ export class BeneficiariesController {
         averageDurationMinutes: stats.averageDurationMinutes,
       },
       callDates: stats.callDates,
+      emergencyStats: stats.emergencyStats,
     };
   }
 

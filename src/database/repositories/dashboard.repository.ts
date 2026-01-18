@@ -2,7 +2,7 @@
  * Dashboard Repository
  * 대시보드 통계 관련 메서드
  */
-import { Injectable } from '@nestjs/common';
+import { BadRequestException, Injectable } from '@nestjs/common';
 import { PrismaService } from '../../prisma';
 import { Prisma } from '@prisma/client';
 
@@ -420,14 +420,45 @@ export class DashboardRepository {
     options?: {
       limit?: number;
       hoursBack?: number;
+      page?: number;
+      startDate?: string;
+      endDate?: string;
     },
   ) {
     const limit = options?.limit || 50;
-    const hoursBack = options?.hoursBack || 24;
-    const since = new Date(Date.now() - hoursBack * 60 * 60 * 1000);
+    const page = options?.page || 1;
+    const offset = (page - 1) * limit;
+
+    // Use date range if provided, otherwise fall back to hoursBack
+    let since: Date;
+    let until: Date | null = null;
+
+    if (options?.startDate && options?.endDate) {
+      since = new Date(options.startDate);
+      until = new Date(options.endDate);
+
+      // Validate dates
+      if (isNaN(since.getTime()) || isNaN(until.getTime())) {
+        throw new BadRequestException('Invalid date format provided');
+      }
+
+      if (since > until) {
+        throw new BadRequestException('startDate must be before endDate');
+      }
+
+      // Set end of day for endDate
+      until.setHours(23, 59, 59, 999);
+    } else {
+      const hoursBack = options?.hoursBack || 24;
+      since = new Date(Date.now() - hoursBack * 60 * 60 * 1000);
+    }
 
     const whereClause = organizationId
       ? Prisma.sql`AND w.organization_id = ${organizationId}::uuid`
+      : Prisma.empty;
+
+    const untilClause = until
+      ? Prisma.sql`AND cae.timestamp <= ${until.toISOString()}::timestamp`
       : Prisma.empty;
 
     const result = await this.prisma.$queryRaw<
@@ -457,10 +488,12 @@ export class DashboardRepository {
       JOIN wards w ON cae.ward_id = w.id
       JOIN users u ON w.user_id = u.id
       WHERE cae.timestamp >= ${since}
+        ${untilClause}
         AND cae.alert_type != 'emotion'
         ${whereClause}
       ORDER BY cae.timestamp DESC
       LIMIT ${limit}
+      OFFSET ${offset}
     `;
 
     const countResult = await this.prisma.$queryRaw<Array<{ total: bigint }>>`
@@ -468,6 +501,7 @@ export class DashboardRepository {
       FROM care_alert_events cae
       JOIN wards w ON cae.ward_id = w.id
       WHERE cae.timestamp >= ${since}
+        ${untilClause}
         AND cae.alert_type != 'emotion'
         ${whereClause}
     `;
@@ -477,6 +511,9 @@ export class DashboardRepository {
       person_fall: '낙상 감지',
       loud_voice: '이상 발화',
     };
+
+    const total = Number(countResult[0].total);
+    const totalPages = Math.ceil(total / limit);
 
     return {
       logs: result.map(r => ({
@@ -491,7 +528,10 @@ export class DashboardRepository {
         acknowledgedAt: r.acknowledged_at,
         roomName: r.room_name,
       })),
-      total: Number(countResult[0].total),
+      total,
+      page,
+      pageSize: limit,
+      totalPages,
     };
   }
 
