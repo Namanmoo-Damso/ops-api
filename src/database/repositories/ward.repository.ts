@@ -875,6 +875,10 @@ export class WardRepository {
     totalDurationMinutes: number;
     averageDurationMinutes: number;
     callDates: string[];
+    emergencyStats: {
+      detected: number;
+      responded: number;
+    };
   } | null> {
     // First, get the organization ward and check if it's registered
     const orgWard = await this.prisma.organizationWard.findFirst({
@@ -899,6 +903,10 @@ export class WardRepository {
         totalDurationMinutes: 0,
         averageDurationMinutes: 0,
         callDates: [],
+        emergencyStats: {
+          detected: 0,
+          responded: 0,
+        },
       };
     }
 
@@ -924,6 +932,31 @@ export class WardRepository {
         endedAt: true,
       },
     });
+
+    // Get emergency stats from care_alert_events for this ward
+    const [emergencyDetected, emergencyResponded] = await Promise.all([
+      this.prisma.careAlertEvent.count({
+        where: {
+          wardId: orgWard.wardId,
+          alertType: { not: 'emotion' },
+          timestamp: {
+            gte: startDate,
+            lte: endDate,
+          },
+        },
+      }),
+      this.prisma.careAlertEvent.count({
+        where: {
+          wardId: orgWard.wardId,
+          alertType: { not: 'emotion' },
+          acknowledged: true,
+          timestamp: {
+            gte: startDate,
+            lte: endDate,
+          },
+        },
+      }),
+    ]);
 
     // Calculate stats
     const totalCalls = calls.length;
@@ -951,6 +984,10 @@ export class WardRepository {
       totalDurationMinutes: Math.round(totalDurationMinutes * 100) / 100,
       averageDurationMinutes,
       callDates: Array.from(callDatesSet).sort(),
+      emergencyStats: {
+        detected: emergencyDetected,
+        responded: emergencyResponded,
+      },
     };
   }
 
