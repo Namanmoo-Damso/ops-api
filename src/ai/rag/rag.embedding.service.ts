@@ -8,22 +8,26 @@ import { createBedrockRuntimeClient } from '../bedrock/bedrock-client.factory';
 /**
  * RAG Embedding Service
  *
- * Handles embedding generation using AWS Bedrock Titan Embeddings V2
+ * Handles embedding generation using Ollama BGE-M3 or AWS Bedrock (fallback)
  * - Generates 1024-dimensional embeddings
  * - Includes retry logic with exponential backoff
  * - Handles network errors and rate limiting
+ * - SRP: Embedding generation logic separated from Bedrock client management
  */
 @Injectable()
 export class RagEmbeddingService implements OnModuleInit {
   private readonly logger = new Logger(RagEmbeddingService.name);
   private bedrockClient: BedrockRuntimeClient;
 
+  private readonly USE_OLLAMA = process.env.USE_OLLAMA_EMBEDDING === 'true';
+  private readonly OLLAMA_BASE_URL =
+    process.env.OLLAMA_BASE_URL || 'http://localhost:11434';
   private readonly VECTOR_DIMENSIONS = parseInt(
     process.env.VECTOR_DIMENSIONS || '1024',
     10,
   );
   private readonly EMBEDDING_MODEL =
-    process.env.EMBEDDING_MODEL || 'amazon.titan-embed-text-v2:0';
+    process.env.EMBEDDING_MODEL || 'bge-m3';
   private readonly BEDROCK_MAX_RETRIES = parseInt(
     process.env.BEDROCK_MAX_RETRIES || '3',
     10,
@@ -39,52 +43,40 @@ export class RagEmbeddingService implements OnModuleInit {
   private readonly DEBUG_LOGS = process.env.RAG_DEBUG_LOGS === 'true';
 
   async onModuleInit() {
-    const awsRegion = process.env.AWS_REGION || 'ap-northeast-2';
-
-    this.bedrockClient = createBedrockRuntimeClient({ region: awsRegion });
-
-    this.logger.log(
-      `Embedding service initialized: ${this.EMBEDDING_MODEL} (${this.VECTOR_DIMENSIONS}D)`,
-    );
+    if (this.USE_OLLAMA) {
+      this.logger.log(
+        `Embedding service initialized: Ollama ${this.EMBEDDING_MODEL} @ ${this.OLLAMA_BASE_URL} (${this.VECTOR_DIMENSIONS}D)`,
+      );
+    } else {
+      const awsRegion = process.env.AWS_REGION || 'ap-northeast-2';
+      this.bedrockClient = createBedrockRuntimeClient({ region: awsRegion });
+      this.logger.log(
+        `Embedding service initialized: Bedrock ${this.EMBEDDING_MODEL} (${this.VECTOR_DIMENSIONS}D)`,
+      );
+    }
   }
 
   /**
    * Generate embedding with retry logic
+   * Uses Ollama (BGE-M3) if USE_OLLAMA_EMBEDDING=true, otherwise falls back to Bedrock
    */
   async generateEmbedding(text: string): Promise<number[]> {
     const startTime = Date.now();
     if (this.DEBUG_LOGS) {
       const truncatedText = text.substring(0, 100);
       this.logger.debug(
-        `Bedrock embedding request: "${truncatedText}${text.length > 100 ? '...' : ''}" (${text.length} chars)`,
+        `Embedding request: "${truncatedText}${text.length > 100 ? '...' : ''}" (${text.length} chars)`,
       );
     }
 
     try {
       const embedding = await this.retryAsync(
         async () => {
-          const requestBody = {
-            inputText: text,
-            dimensions: this.VECTOR_DIMENSIONS,
-            normalize: true,
-          };
-
-          const command = new InvokeModelCommand({
-            modelId: this.EMBEDDING_MODEL,
-            body: JSON.stringify(requestBody),
-            contentType: 'application/json',
-            accept: 'application/json',
-          });
-
-          if (this.DEBUG_LOGS) {
-            this.logger.debug('Sending request to Bedrock...');
+          if (this.USE_OLLAMA) {
+            return await this.generateOllamaEmbedding(text);
+          } else {
+            return await this.generateBedrockEmbedding(text);
           }
-          const response = await this.bedrockClient.send(command);
-          const responseBody = JSON.parse(
-            new TextDecoder().decode(response.body),
-          );
-
-          return responseBody.embedding;
         },
         this.BEDROCK_MAX_RETRIES,
         this.BEDROCK_RETRY_DELAY,
@@ -95,7 +87,7 @@ export class RagEmbeddingService implements OnModuleInit {
       const elapsed = Date.now() - startTime;
       if (this.DEBUG_LOGS) {
         this.logger.debug(
-          `✅ Bedrock embedding generated in ${elapsed}ms (${embedding.length} dimensions)`,
+          `✅ Embedding generated in ${elapsed}ms (${embedding.length} dimensions)`,
         );
       }
 
@@ -103,11 +95,77 @@ export class RagEmbeddingService implements OnModuleInit {
     } catch (error) {
       const elapsed = Date.now() - startTime;
       this.logger.error(
-        `❌ Bedrock embedding failed after ${elapsed}ms: ${error.message}`,
+        `❌ Embedding generation failed after ${elapsed}ms: ${error.message}`,
         error.stack,
       );
       throw error;
     }
+  }
+
+  /**
+   * Generate embedding using Ollama BGE-M3 (SRP: Ollama-specific logic)
+   * @private
+   */
+  private async generateOllamaEmbedding(text: string): Promise<number[]> {
+    if (this.DEBUG_LOGS) {
+      this.logger.debug(`Sending request to Ollama @ ${this.OLLAMA_BASE_URL}...`);
+    }
+
+    const response = await fetch(`${this.OLLAMA_BASE_URL}/api/embeddings`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        model: this.EMBEDDING_MODEL,
+        prompt: text,
+      }),
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(
+        `Ollama API error (${response.status}): ${errorText}`,
+      );
+    }
+
+    const data = await response.json();
+
+    if (!data.embedding || !Array.isArray(data.embedding)) {
+      throw new Error('Invalid Ollama response: missing embedding array');
+    }
+
+    return data.embedding;
+  }
+
+  /**
+   * Generate embedding using AWS Bedrock (SRP: Bedrock-specific logic)
+   * @private
+   */
+  private async generateBedrockEmbedding(text: string): Promise<number[]> {
+    const requestBody = {
+      inputText: text,
+      dimensions: this.VECTOR_DIMENSIONS,
+      normalize: true,
+    };
+
+    const command = new InvokeModelCommand({
+      modelId: this.EMBEDDING_MODEL,
+      body: JSON.stringify(requestBody),
+      contentType: 'application/json',
+      accept: 'application/json',
+    });
+
+    if (this.DEBUG_LOGS) {
+      this.logger.debug('Sending request to Bedrock...');
+    }
+
+    const response = await this.bedrockClient.send(command);
+    const responseBody = JSON.parse(
+      new TextDecoder().decode(response.body),
+    );
+
+    return responseBody.embedding;
   }
 
   /**
