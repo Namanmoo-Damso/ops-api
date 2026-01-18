@@ -2,7 +2,7 @@
  * Dashboard Repository
  * 대시보드 통계 관련 메서드
  */
-import { Injectable } from '@nestjs/common';
+import { BadRequestException, Injectable } from '@nestjs/common';
 import { PrismaService } from '../../prisma';
 import { Prisma } from '@prisma/client';
 
@@ -436,6 +436,16 @@ export class DashboardRepository {
     if (options?.startDate && options?.endDate) {
       since = new Date(options.startDate);
       until = new Date(options.endDate);
+
+      // Validate dates
+      if (isNaN(since.getTime()) || isNaN(until.getTime())) {
+        throw new BadRequestException('Invalid date format provided');
+      }
+
+      if (since > until) {
+        throw new BadRequestException('startDate must be before endDate');
+      }
+
       // Set end of day for endDate
       until.setHours(23, 59, 59, 999);
     } else {
@@ -448,7 +458,7 @@ export class DashboardRepository {
       : Prisma.empty;
 
     const untilClause = until
-      ? Prisma.sql`AND cae.timestamp <= ${until}`
+      ? Prisma.sql`AND cae.timestamp <= ${until.toISOString()}::timestamp`
       : Prisma.empty;
 
     const result = await this.prisma.$queryRaw<
