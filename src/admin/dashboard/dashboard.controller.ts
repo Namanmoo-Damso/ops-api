@@ -150,18 +150,25 @@ export class DashboardController {
   async getCareAlerts(
     @Query('limit') limitParam?: string,
     @Query('hoursBack') hoursBackParam?: string,
+    @Query('page') pageParam?: string,
+    @Query('startDate') startDate?: string,
+    @Query('endDate') endDate?: string,
   ) {
-    const limit = limitParam ? parseInt(limitParam, 10) : 50;
+    const limit = limitParam ? parseInt(limitParam, 10) : 30;
     const hoursBack = hoursBackParam ? parseInt(hoursBackParam, 10) : 24;
+    const page = pageParam ? parseInt(pageParam, 10) : 1;
 
     this.logger.log(
-      `getCareAlerts called limit=${limit} hoursBack=${hoursBack}`,
+      `getCareAlerts called limit=${limit} hoursBack=${hoursBack} page=${page} startDate=${startDate} endDate=${endDate}`,
     );
 
     try {
       const result = await this.dbService.getCareAlertLogs(undefined, {
         limit,
         hoursBack,
+        page,
+        startDate,
+        endDate,
       });
 
       return {

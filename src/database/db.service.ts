@@ -1065,6 +1065,9 @@ export class DbService implements OnModuleDestroy {
     options?: {
       limit?: number;
       hoursBack?: number;
+      page?: number;
+      startDate?: string;
+      endDate?: string;
     },
   ) {
     return this.dashboard.getCareAlertLogs(organizationId, options);
