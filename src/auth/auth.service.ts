@@ -3,6 +3,7 @@ import * as jwt from 'jsonwebtoken';
 import * as crypto from 'crypto';
 import { randomUUID } from 'node:crypto';
 import { DbService } from '../database';
+import { EventsService } from '../events/events.service';
 
 type UserType = 'guardian' | 'ward';
 
@@ -111,7 +112,10 @@ export class AuthService {
   private readonly accessTokenExpiry: number;
   private readonly refreshTokenExpiry: number;
 
-  constructor(private readonly dbService: DbService) {
+  constructor(
+    private readonly dbService: DbService,
+    private readonly eventsService: EventsService,
+  ) {
     const secret = process.env.API_JWT_SECRET || process.env.JWT_SECRET;
     if (!secret) {
       throw new Error(
@@ -165,8 +169,9 @@ export class AuthService {
           existingUser.id,
         );
         if (guardian) {
-          const linkedCount =
-            await this.dbService.linkPendingWardsForGuardian(guardian.id);
+          const linkedCount = await this.dbService.linkPendingWardsForGuardian(
+            guardian.id,
+          );
           if (linkedCount > 0) {
             this.logger.log(
               `kakaoLogin auto-linked ${linkedCount} wards for guardian=${guardian.id}`,
@@ -350,6 +355,14 @@ export class AuthService {
       this.logger.log(
         `Auto-linked ward=${ward.id} to organization=${matchedOrganizationWard.organization_id}`,
       );
+
+      // SSE 이벤트 발행: 대상자 연동 완료 알림
+      this.eventsService.emitWardEvent({
+        type: 'ward-registered',
+        organizationWardId: matchedOrganizationWard.id,
+        organizationId: matchedOrganizationWard.organization_id,
+        wardName: matchedOrganizationWard.name,
+      });
     }
 
     const tokens = await this.issueTokens(user.id, 'ward');
@@ -517,14 +530,15 @@ export class AuthService {
     }
 
     // 4. 트랜잭션으로 사용자 타입 변경 + 보호자 정보 + 어르신 등록 정보 생성
-    const { guardian, registration } = await this.dbService.registerGuardianWithTransaction({
-      userId: user.id,
-      wardEmail: params.wardEmail,
-      wardPhoneNumber: params.wardPhoneNumber,
-      wardBasicInfo: params.wardBasicInfo,
-      aiCareInfo: params.aiCareInfo,
-      callSchedule: params.callSchedule,
-    });
+    const { guardian, registration } =
+      await this.dbService.registerGuardianWithTransaction({
+        userId: user.id,
+        wardEmail: params.wardEmail,
+        wardPhoneNumber: params.wardPhoneNumber,
+        wardBasicInfo: params.wardBasicInfo,
+        aiCareInfo: params.aiCareInfo,
+        callSchedule: params.callSchedule,
+      });
 
     // 5. 새 JWT 발급 (user_type이 변경되었으므로)
     const tokens = await this.issueTokens(user.id, 'guardian');
@@ -631,7 +645,7 @@ export class AuthService {
         },
         guardianInfo: {
           id: existingGuardian.id,
-          wards: wards.map((w) => ({
+          wards: wards.map(w => ({
             registrationId: w.id,
             wardEmail: w.ward_email,
             wardPhoneNumber: w.ward_phone_number,

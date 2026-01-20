@@ -533,6 +533,7 @@ export class WardRepository {
       organization_id: orgWard.organizationId,
       email: orgWard.email,
       phone_number: orgWard.phoneNumber,
+      name: orgWard.name,
     };
   }
 
@@ -1119,7 +1120,14 @@ export class WardRepository {
       include: {
         ward: {
           include: {
-            user: { select: { id: true, identity: true, displayName: true, nickname: true } },
+            user: {
+              select: {
+                id: true,
+                identity: true,
+                displayName: true,
+                nickname: true,
+              },
+            },
           },
         },
       },
@@ -1131,7 +1139,10 @@ export class WardRepository {
       .map(s => ({
         scheduleId: s.id,
         wardId: s.wardId!,
-        wardName: s.ward!.user.displayName ?? s.ward!.user.nickname ?? s.ward!.user.identity,
+        wardName:
+          s.ward!.user.displayName ??
+          s.ward!.user.nickname ??
+          s.ward!.user.identity,
         wardIdentity: s.ward!.user.identity,
         aiPersona: s.ward!.aiPersona ?? '다미',
         slotStartHour: s.slotStartHour,
