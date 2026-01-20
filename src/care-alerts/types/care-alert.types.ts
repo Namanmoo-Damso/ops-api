@@ -3,7 +3,7 @@
  * iOS 앱에서 전송되는 케어 알림 타입 정의
  */
 
-export type AlertType = 'emotion' | 'device_fall' | 'person_fall' | 'loud_voice';
+export type AlertType = 'emotion' | 'device_fall' | 'person_fall' | 'loud_voice' | 'speech_keyword';
 export type Severity = 'low' | 'medium' | 'high' | 'critical';
 export type EmotionType =
   | 'neutral'
@@ -96,10 +96,11 @@ export interface EmotionAggregation {
 
 // 즉시 알림 조건
 export const IMMEDIATE_ALERT_CONDITIONS: Record<AlertType, Severity[]> = {
-  emotion: [], // 즉시 알림 안함
+  emotion: [], // 즉시 알림 안함 (버퍼링)
   device_fall: ['critical', 'high'],
   person_fall: ['critical'],
   loud_voice: ['critical', 'high'],
+  speech_keyword: ['critical', 'high', 'medium'], // 발화 키워드 감지 시 즉시 알림 (caution=medium)
 };
 
 // 부정적 감정 목록

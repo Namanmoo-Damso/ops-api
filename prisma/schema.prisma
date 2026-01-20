@@ -708,6 +708,10 @@ model CareAlertEvent {
   agentResponse  String?   @map("agent_response")         // Agent 응답 메시지
   source         String    @default("ios")                // 'ios' | 'agent'
 
+  // Risk 분석 필드
+  riskLevel      String?   @map("risk_level")             // 'normal' | 'caution' | 'critical'
+  riskScore      Decimal?  @map("risk_score") @db.Decimal(3, 2)  // 0.00 ~ 1.00
+
   // Relations
   ward Ward @relation(fields: [wardId], references: [id], onDelete: Cascade)
 

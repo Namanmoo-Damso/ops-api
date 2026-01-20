@@ -2,7 +2,7 @@
 	email greyhairchooselife@gmail.com
 }
 
-{$SODAM_DOMAIN:3.sodam.store} {
+{$SODAM_DOMAIN:2.sodam.store} {
 	log {
 		output stdout
 		format json

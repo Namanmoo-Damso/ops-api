@@ -6,6 +6,8 @@ import {
   ValidateNested,
   IsOptional,
   IsUUID,
+  Min,
+  Max,
 } from 'class-validator';
 import { Type } from 'class-transformer';
 
@@ -48,4 +50,15 @@ export class CreateCareAlertDto {
   @IsOptional()
   @IsIn(['ios', 'agent'])
   source?: 'ios' | 'agent';
+
+  // Risk 분석 필드
+  @IsOptional()
+  @IsIn(['normal', 'caution', 'critical'])
+  riskLevel?: 'normal' | 'caution' | 'critical';
+
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  @Max(1)
+  riskScore?: number;
 }
