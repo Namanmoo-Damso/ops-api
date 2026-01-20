@@ -4,6 +4,7 @@ import * as crypto from 'crypto';
 import { randomUUID } from 'node:crypto';
 import { DbService } from '../database';
 import { EventsService } from '../events/events.service';
+import { PrismaService } from '../prisma';
 
 type UserType = 'guardian' | 'ward';
 
@@ -115,6 +116,7 @@ export class AuthService {
   constructor(
     private readonly dbService: DbService,
     private readonly eventsService: EventsService,
+    private readonly prisma: PrismaService,
   ) {
     const secret = process.env.API_JWT_SECRET || process.env.JWT_SECRET;
     if (!secret) {
@@ -366,6 +368,25 @@ export class AuthService {
         });
       } catch (err) {
         this.logger.error('Failed to emit ward-registered event', err);
+      }
+
+      // Admin notification: 연동 완료 알림 생성
+      try {
+        const wardName = matchedOrganizationWard.name ?? '대상자';
+        await this.prisma.adminNotification.create({
+          data: {
+            organizationId: matchedOrganizationWard.organization_id,
+            type: 'ward_linked',
+            title: '연동 완료',
+            message: `${wardName}님이 앱과 연동되었습니다.`,
+            metadata: {
+              wardName,
+              organizationWardId: matchedOrganizationWard.id,
+            },
+          },
+        });
+      } catch (err) {
+        this.logger.error('Failed to create ward-linked notification', err);
       }
     }
 

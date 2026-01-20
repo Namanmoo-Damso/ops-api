@@ -812,7 +812,26 @@ model Bulletin {
 }
 
 // =============================================================================
-// 30. ORGANIZATION_SETTINGS - 기관 설정
+// 30. ADMIN_NOTIFICATIONS - 관리자 알림
+// =============================================================================
+model AdminNotification {
+  id             String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organizationId String   @map("organization_id") @db.Uuid
+  type           String   // 'settings_changed' | 'emergency_detected' | 'ward_linked'
+  title          String
+  message        String
+  metadata       Json?    // 추가 정보 (예: wardId, emergencyId 등)
+  isRead         Boolean  @default(false) @map("is_read")
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  @@index([organizationId])
+  @@index([organizationId, isRead])
+  @@index([createdAt(sort: Desc)])
+  @@map("admin_notifications")
+}
+
+// =============================================================================
+// 31. ORGANIZATION_SETTINGS - 기관 설정
 // =============================================================================
 model OrganizationSettings {
   id             String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid

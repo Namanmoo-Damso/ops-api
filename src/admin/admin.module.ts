@@ -12,6 +12,7 @@ import { BeneficiariesController } from './beneficiaries/beneficiaries.controlle
 import { StaffController, StaffService } from './staff';
 import { SettingsController, SettingsService } from './settings';
 import { BulletinsController, BulletinsService } from './bulletins';
+import { NotificationsController, NotificationsService } from './notifications';
 import { AuthService } from '../auth';
 import { CallsService } from '../calls';
 import { AdminOrganizationGuard } from '../common';
@@ -33,6 +34,7 @@ import { CsvHeaderMatcherService } from './wards-management/csv-header-matcher.s
     StaffController,
     SettingsController,
     BulletinsController,
+    NotificationsController,
   ],
   providers: [
     AdminAuthService,
@@ -44,12 +46,14 @@ import { CsvHeaderMatcherService } from './wards-management/csv-header-matcher.s
     StaffService,
     SettingsService,
     BulletinsService,
+    NotificationsService,
   ],
   exports: [
     AdminAuthService,
     StaffService,
     SettingsService,
     BulletinsService,
+    NotificationsService,
     WardsManagementService,
   ],
 })

@@ -15,6 +15,7 @@ import { ConfigService } from '../../core/config';
 import { AuthService } from '../../auth';
 import { CallsService } from '../../calls';
 import { DbService } from '../../database';
+import { NotificationsService } from '../notifications';
 
 @Controller('v1/admin')
 export class EmergenciesController {
@@ -25,6 +26,7 @@ export class EmergenciesController {
     private readonly authService: AuthService,
     private readonly callsService: CallsService,
     private readonly dbService: DbService,
+    private readonly notificationsService: NotificationsService,
   ) {}
 
   @Post('emergency')
@@ -109,6 +111,17 @@ export class EmergenciesController {
 
       let guardianNotified = false;
       const wardInfo = await this.dbService.getWardWithGuardianInfo(wardId);
+
+      // Create admin notification for the organization
+      if (ward.organization_id) {
+        await this.notificationsService.createEmergencyDetectedNotification(
+          ward.organization_id,
+          emergency.id,
+          wardInfo?.ward_name || '대상자',
+          body.message?.trim(),
+        );
+      }
+
       if (wardInfo?.guardian_identity) {
         try {
           await this.callsService.sendUserPush({
