@@ -26,7 +26,15 @@ export type RoomEvent = {
   timestamp: string;
 };
 
-export type AppEvent = UserEvent | RoomEvent;
+export type WardEvent = {
+  type: 'ward-registered';
+  organizationWardId: string;
+  organizationId: string;
+  wardName: string;
+  timestamp: string;
+};
+
+export type AppEvent = UserEvent | RoomEvent | WardEvent;
 
 @Injectable()
 export class EventsService {
@@ -35,14 +43,27 @@ export class EventsService {
   private subscriberCount = 0;
 
   emit(
-    event: Omit<UserEvent, 'timestamp'> | Omit<RoomEvent, 'timestamp'>,
+    event:
+      | Omit<UserEvent, 'timestamp'>
+      | Omit<RoomEvent, 'timestamp'>
+      | Omit<WardEvent, 'timestamp'>,
   ): void {
     const fullEvent = {
       ...event,
       timestamp: new Date().toISOString(),
     } as AppEvent;
+
+    let logDetail = '';
+    if ('roomName' in fullEvent) {
+      logDetail = `room=${fullEvent.roomName}`;
+    } else if ('identity' in fullEvent) {
+      logDetail = `identity=${fullEvent.identity}`;
+    } else if ('organizationWardId' in fullEvent) {
+      logDetail = `organizationWardId=${fullEvent.organizationWardId} wardName=${fullEvent.wardName}`;
+    }
+
     this.logger.log(
-      `Emitting event: type=${fullEvent.type} ${'roomName' in fullEvent ? `room=${fullEvent.roomName}` : `identity=${fullEvent.identity}`} subscribers=${this.subscriberCount}`,
+      `Emitting event: type=${fullEvent.type} ${logDetail} subscribers=${this.subscriberCount}`,
     );
     this.events$.next(fullEvent);
   }
@@ -52,6 +73,10 @@ export class EventsService {
   }
 
   emitRoomEvent(event: Omit<RoomEvent, 'timestamp'>): void {
+    this.emit(event);
+  }
+
+  emitWardEvent(event: Omit<WardEvent, 'timestamp'>): void {
     this.emit(event);
   }
 
