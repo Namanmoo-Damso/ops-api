@@ -13,6 +13,9 @@ import {
   EmotionReportResponse,
   EmotionSummaryResponse,
   AcknowledgeAlertResponse,
+  AcknowledgeAllAlertsResponse,
+  EscalateAlertResponse,
+  RiskLevel,
 } from './dto/care-alert-response.dto';
 import {
   AlertType,
@@ -100,6 +103,10 @@ export class CareAlertsService {
 
       if (shouldNotify) {
         await this.sendNotifications(wardId, event);
+      } else if (dto.riskLevel && dto.riskLevel !== 'normal' && event.roomName) {
+        // 즉시 알림은 아니지만 riskLevel이 caution/critical이면 room metadata만 업데이트
+        // 이를 통해 Web에서 테두리 색상이 변경됨
+        await this.updateRoomMetadataOnly(wardId, event);
       }
 
       const elapsed = Date.now() - startTime;
@@ -145,7 +152,7 @@ export class CareAlertsService {
     buffer.push(bufferData);
 
     this.logger.log(
-      `[EMOTION_BUFFERED] wardId=${wardId} emotion=${payload.emotion} confidence=${payload.confidence.toFixed(2)} bufferSize=${buffer.length}`,
+      `[EMOTION_BUFFERED] wardId=${wardId} emotion=${payload.emotion ?? 'speech_keyword'} confidence=${payload.confidence?.toFixed(2) ?? 'N/A'} bufferSize=${buffer.length}`,
     );
 
     return {
@@ -296,6 +303,8 @@ export class CareAlertsService {
     timestamp: Date;
     rawPayload: unknown;
     roomName: string | null;
+    riskLevel: string | null;
+    riskScore: Prisma.Decimal | null;
   }> {
     // JSON 타입으로 안전하게 변환
     const rawPayload = JSON.parse(JSON.stringify(dto.data));
@@ -312,11 +321,14 @@ export class CareAlertsService {
         roomName: dto.roomName ?? null,
         agentResponse: dto.agentResponse ?? null,
         source: dto.source ?? 'ios',
+        // Risk 분석 필드
+        riskLevel: dto.riskLevel ?? null,
+        riskScore: dto.riskScore ?? null,
       },
     });
 
     this.logger.log(
-      `[CARE_ALERT_SAVED] wardId=${wardId} alertId=${event.id} alertType=${dto.alertType} severity=${dto.severity} source=${dto.source ?? 'ios'}`,
+      `[CARE_ALERT_SAVED] wardId=${wardId} alertId=${event.id} alertType=${dto.alertType} severity=${dto.severity} source=${dto.source ?? 'ios'} riskLevel=${dto.riskLevel ?? 'null'} riskScore=${dto.riskScore ?? 'null'}`,
     );
 
     return event;
@@ -334,6 +346,58 @@ export class CareAlertsService {
   }
 
   /**
+   * Room metadata만 업데이트 (푸시 알림 없이 테두리 색상 변경용)
+   * riskLevel이 caution/critical이지만 즉시 알림 조건을 만족하지 않을 때 사용
+   */
+  private async updateRoomMetadataOnly(
+    wardId: string,
+    event: {
+      id: string;
+      alertType: string;
+      roomName: string | null;
+      riskLevel: string | null;
+    },
+  ): Promise<void> {
+    if (!event.roomName) return;
+
+    const dangerCode = this.getDangerCode(event.alertType);
+    const riskLevel = event.riskLevel ?? 'caution';
+
+    // Update LiveKit room metadata for real-time sync
+    try {
+      await this.livekitService.updateRoomMetadata(
+        event.roomName,
+        JSON.stringify({
+          isDanger: true,
+          riskLevel,
+          dangerCode,
+          alertType: event.alertType,
+          wardId,
+          timestamp: Date.now(),
+        }),
+      );
+      this.logger.log(
+        `[METADATA_ONLY] Updated room metadata: room=${event.roomName} dangerCode=${dangerCode} riskLevel=${riskLevel}`,
+      );
+    } catch (err) {
+      this.logger.warn(
+        `[METADATA_ONLY] Failed to update room metadata: ${(err as Error).message}`,
+      );
+    }
+
+    // SSE event for Web dashboard
+    this.eventsService.emit({
+      type: 'room-danger',
+      roomName: event.roomName,
+      isDanger: true,
+      riskLevel: riskLevel as 'normal' | 'caution' | 'critical',
+      name: `${event.alertType}:${wardId}`,
+      wardId: wardId || undefined,
+      alertType: event.alertType,
+    });
+  }
+
+  /**
    * 알림 전송 (APNs + WebSocket)
    */
   private async sendNotifications(
@@ -344,6 +408,7 @@ export class CareAlertsService {
       severity: string;
       timestamp: Date;
       roomName: string | null;
+      riskLevel: string | null;
     },
   ): Promise<void> {
     const notifyStart = Date.now();
@@ -374,19 +439,19 @@ export class CareAlertsService {
     const wardName = ward.user.nickname ?? ward.user.displayName ?? '어르신';
     const { title, body } = this.getAlertMessage(event.alertType, wardName);
 
-    // 1. Guardian에게 APNs Push
+    // 1. Guardian에게 APNs Push (Ward는 DataChannel로 직접 알림)
     if (ward.guardian?.user.devices) {
-      const tokens = ward.guardian.user.devices
+      const guardianTokens = ward.guardian.user.devices
         .filter(d => d.apnsToken)
         .map(d => ({ token: d.apnsToken!, env: d.env }));
 
-      if (tokens.length > 0) {
+      if (guardianTokens.length > 0) {
         this.logger.log(
-          `[NOTIFY_PUSH] wardId=${wardId} guardianId=${ward.guardian.id} tokens=${tokens.length}`,
+          `[NOTIFY_PUSH_GUARDIAN] wardId=${wardId} guardianId=${ward.guardian.id} tokens=${guardianTokens.length}`,
         );
 
         await this.pushService.sendPush({
-          tokens,
+          tokens: guardianTokens,
           type: 'alert',
           title,
           body,
@@ -403,7 +468,7 @@ export class CareAlertsService {
       }
     }
 
-    // 2. Organization에게 WebSocket 이벤트 + LiveKit room metadata 업데이트
+    // 3. Organization에게 WebSocket 이벤트 + LiveKit room metadata 업데이트
     if (ward.organization && event.roomName && wardId) {
       this.logger.log(
         `[NOTIFY_WS] wardId=${wardId} organizationId=${ward.organization.id} roomName=${event.roomName}`,
@@ -412,12 +477,16 @@ export class CareAlertsService {
       // Compute danger code based on alert type
       const dangerCode = this.getDangerCode(event.alertType);
 
+      // riskLevel: caution (yellow) or critical (red)
+      const riskLevel = event.riskLevel ?? 'critical'; // Default to critical for backward compatibility
+
       // Update LiveKit room metadata for real-time sync
       try {
         await this.livekitService.updateRoomMetadata(
           event.roomName,
           JSON.stringify({
-            isDanger: true,
+            isDanger: true, // Keep true for grid border highlight
+            riskLevel, // caution or critical - Web uses this for color
             dangerCode,
             alertType: event.alertType,
             wardId,
@@ -425,7 +494,7 @@ export class CareAlertsService {
           }),
         );
         this.logger.log(
-          `[NOTIFY_LIVEKIT] Updated room metadata: room=${event.roomName} dangerCode=${dangerCode}`,
+          `[NOTIFY_LIVEKIT] Updated room metadata: room=${event.roomName} dangerCode=${dangerCode} riskLevel=${riskLevel}`,
         );
       } catch (err) {
         this.logger.warn(
@@ -437,6 +506,7 @@ export class CareAlertsService {
         type: 'room-danger',
         roomName: event.roomName,
         isDanger: true,
+        riskLevel: riskLevel as 'normal' | 'caution' | 'critical',
         name: `${event.alertType}:${wardId}`,
         wardId: wardId || undefined,
         wardName: wardName || undefined,
@@ -467,6 +537,7 @@ export class CareAlertsService {
       case 'loud_voice':
         return '0010';
       case 'emotion':
+      case 'speech_keyword': // 발화 키워드는 emotion과 동일한 코드
         return '0001';
       default:
         return '0000';
@@ -495,6 +566,11 @@ export class CareAlertsService {
         return {
           title: '주의: 큰 소리 감지',
           body: `${wardName}님에게서 큰 소리가 감지되었습니다.`,
+        };
+      case 'speech_keyword':
+        return {
+          title: '주의: 위험 발화 감지',
+          body: `${wardName}님에게서 도움 요청 발화가 감지되었습니다.`,
         };
       default:
         return {
@@ -550,6 +626,9 @@ export class CareAlertsService {
         acknowledgedAt: alert.acknowledgedAt?.toISOString() ?? null,
         acknowledgedBy: alert.acknowledgedBy ?? null,
         createdAt: alert.createdAt.toISOString(),
+        // Risk 분석 필드
+        riskLevel: (alert.riskLevel as 'normal' | 'caution' | 'critical') ?? null,
+        riskScore: alert.riskScore ? Number(alert.riskScore) : null,
       })),
       total,
     };
@@ -649,12 +728,15 @@ export class CareAlertsService {
   }
 
   /**
-   * 알림 확인 처리
+   * 알림 확인 처리 (개별 해제)
+   * 해제 후 같은 roomName의 미해제 alert을 확인하여
+   * - 남은 alert이 있으면 가장 높은 riskLevel로 room metadata 유지
+   * - 남은 alert이 없으면 isDanger: false로 변경
    */
   async acknowledgeAlert(
     alertId: string,
     userId: string,
-  ): Promise<AcknowledgeAlertResponse> {
+  ): Promise<AcknowledgeAlertResponse & { roomMetadataAction: 'clear' | 'update' | 'none'; highestRiskLevel?: RiskLevel }> {
     this.logger.log(`[ACKNOWLEDGE_ALERT] alertId=${alertId} userId=${userId}`);
 
     const now = new Date();
@@ -662,6 +744,16 @@ export class CareAlertsService {
     // Internal (Agent) 요청인 경우 acknowledgedBy를 null로 설정 (UUID 타입이므로)
     const acknowledgedBy = userId === 'internal' ? null : userId;
 
+    // 먼저 alert 정보 조회 (roomName 필요)
+    const alert = await this.prisma.careAlertEvent.findUnique({
+      where: { id: alertId },
+    });
+
+    if (!alert) {
+      throw new Error(`Alert not found: ${alertId}`);
+    }
+
+    // 해제 처리
     await this.prisma.careAlertEvent.update({
       where: { id: alertId },
       data: {
@@ -671,10 +763,244 @@ export class CareAlertsService {
       },
     });
 
+    // roomName이 없으면 room metadata 업데이트 불필요
+    if (!alert.roomName) {
+      return {
+        success: true,
+        alertId,
+        acknowledgedAt: now.toISOString(),
+        roomMetadataAction: 'none',
+      };
+    }
+
+    // 같은 roomName의 미해제 alert 조회
+    const remainingAlerts = await this.prisma.careAlertEvent.findMany({
+      where: {
+        roomName: alert.roomName,
+        acknowledged: false,
+        id: { not: alertId }, // 방금 해제한 것 제외
+      },
+      orderBy: { timestamp: 'desc' },
+    });
+
+    this.logger.log(
+      `[ACKNOWLEDGE_ALERT] roomName=${alert.roomName} remainingAlerts=${remainingAlerts.length}`,
+    );
+
+    if (remainingAlerts.length === 0) {
+      // 남은 alert이 없으면 isDanger: false
+      return {
+        success: true,
+        alertId,
+        acknowledgedAt: now.toISOString(),
+        roomMetadataAction: 'clear',
+      };
+    }
+
+    // 남은 alert 중 가장 높은 riskLevel 찾기 (critical > caution > normal)
+    const riskPriority: Record<string, number> = {
+      critical: 3,
+      caution: 2,
+      normal: 1,
+    };
+
+    let highestRisk: RiskLevel = 'normal';
+    let highestAlertType = remainingAlerts[0].alertType;
+
+    for (const remainingAlert of remainingAlerts) {
+      const risk = (remainingAlert.riskLevel as RiskLevel) ?? 'critical'; // null인 경우 critical로 간주
+      if (riskPriority[risk] > riskPriority[highestRisk]) {
+        highestRisk = risk;
+        highestAlertType = remainingAlert.alertType;
+      }
+    }
+
+    this.logger.log(
+      `[ACKNOWLEDGE_ALERT] roomName=${alert.roomName} highestRiskLevel=${highestRisk} alertType=${highestAlertType}`,
+    );
+
     return {
       success: true,
       alertId,
       acknowledgedAt: now.toISOString(),
+      roomMetadataAction: 'update',
+      highestRiskLevel: highestRisk,
+    };
+  }
+
+  /**
+   * AlertType별 해제 처리
+   * 해당 roomName의 특정 alertType alert만 해제
+   * sensor 매핑: emotion → emotion/speech_keyword, audio → loud_voice, motion → device_fall, face → person_fall
+   */
+  async acknowledgeAlertByType(
+    roomName: string,
+    sensorType: string,
+    userId: string,
+  ): Promise<AcknowledgeAllAlertsResponse & { roomMetadataAction: 'clear' | 'update' | 'none'; highestRiskLevel?: RiskLevel }> {
+    this.logger.log(`[ACKNOWLEDGE_BY_TYPE] roomName=${roomName} sensorType=${sensorType} userId=${userId}`);
+
+    // sensor → alertType 매핑
+    const sensorToAlertTypes: Record<string, string[]> = {
+      emotion: ['emotion', 'speech_keyword'],
+      audio: ['loud_voice'],
+      motion: ['device_fall'],
+      face: ['person_fall'],
+    };
+
+    const alertTypes = sensorToAlertTypes[sensorType];
+    if (!alertTypes) {
+      this.logger.warn(`[ACKNOWLEDGE_BY_TYPE] Unknown sensorType=${sensorType}`);
+      return {
+        success: false,
+        acknowledgedCount: 0,
+        roomMetadataAction: 'none',
+      };
+    }
+
+    const now = new Date();
+    const acknowledgedBy = userId === 'internal' ? null : userId;
+
+    // 해당 roomName + alertType의 미해제 alert 일괄 해제
+    const result = await this.prisma.careAlertEvent.updateMany({
+      where: {
+        roomName,
+        alertType: { in: alertTypes },
+        acknowledged: false,
+      },
+      data: {
+        acknowledged: true,
+        acknowledgedAt: now,
+        acknowledgedBy,
+      },
+    });
+
+    this.logger.log(
+      `[ACKNOWLEDGE_BY_TYPE] roomName=${roomName} alertTypes=${alertTypes.join(',')} acknowledgedCount=${result.count}`,
+    );
+
+    // 남은 미해제 alert 확인
+    const remainingAlerts = await this.prisma.careAlertEvent.findMany({
+      where: {
+        roomName,
+        acknowledged: false,
+      },
+      orderBy: { timestamp: 'desc' },
+    });
+
+    if (remainingAlerts.length === 0) {
+      return {
+        success: true,
+        acknowledgedCount: result.count,
+        roomMetadataAction: 'clear',
+      };
+    }
+
+    // 남은 alert 중 가장 높은 riskLevel 찾기
+    const riskPriority: Record<string, number> = {
+      critical: 3,
+      caution: 2,
+      normal: 1,
+    };
+
+    let highestRisk: RiskLevel = 'normal';
+
+    for (const remainingAlert of remainingAlerts) {
+      const risk = (remainingAlert.riskLevel as RiskLevel) ?? 'critical';
+      if (riskPriority[risk] > riskPriority[highestRisk]) {
+        highestRisk = risk;
+      }
+    }
+
+    return {
+      success: true,
+      acknowledgedCount: result.count,
+      roomMetadataAction: 'update',
+      highestRiskLevel: highestRisk,
+    };
+  }
+
+  /**
+   * 전체 해제 처리
+   * 해당 roomName의 모든 미해제 alert을 일괄 해제
+   */
+  async acknowledgeAllAlerts(
+    roomName: string,
+    userId: string,
+  ): Promise<AcknowledgeAllAlertsResponse> {
+    this.logger.log(`[ACKNOWLEDGE_ALL_ALERTS] roomName=${roomName} userId=${userId}`);
+
+    const now = new Date();
+    const acknowledgedBy = userId === 'internal' ? null : userId;
+
+    // 해당 roomName의 모든 미해제 alert 일괄 해제
+    const result = await this.prisma.careAlertEvent.updateMany({
+      where: {
+        roomName,
+        acknowledged: false,
+      },
+      data: {
+        acknowledged: true,
+        acknowledgedAt: now,
+        acknowledgedBy,
+      },
+    });
+
+    this.logger.log(
+      `[ACKNOWLEDGE_ALL_ALERTS] roomName=${roomName} acknowledgedCount=${result.count}`,
+    );
+
+    return {
+      success: true,
+      acknowledgedCount: result.count,
+    };
+  }
+
+  /**
+   * 알림 격상 처리 (caution → critical)
+   */
+  async escalateAlert(
+    alertId: string,
+  ): Promise<EscalateAlertResponse & { roomName: string | null; wardId: string; alertType: string }> {
+    this.logger.log(`[ESCALATE_ALERT] alertId=${alertId}`);
+
+    // alert 조회
+    const alert = await this.prisma.careAlertEvent.findUnique({
+      where: { id: alertId },
+    });
+
+    if (!alert) {
+      throw new Error(`Alert not found: ${alertId}`);
+    }
+
+    // caution인 경우에만 격상 가능
+    if (alert.riskLevel !== 'caution') {
+      this.logger.warn(
+        `[ESCALATE_ALERT] Cannot escalate alertId=${alertId} currentRiskLevel=${alert.riskLevel}`,
+      );
+      throw new Error(`Cannot escalate alert: current riskLevel is ${alert.riskLevel}, expected caution`);
+    }
+
+    // riskLevel을 critical로 업데이트
+    await this.prisma.careAlertEvent.update({
+      where: { id: alertId },
+      data: {
+        riskLevel: 'critical',
+      },
+    });
+
+    this.logger.log(
+      `[ESCALATE_ALERT] alertId=${alertId} escalated from caution to critical`,
+    );
+
+    return {
+      success: true,
+      alertId,
+      newRiskLevel: 'critical',
+      escalatedFromCaution: true,
+      roomName: alert.roomName,
+      wardId: alert.wardId,
+      alertType: alert.alertType,
     };
   }
 

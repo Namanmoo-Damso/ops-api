@@ -8,6 +8,9 @@ export interface CareAlertCreatedResponse {
   alertId?: string;
 }
 
+// Risk 레벨 타입 정의
+export type RiskLevel = 'normal' | 'caution' | 'critical';
+
 // 알림 목록 조회 응답
 export interface CareAlertEventResponse {
   id: string;
@@ -20,6 +23,9 @@ export interface CareAlertEventResponse {
   acknowledgedAt: string | null;
   acknowledgedBy: string | null;
   createdAt: string;
+  // Risk 분석 필드
+  riskLevel: RiskLevel | null;
+  riskScore: number | null;
 }
 
 export interface GetAlertsResponse {
@@ -55,4 +61,18 @@ export interface AcknowledgeAlertResponse {
   success: boolean;
   alertId: string;
   acknowledgedAt: string;
+}
+
+// 전체 해제 응답
+export interface AcknowledgeAllAlertsResponse {
+  success: boolean;
+  acknowledgedCount: number;
+}
+
+// 격상 응답
+export interface EscalateAlertResponse {
+  success: boolean;
+  alertId: string;
+  newRiskLevel: 'critical';
+  escalatedFromCaution: boolean;
 }

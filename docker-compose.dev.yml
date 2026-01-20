@@ -3,7 +3,7 @@ services:
     image: caddy:2
     environment:
       - TZ=Asia/Seoul
-      - SODAM_DOMAIN=${SODAM_DOMAIN:-3.sodam.store}
+      - SODAM_DOMAIN=${SODAM_DOMAIN:-2.sodam.store}
     network_mode: host
     volumes:
       - ./Caddyfile.template:/etc/caddy/Caddyfile:ro

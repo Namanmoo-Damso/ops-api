@@ -40,3 +40,5 @@ agents/venv
 agents/voice/__pycache__/
 
 secrets/
+.claude/
+Caddyfile

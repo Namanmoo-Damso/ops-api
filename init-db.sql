@@ -467,6 +467,9 @@ CREATE TABLE "care_alert_events" (
     "room_name" TEXT,
     "agent_response" TEXT,
     "source" TEXT NOT NULL DEFAULT 'ios',
+    -- Risk 분석 필드
+    "risk_level" TEXT,
+    "risk_score" DECIMAL(3,2),
 
     CONSTRAINT "care_alert_events_pkey" PRIMARY KEY ("id")
 );

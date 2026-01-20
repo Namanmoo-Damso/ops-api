@@ -147,8 +147,29 @@ export class LiveKitWebhookController {
             type: 'room-danger',
             roomName: room.name,
             isDanger: false,
+            riskLevel: 'normal',
             name: `room-ended:${room.name}`,
           });
+
+          // Also clear room metadata to reset danger state for next session
+          try {
+            await this.liveKitService.updateRoomMetadata(
+              room.name,
+              JSON.stringify({
+                isDanger: false,
+                riskLevel: 'normal',
+                dangerCode: '0000',
+                timestamp: Date.now(),
+              }),
+            );
+            this.logger.log(
+              `room_finished cleared room metadata: room=${room.name}`,
+            );
+          } catch (err) {
+            this.logger.warn(
+              `Failed to clear room metadata on room_finished: ${(err as Error).message}`,
+            );
+          }
 
           // Trigger call analysis for the room
           setImmediate(async () => {

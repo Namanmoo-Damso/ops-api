@@ -20,6 +20,7 @@ export type RoomEvent = {
   identity?: string;
   name?: string;
   isDanger?: boolean;
+  riskLevel?: 'normal' | 'caution' | 'critical';
   wardId?: string;
   wardName?: string;
   alertType?: string;
