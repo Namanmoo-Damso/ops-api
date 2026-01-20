@@ -23,16 +23,18 @@ export class BotController {
    * Request body:
    * - userId (optional): User ID (UUID) or identity (e.g., "kakao_123456") to simulate
    * - botId (optional): Bot ID (e.g., "0", "1") for identity like "bot-0" instead of random UUID
+   * - participantName (optional): Custom display name for the participant (overrides database name)
    *
    * Example:
-   * curl -X POST http://localhost:3100/bot/create -H "Content-Type: application/json" -d '{"userId": "kakao_123456", "botId": "0"}'
+   * curl -X POST http://localhost:3100/bot/create -H "Content-Type: application/json" -d '{"userId": "kakao_123456", "botId": "0", "participantName": "Test User"}'
    */
   @Post('create')
-  async createBotWithAgent(@Body() body: { userId?: string; botId?: string }) {
+  async createBotWithAgent(@Body() body: { userId?: string; botId?: string; participantName?: string }) {
     try {
       const result = await this.botService.createBotWithAgent({
         userId: body.userId?.trim(),
         botId: body.botId?.trim(),
+        participantName: body.participantName?.trim(),
       });
       this.logger.log(
         `createBotWithAgent room=${result.roomName} identity=${result.identity} wardId=${result.wardId ?? 'none'}`,
