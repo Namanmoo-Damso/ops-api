@@ -357,12 +357,16 @@ export class AuthService {
       );
 
       // SSE 이벤트 발행: 대상자 연동 완료 알림
-      this.eventsService.emitWardEvent({
-        type: 'ward-registered',
-        organizationWardId: matchedOrganizationWard.id,
-        organizationId: matchedOrganizationWard.organization_id,
-        wardName: matchedOrganizationWard.name,
-      });
+      try {
+        this.eventsService.emitWardEvent({
+          type: 'ward-registered',
+          organizationWardId: matchedOrganizationWard.id,
+          organizationId: matchedOrganizationWard.organization_id,
+          wardName: matchedOrganizationWard.name ?? '대상자',
+        });
+      } catch (err) {
+        this.logger.error('Failed to emit ward-registered event', err);
+      }
     }
 
     const tokens = await this.issueTokens(user.id, 'ward');
