@@ -28,8 +28,6 @@ export type CreateBotParams = {
   userId?: string;
   /** Bot ID (e.g., "0", "1", "test") - used to create identity like "bot-0" instead of random UUID */
   botId?: string;
-  /** Custom display name for the participant (overrides database name) */
-  participantName?: string;
 };
 
 // Default Seoul coordinates for testing
@@ -87,8 +85,7 @@ export class BotService {
 
       userId = user.id;
       identity = user.identity;
-      // Use custom participantName if provided, otherwise fall back to database values
-      name = params.participantName ?? user.display_name ?? user.nickname ?? user.identity;
+      name = user.display_name ?? user.nickname ?? user.identity;
 
       // Lookup ward for this user
       const ward = await this.dbService.findWardByUserId(user.id);
@@ -119,7 +116,7 @@ export class BotService {
     } else {
       // No user specified - create minimal bot session
       identity = `bot-${randomUUID()}`;
-      name = params?.participantName ?? identity;
+      name = identity;
     }
 
     this.logger.log(
