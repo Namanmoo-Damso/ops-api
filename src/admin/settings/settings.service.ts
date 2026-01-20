@@ -73,10 +73,14 @@ export class SettingsService {
     // Create notification for settings change
     const changedFields = this.getChangedFieldLabels(data);
     if (changedFields.length > 0) {
-      await this.notificationsService.createSettingsChangedNotification(
-        organizationId,
-        changedFields,
-      );
+      try {
+        await this.notificationsService.createSettingsChangedNotification(
+          organizationId,
+          changedFields,
+        );
+      } catch (err) {
+        this.logger.error('Failed to create settings notification', err);
+      }
     }
 
     return {
@@ -111,7 +115,7 @@ export class SettingsService {
     };
 
     return Object.keys(data)
-      .filter((key) => data[key as keyof typeof data] !== undefined)
-      .map((key) => fieldLabels[key] || key);
+      .filter(key => data[key as keyof typeof data] !== undefined)
+      .map(key => fieldLabels[key] || key);
   }
 }

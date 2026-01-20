@@ -77,6 +77,7 @@ model Organization {
   admins            Admin[]
   settings          OrganizationSettings?
   bulletins         Bulletin[]
+  adminNotifications AdminNotification[]
 
   @@map("organizations")
 }
@@ -824,6 +825,9 @@ model AdminNotification {
   isRead         Boolean  @default(false) @map("is_read")
   createdAt      DateTime @default(now()) @map("created_at")
 
+  // Relations
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
   @@index([organizationId])
   @@index([organizationId, isRead])
   @@index([createdAt(sort: Desc)])
@@ -863,4 +867,3 @@ model OrganizationSettings {
 
   @@map("organization_settings")
 }
-

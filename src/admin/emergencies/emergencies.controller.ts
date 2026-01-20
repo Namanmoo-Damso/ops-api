@@ -114,12 +114,16 @@ export class EmergenciesController {
 
       // Create admin notification for the organization
       if (ward.organization_id) {
-        await this.notificationsService.createEmergencyDetectedNotification(
-          ward.organization_id,
-          emergency.id,
-          wardInfo?.ward_name || '대상자',
-          body.message?.trim(),
-        );
+        try {
+          await this.notificationsService.createEmergencyDetectedNotification(
+            ward.organization_id,
+            emergency.id,
+            wardInfo?.ward_name || '대상자',
+            body.message?.trim(),
+          );
+        } catch (err) {
+          this.logger.error('Failed to create emergency notification', err);
+        }
       }
 
       if (wardInfo?.guardian_identity) {
