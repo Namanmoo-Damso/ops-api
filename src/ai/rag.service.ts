@@ -15,6 +15,8 @@ import { RagSearchService } from './rag/rag.search.service';
 import { RagCacheService } from './rag/rag.cache.service';
 import { RagMetricsService } from './rag/rag.metrics.service';
 import { isValidEmbedding } from './rag/rag.utils';
+import { RagNormalizer } from './rag/rag.normalizer';
+import { RagAnalysisService } from './rag/rag.analysis.service';
 
 // Types
 import {
@@ -60,6 +62,8 @@ export class RagService implements OnModuleInit {
     private readonly searchService: RagSearchService,
     private readonly cacheService: RagCacheService,
     private readonly metricsService: RagMetricsService,
+    private readonly normalizer: RagNormalizer,
+    private readonly analysisService: RagAnalysisService,
   ) {}
 
   async onModuleInit() {
@@ -297,18 +301,74 @@ export class RagService implements OnModuleInit {
         `RAG search: ward=${wardId.substring(0, 8)}..., query="${query.substring(0, 30)}...", limit=${searchLimit}`,
       );
 
-      // Query 임베딩 생성
+      // Query 임베딩 생성 (정규화 → 캐시 → Bedrock)
+      const cacheModel = this.config.embeddingModel;
+      const normalized = this.normalizer.normalizeForCache(query);
       let queryEmbedding: number[] = [];
+      let embeddingSource: 'global-cache' | 'user-cache' | 'bedrock' | 'none' =
+        'none';
+
       try {
-        const embeddingStartTime = Date.now();
-        queryEmbedding = await this.embeddingService.generateEmbedding(query);
-        const embeddingTime = Date.now() - embeddingStartTime;
-        this.debug(`Embedding generated in ${embeddingTime}ms`);
+        if (normalized) {
+          const globalCached = await this.cacheService.getGlobalCachedEmbedding(
+            normalized.hash,
+            cacheModel,
+          );
+          if (isValidEmbedding(globalCached)) {
+            queryEmbedding = globalCached;
+            embeddingSource = 'global-cache';
+            this.logger.log('✅ Embedding cache HIT (global scope)');
+          }
+
+          if (!isValidEmbedding(queryEmbedding)) {
+            const userCached = await this.cacheService.getUserCachedEmbedding(
+              wardId,
+              normalized.hash,
+              cacheModel,
+            );
+            if (isValidEmbedding(userCached)) {
+              queryEmbedding = userCached;
+              embeddingSource = 'user-cache';
+              this.logger.log('✅ Embedding cache HIT (user scope)');
+            }
+          }
+        }
+
+        if (!isValidEmbedding(queryEmbedding)) {
+          const embeddingStartTime = Date.now();
+          queryEmbedding = await this.embeddingService.generateEmbedding(query);
+          embeddingSource = 'bedrock';
+          const embeddingTime = Date.now() - embeddingStartTime;
+          this.debug(`Embedding generated in ${embeddingTime}ms`);
+
+          // 캐시에 저장 (Global + User) - 모델 버전 포함
+          if (normalized && isValidEmbedding(queryEmbedding)) {
+            const cacheText = normalized.normalized;
+            await Promise.all([
+              this.cacheService.setGlobalCachedEmbedding(
+                normalized.hash,
+                cacheModel,
+                queryEmbedding,
+                cacheText,
+              ),
+              this.cacheService.setUserCachedEmbedding(
+                wardId,
+                normalized.hash,
+                cacheModel,
+                queryEmbedding,
+                cacheText,
+              ),
+            ]);
+          }
+        }
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
         this.logger.warn(
           `⚠️ Embedding generation failed, falling back to FTS-only search: ${message}`,
         );
+      }
+      if (embeddingSource !== 'none') {
+        this.debug(`Embedding source: ${embeddingSource}`);
       }
 
       const hasValidEmbedding = isValidEmbedding(queryEmbedding);

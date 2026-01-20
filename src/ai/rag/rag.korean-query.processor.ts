@@ -116,7 +116,7 @@ export class KoreanQueryProcessor {
     return word;
   }
 
-  private sanitizeToken(token: string): string {
+  sanitizeToken(token: string): string {
     if (!token) return '';
     const sanitized = token.replace(FTS_UNSAFE_CHARS, '').trim();
     if (!sanitized) return '';

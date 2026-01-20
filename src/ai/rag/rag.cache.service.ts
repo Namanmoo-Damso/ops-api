@@ -28,6 +28,7 @@ export class RagCacheService implements OnModuleInit {
   );
   private readonly VECTOR_CACHE_VERSION = 'v2';
   private readonly GREETING_CACHE_VERSION = 'v1';
+  private readonly EMBEDDING_CACHE_TTL = 7 * 24 * 3600; // 7 days
 
   constructor(private readonly prisma: PrismaService) {}
 
@@ -363,6 +364,82 @@ export class RagCacheService implements OnModuleInit {
   }
 
   /**
+   * Get global embedding cache key (model-aware)
+   */
+  getGlobalEmbeddingKey(hash: string, model: string): string {
+    return `rag:${this.VECTOR_CACHE_VERSION}:global:vectors:${model}:${hash}`;
+  }
+
+  /**
+   * Get user embedding cache key (model-aware)
+   */
+  getUserEmbeddingKey(wardId: string, hash: string, model: string): string {
+    return `rag:${this.VECTOR_CACHE_VERSION}:user:${wardId}:vectors:${model}:${hash}`;
+  }
+
+  /**
+   * Read embedding from global cache
+   */
+  async getGlobalCachedEmbedding(
+    hash: string,
+    model: string,
+  ): Promise<number[] | null> {
+    if (!this.redisClient) return null;
+    const key = this.getGlobalEmbeddingKey(hash, model);
+    return this.getCachedEmbedding(key, model);
+  }
+
+  /**
+   * Read embedding from user cache
+   */
+  async getUserCachedEmbedding(
+    wardId: string,
+    hash: string,
+    model: string,
+  ): Promise<number[] | null> {
+    if (!this.redisClient) return null;
+    const key = this.getUserEmbeddingKey(wardId, hash, model);
+    return this.getCachedEmbedding(key, model);
+  }
+
+  /**
+   * Write embedding to global cache
+   */
+  async setGlobalCachedEmbedding(
+    hash: string,
+    model: string,
+    embedding: number[],
+    text?: string,
+  ): Promise<void> {
+    if (!this.redisClient) return;
+    const key = this.getGlobalEmbeddingKey(hash, model);
+    await this.redisClient.setEx(
+      key,
+      this.EMBEDDING_CACHE_TTL,
+      this.serializeEmbedding(embedding, model, text),
+    );
+  }
+
+  /**
+   * Write embedding to user cache
+   */
+  async setUserCachedEmbedding(
+    wardId: string,
+    hash: string,
+    model: string,
+    embedding: number[],
+    text?: string,
+  ): Promise<void> {
+    if (!this.redisClient) return;
+    const key = this.getUserEmbeddingKey(wardId, hash, model);
+    await this.redisClient.setEx(
+      key,
+      this.EMBEDDING_CACHE_TTL,
+      this.serializeEmbedding(embedding, model, text),
+    );
+  }
+
+  /**
    * Get Redis client (for greeting generator)
    */
   getRedisClient(): RedisClientType | null {
@@ -403,5 +480,52 @@ export class RagCacheService implements OnModuleInit {
 
     this.logger.debug(`Cache key not found: ${primaryKey}`);
     return null;
+  }
+
+  /**
+   * Serialize embedding payload with model versioning
+   */
+  private serializeEmbedding(
+    embedding: number[],
+    model: string,
+    text?: string,
+  ): string {
+    return JSON.stringify({ text: text ?? null, model, embedding });
+  }
+
+  /**
+   * Parse embedding payload with model check
+   */
+  private async getCachedEmbedding(
+    key: string,
+    model: string,
+  ): Promise<number[] | null> {
+    if (!this.redisClient) {
+      return null;
+    }
+
+    const cached = await this.redisClient.get(key);
+    if (!cached) {
+      return null;
+    }
+
+    try {
+      const parsed = JSON.parse(cached) as {
+        model?: string;
+        embedding?: unknown;
+      };
+      if (parsed.model !== model) {
+        return null;
+      }
+      if (!Array.isArray(parsed.embedding)) {
+        return null;
+      }
+      return parsed.embedding as number[];
+    } catch (error) {
+      this.logger.warn(
+        `Failed to parse cached embedding for key=${key}: ${error.message}`,
+      );
+      return null;
+    }
   }
 }

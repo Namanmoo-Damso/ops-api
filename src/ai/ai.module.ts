@@ -15,6 +15,8 @@ import { RagSearchService } from './rag/rag.search.service';
 import { RagCacheService } from './rag/rag.cache.service';
 import { RagMetricsService } from './rag/rag.metrics.service';
 import { RagSummaryService } from './rag/rag.summary.service';
+import { RagNormalizer } from './rag/rag.normalizer';
+import { RagAnalysisService } from './rag/rag.analysis.service';
 
 // Hybrid Search 서비스들
 import { RagSearchRepository } from './rag/rag.search.repository';
@@ -105,6 +107,8 @@ import { DEFAULT_AI_INSTRUCTION, AI_RESPONSE_SCHEMA } from './ai.constants';
     RagCacheService,
     RagMetricsService,
     RagSummaryService,
+    RagNormalizer,
+    RagAnalysisService,
 
     // Hybrid Search 서비스 (Vector + FTS + RRF)
     RagSearchRepository,
