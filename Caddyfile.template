@@ -27,6 +27,10 @@
 	handle /healthz {
 		reverse_proxy 127.0.0.1:8080
 	}
+	# LiveKit WebRTC signaling
+	handle /rtc* {
+		reverse_proxy 127.0.0.1:7880
+	}
 	handle {
 		reverse_proxy 127.0.0.1:3000
 	}
