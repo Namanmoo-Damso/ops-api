@@ -32,6 +32,7 @@ build/
 # Prisma
 prisma/*.db
 prisma/*.db-journal
+prisma/migrations/
 # 동적 생성
 src/generated/
 
