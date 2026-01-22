@@ -1,0 +1,14 @@
+#!/usr/bin/env sh
+
+# Prisma schema 유효성 검사만 수행 (migration 체크 제거)
+# DB 스키마는 init-db.sql로 관리됨
+if git diff --cached --name-only | grep -q "prisma/"; then
+    echo "🔍 Validating Prisma schema..."
+    npx prisma validate || {
+        echo ""
+        echo "❌ ERROR: Prisma schema validation failed!"
+        echo ""
+        exit 1
+    }
+    echo "✅ Prisma schema is valid"
+fi
