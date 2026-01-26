@@ -378,20 +378,46 @@ export class GuardiansController {
     @Body()
     body: {
       wardId?: string;
-      isEnabled: boolean;
-      items: Array<{
+      ward_id?: string; // iOS snake_case 지원
+      isEnabled?: boolean;
+      is_enabled?: boolean; // iOS snake_case 지원
+      items?: Array<{
         id?: string;
         slotStartHour: number;
         slotStartMinute: number;
         weekdays: number[];
         isEnabled: boolean;
       }>;
+      schedules?: Array<{
+        // iOS snake_case 지원
+        id?: string;
+        slotStartHour?: number;
+        slot_start_hour?: number;
+        slotStartMinute?: number;
+        slot_start_minute?: number;
+        weekdays: number[];
+        isEnabled?: boolean;
+        is_enabled?: boolean;
+      }>;
     },
   ) {
     const payload = this.verifyAuthHeader(authorization);
 
+    // iOS snake_case → camelCase 정규화
+    const normalizedBody = {
+      wardId: body.wardId ?? body.ward_id,
+      isEnabled: body.isEnabled ?? body.is_enabled ?? false,
+      items: (body.items ?? body.schedules ?? []).map(item => ({
+        id: item.id,
+        slotStartHour: item.slotStartHour ?? item.slot_start_hour ?? 0,
+        slotStartMinute: item.slotStartMinute ?? item.slot_start_minute ?? 0,
+        weekdays: item.weekdays,
+        isEnabled: item.isEnabled ?? item.is_enabled ?? true,
+      })),
+    };
+
     try {
-      return await this.guardiansService.updateSchedules(payload.sub, body);
+      return await this.guardiansService.updateSchedules(payload.sub, normalizedBody);
     } catch (error) {
       if ((error as HttpException).getStatus?.()) {
         throw error;

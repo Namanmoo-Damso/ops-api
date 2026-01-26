@@ -559,6 +559,47 @@ export class CareAlertsController {
   }
 
   /**
+   * Admin용 - roomName 기준 미해제 alert 목록 조회
+   * GET /v1/guardians/alerts/by-room/:roomName
+   * Fullscreen 진입 시 이전 이벤트 상태를 로드하기 위해 사용
+   */
+  @Get('guardians/alerts/by-room/:roomName')
+  async getActiveAlertsByRoom(
+    @Headers('authorization') authorization: string | undefined,
+    @Param('roomName') roomName: string,
+  ) {
+    const payload = this.verifyAuthHeader(authorization);
+
+    this.logger.log(
+      `[API] GET /v1/guardians/alerts/by-room/${roomName} userId=${payload.sub}`,
+    );
+
+    try {
+      // Admin 권한 확인 (monitoring 페이지에서 사용)
+      const isAdmin = 'role' in payload && payload.role === 'admin';
+      if (!isAdmin) {
+        throw new HttpException(
+          'Admin access required',
+          HttpStatus.FORBIDDEN,
+        );
+      }
+
+      return await this.careAlertsService.getActiveAlertsByRoom(roomName);
+    } catch (error) {
+      if ((error as HttpException).getStatus?.()) {
+        throw error;
+      }
+      this.logger.error(
+        `[API] getActiveAlertsByRoom error=${(error as Error).message}`,
+      );
+      throw new HttpException(
+        'Failed to get active alerts',
+        HttpStatus.INTERNAL_SERVER_ERROR,
+      );
+    }
+  }
+
+  /**
    * Guardian용 - 전체 해제 API
    * PATCH /v1/guardians/alerts/acknowledge-all
    * 해당 roomName의 모든 미해제 alert을 일괄 해제

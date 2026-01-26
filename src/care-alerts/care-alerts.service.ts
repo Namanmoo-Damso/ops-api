@@ -635,6 +635,191 @@ export class CareAlertsService {
   }
 
   /**
+   * roomName 기준 미해제 alert 목록 조회 (Monitoring 초기 로드용)
+   * Fullscreen 진입 시 이전 이벤트 상태를 로드하기 위해 사용
+   */
+  async getActiveAlertsByRoom(roomName: string): Promise<{
+    alerts: Array<{
+      id: string;
+      alertType: string;
+      severity: string;
+      riskLevel: 'normal' | 'caution' | 'critical' | null;
+      timestamp: string;
+      rawPayload: Record<string, unknown>;
+    }>;
+    sensorStates: {
+      emotion: { status: 'normal' | 'caution' | 'critical'; hasAlert: boolean };
+      audio: { status: 'normal' | 'caution' | 'critical'; hasAlert: boolean };
+      motion: { status: 'normal' | 'caution' | 'critical'; hasAlert: boolean };
+      face: { status: 'normal' | 'caution' | 'critical'; hasAlert: boolean };
+    };
+    detectionInfo: {
+      type: string;
+      severity: string;
+      criteria: Array<{ name: string; value: string; level: string }>;
+    } | null;
+  }> {
+    this.logger.log(`[GET_ACTIVE_ALERTS_BY_ROOM] roomName=${roomName}`);
+
+    // 미해제 alert 조회
+    const alerts = await this.prisma.careAlertEvent.findMany({
+      where: {
+        roomName,
+        acknowledged: false,
+      },
+      orderBy: { timestamp: 'desc' },
+    });
+
+    // alertType → sensor 매핑
+    const alertTypeToSensor: Record<string, 'emotion' | 'audio' | 'motion' | 'face'> = {
+      emotion: 'emotion',
+      speech_keyword: 'emotion',
+      loud_voice: 'audio',
+      device_fall: 'motion',
+      person_fall: 'face',
+    };
+
+    // 센서 상태 초기화
+    type SensorState = { status: 'normal' | 'caution' | 'critical'; hasAlert: boolean };
+    const sensorStates: Record<'emotion' | 'audio' | 'motion' | 'face', SensorState> = {
+      emotion: { status: 'normal', hasAlert: false },
+      audio: { status: 'normal', hasAlert: false },
+      motion: { status: 'normal', hasAlert: false },
+      face: { status: 'normal', hasAlert: false },
+    };
+
+    // alert 기반으로 센서 상태 계산
+    for (const alert of alerts) {
+      const sensor = alertTypeToSensor[alert.alertType];
+      if (sensor) {
+        sensorStates[sensor].hasAlert = true;
+        const riskLevelRaw = alert.riskLevel as string | null;
+        const riskLevel: 'normal' | 'caution' | 'critical' =
+          riskLevelRaw === 'normal' || riskLevelRaw === 'caution' || riskLevelRaw === 'critical'
+            ? riskLevelRaw
+            : 'critical';
+        // 더 높은 위험도로 업데이트 (critical > caution > normal)
+        const priority: Record<'normal' | 'caution' | 'critical', number> = { normal: 1, caution: 2, critical: 3 };
+        if (priority[riskLevel] > priority[sensorStates[sensor].status]) {
+          sensorStates[sensor].status = riskLevel;
+        }
+      }
+    }
+
+    // 가장 최근 alert에서 detectionInfo 생성
+    let detectionInfo: {
+      type: string;
+      severity: string;
+      criteria: Array<{ name: string; value: string; level: string }>;
+    } | null = null;
+    if (alerts.length > 0) {
+      const latestAlert = alerts[0];
+      const rawPayload = latestAlert.rawPayload as Record<string, unknown> | null;
+
+      // rawPayload에서 detectionInfo 추출 시도
+      if (rawPayload?.detectionInfo) {
+        detectionInfo = rawPayload.detectionInfo as {
+          type: string;
+          severity: string;
+          criteria: Array<{ name: string; value: string; level: string }>;
+        };
+      } else {
+        // 기본 detectionInfo 생성
+        detectionInfo = {
+          type: latestAlert.alertType,
+          severity: latestAlert.severity ?? 'high',
+          criteria: this.buildCriteriaFromAlert(latestAlert),
+        };
+      }
+    }
+
+    return {
+      alerts: alerts.map(alert => ({
+        id: alert.id,
+        alertType: alert.alertType,
+        severity: alert.severity ?? 'high',
+        riskLevel: (alert.riskLevel as 'normal' | 'caution' | 'critical') ?? null,
+        timestamp: alert.timestamp.toISOString(),
+        rawPayload: (alert.rawPayload as Record<string, unknown>) ?? {},
+      })),
+      sensorStates,
+      detectionInfo,
+    };
+  }
+
+  /**
+   * Alert에서 criteria 배열 생성
+   */
+  private buildCriteriaFromAlert(alert: {
+    alertType: string;
+    rawPayload: unknown;
+  }): Array<{ name: string; value: string; level: string }> {
+    const criteria: Array<{ name: string; value: string; level: string }> = [];
+    const rawPayload = alert.rawPayload as Record<string, unknown> | null;
+
+    // Agent에서 보내는 구조: { type, payload: { categoryLabel, matchedKeywords, ... } }
+    // iOS에서 보내는 구조: { categoryLabel, matchedKeywords, ... } (직접)
+    const payload = (rawPayload?.payload as Record<string, unknown>) ?? rawPayload;
+
+    switch (alert.alertType) {
+      case 'speech_keyword':
+        if (payload?.categoryLabel) {
+          criteria.push({
+            name: '감지 유형',
+            value: String(payload.categoryLabel),
+            level: 'high',
+          });
+        }
+        if (payload?.matchedKeyword || payload?.matchedKeywords) {
+          // 중복 제거 및 부분 문자열 필터링
+          // 예: ["배", "아파", "배가 아"] -> ["배", "아파"]
+          const rawKeywords = payload.matchedKeywords
+            ? [...new Set(payload.matchedKeywords as string[])]
+            : [String(payload.matchedKeyword)];
+          const uniqueKeywords = rawKeywords.filter(keyword =>
+            !rawKeywords.some(other => other !== keyword && keyword.includes(other))
+          );
+          criteria.push({
+            name: '감지 키워드',
+            value: uniqueKeywords.join(', '),
+            level: 'high',
+          });
+        }
+        break;
+      case 'emotion':
+        criteria.push({
+          name: '감정 상태',
+          value: '부정적 감정',
+          level: 'medium',
+        });
+        break;
+      case 'loud_voice':
+        criteria.push({
+          name: '음성 상태',
+          value: '큰 소리 감지',
+          level: 'high',
+        });
+        break;
+      case 'device_fall':
+        criteria.push({
+          name: '감지 유형',
+          value: 'impact',
+          level: 'high',
+        });
+        break;
+      case 'person_fall':
+        criteria.push({
+          name: '감지 유형',
+          value: 'face_disappeared',
+          level: 'high',
+        });
+        break;
+    }
+
+    return criteria;
+  }
+
+  /**
    * 감정 리포트 조회 (Guardian용)
    */
   async getEmotionReport(
